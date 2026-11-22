@@ -87,6 +87,8 @@ viewHeader { audioMuted, tilt, actions } =
     div
         [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-slate-950/70 to-transparent pointer-events-none"
         , Attr.style "padding-top" "max(12px, env(safe-area-inset-top))"
+        , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
+        , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
         ]
         [ div [ Attr.class "flex items-center gap-2.5" ]
             [ div [ Attr.class "w-10 h-10 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-lg" ]
@@ -182,6 +184,8 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
     div
         [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:pt-[68px] landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"
         , Attr.style "padding-bottom" "max(12px, env(safe-area-inset-bottom))"
+        , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
+        , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
         ]
         [ div [ Attr.class "w-full max-w-md mx-auto bg-slate-900/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
             [ div [ Attr.class "flex justify-between items-baseline gap-2" ]
