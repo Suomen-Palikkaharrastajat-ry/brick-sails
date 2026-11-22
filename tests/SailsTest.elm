@@ -76,7 +76,7 @@ sail boat steer seconds state0 =
     in
     List.foldl
         (\i s ->
-            Physics.stepBoat { dt = 0.02, time = toFloat i * 0.02, steer = steer, throttle = 1 } course.wind boat course.islands s
+            Physics.stepBoat { dt = 0.02, time = toFloat i * 0.02, steer = steer, throttle = 1, sea = 1 } course.wind boat course.islands s
         )
         state0
         (List.range 1 frames)
@@ -110,7 +110,7 @@ autopilot boat limit =
                         clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
 
                     next =
-                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = 1 } course.wind boat course.islands state
+                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = 1, sea = 1 } course.wind boat course.islands state
 
                     ( nextProgress, _ ) =
                         Physics.stepProgress 0.02 next course.waypoints progress

@@ -423,6 +423,7 @@ tick dt model =
 
                     else
                         0
+                , sea = 1
                 }
                 model.course.wind
                 model.boat

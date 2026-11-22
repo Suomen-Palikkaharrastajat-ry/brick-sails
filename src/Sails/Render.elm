@@ -319,7 +319,7 @@ buoyEntities ctx time nextIndex all wp =
             wp.index < nextIndex
 
         bob =
-            0.2 * sin (time * 2 + toFloat wp.index)
+            0.2 * sin (time * 2 + toFloat wp.index) + Physics.seaElevation ctx.sea p.x p.z time
 
         at =
             Mat4.makeTranslate3 p.x bob p.z

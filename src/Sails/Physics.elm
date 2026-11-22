@@ -10,13 +10,16 @@ module Sails.Physics exposing
     , fireCannons
     , initProgress
     , initSailingState
+    , seaElevation
     , starRating
     , stepBoat
     , stepImpacts
     , stepProgress
     , stepProjectiles
     , stepTargets
+    , swellHeading
     , waterElevation
+    , waveScale
     , windFactor
     )
 
@@ -131,22 +134,81 @@ initProgress course =
 -- WATER
 
 
-{-| Gentle swell height at (x, z) and time t, in metres.
+{-| Swell height at (x, z) and time t, in metres, in normal weather.
 Must match the vertex shader in `Sails.OceanShader`.
 -}
 waterElevation : Float -> Float -> Float -> Float
-waterElevation x z t =
+waterElevation =
+    seaElevation 1
+
+
+{-| Swell height at (x, z) and time t for a sea state, in metres.
+
+The sea is two crossing swells, grouped into wave sets: every 150 m a group
+of waves up to half again as high rolls through (`waveSet`). `sea` scales
+the swells: 1 is normal weather (the swell between sets is the game's
+original gentle sea), below 1 a glassy calm, above 1 a storm sea, which
+also raises a long storm swell of its own.
+
+Must match `seaHeight` in the shaders of `Sails.OceanShader`.
+
+-}
+seaElevation : Float -> Float -> Float -> Float -> Float
+seaElevation sea x z t =
     let
         k1 =
             2.0 * pi / 36.0
 
         k2 =
             2.0 * pi / 22.0
+
+        k0 =
+            2.0 * pi / 64.0
     in
-    0.22
-        * sin (k1 * (z * 0.9 + x * 0.4) - k1 * 3.0 * t)
-        + 0.1
-        * sin (k2 * (x * 0.8 - z * 0.5) - k2 * 2.4 * t)
+    sea
+        * waveSet x z t
+        * (0.22
+            * sin (k1 * (z * 0.9 + x * 0.4) - k1 * 3.0 * t)
+            + 0.1
+            * sin (k2 * (x * 0.8 - z * 0.5) - k2 * 2.4 * t)
+          )
+        + stormSwell sea
+        * sin (k0 * (x * 0.3 + z * 0.95) - k0 * 4.2 * t)
+
+
+{-| Height of the long storm swell: none up to normal weather.
+-}
+stormSwell : Float -> Float
+stormSwell sea =
+    0.45 * max 0 (sea - 1)
+
+
+{-| Wave-set envelope at (x, z, t): 1 between sets, up to 1.5 in a set.
+Sets travel with the main swell at half its speed, as wave groups do.
+-}
+waveSet : Float -> Float -> Float -> Float
+waveSet x z t =
+    let
+        kg =
+            2.0 * pi / 150.0
+    in
+    1 + 0.5 * (max 0 (sin (kg * (z * 0.9 + x * 0.4) - kg * 1.5 * t)) ^ 4)
+
+
+{-| How big the waves are at (x, z, t) compared with the swell of normal
+weather between sets: the sea state times the wave-set envelope.
+-}
+waveScale : Float -> Float -> Float -> Float -> Float
+waveScale sea x z t =
+    sea * waveSet x z t + stormSwell sea / 0.32
+
+
+{-| Compass heading the main swell travels towards (from its wave vector,
+0.4 x + 0.9 z).
+-}
+swellHeading : Float
+swellHeading =
+    atan2 0.4 0.9 * 180 / pi
 
 
 
@@ -189,16 +251,37 @@ windFactor wind heading =
     0.65 + 0.35 * smoothstep 25 95 offWind - 0.12 * smoothstep 140 180 offWind
 
 
+{-| One fixed step of input.
+
+  - `steer`: -1 (left) .. 1 (right).
+  - `throttle`: 1 while racing, 0 while held at the start line.
+  - `sea`: sea state (see `seaElevation`), 1 in normal weather.
+
+-}
 type alias StepInput =
     { dt : Float
     , time : Float
     , steer : Float
     , throttle : Float
+    , sea : Float
     }
 
 
-{-| Advance the boat. `steer` is -1 (left) .. 1 (right); `throttle` is 1 while
-racing and 0 while held at the start line.
+{-| Speed lost sailing into the swell, as a share of the speed: none in
+normal weather between wave sets, growing with the waves above that.
+Following seas cost nothing.
+-}
+headSeaLoss : Float -> Float -> Float
+headSeaLoss scale heading =
+    let
+        headOn =
+            max 0 -(cos (degrees (heading - swellHeading)))
+    in
+    clamp 0 0.25 (0.06 * headOn * max 0 (scale - 1))
+
+
+{-| Advance the boat one step. `wind` is the wind blowing now (the course
+wind in fair weather, see `Sails.Weather`).
 -}
 stepBoat : StepInput -> Wind -> Boat -> List Island -> SailingState -> SailingState
 stepBoat input wind boat islands state =
@@ -219,17 +302,24 @@ stepBoat input wind boat islands state =
         power =
             windFactor wind heading
 
+        p =
+            Vec3.toRecord state.position
+
+        waves =
+            waveScale input.sea p.x p.z input.time
+
         targetSpeed =
-            input.throttle * boat.topSpeed * power * (1 - 0.12 * abs steer)
+            input.throttle
+                * boat.topSpeed
+                * power
+                * (1 - 0.12 * abs steer)
+                * (1 - headSeaLoss waves heading)
 
         speed =
             state.speed + (targetSpeed - state.speed) * min 1 (dt * boat.acceleration)
 
         rad =
             degrees heading
-
-        p =
-            Vec3.toRecord state.position
 
         movedX =
             p.x + sin rad * speed * dt
@@ -248,8 +338,28 @@ stepBoat input wind boat islands state =
             else
                 speed
 
+        water =
+            \dx dz -> seaElevation input.sea (bx + dx) (bz + dz) input.time
+
         y =
-            waterElevation bx bz input.time
+            water 0 0
+
+        -- The hull follows the slope of the water under it: bow and stern
+        -- samples pitch it, port and starboard samples roll it.
+        fore =
+            ( sin rad * halfLength, cos rad * halfLength )
+
+        side =
+            ( cos rad * halfBeam, -(sin rad) * halfBeam )
+
+        slopeAngle ( dx, dz ) span =
+            atan ((water dx dz - water -dx -dz) / (2 * span)) * 180 / pi
+
+        wavePitch =
+            slopeAngle fore halfLength
+
+        waveRoll =
+            -(slopeAngle side halfBeam)
 
         -- Boom swings out to the side away from the wind.
         windSide =
@@ -261,6 +371,9 @@ stepBoat input wind boat islands state =
 
             else
                 -(20 + 50 * smoothstep 30 170 (abs windSide))
+
+        heelTarget =
+            steer * 14 * speedRatio + waveRoll
     in
     { position = vec3 bx y bz
     , heading = heading
@@ -268,10 +381,23 @@ stepBoat input wind boat islands state =
     , steer = steer
     , sailPower = power
     , sailAngle = state.sailAngle + (sailAngle - state.sailAngle) * min 1 (dt * 4)
-    , heel = state.heel + ((steer * 14 * speedRatio) - state.heel) * min 1 (dt * 5)
-    , pitch = 2.5 * sin (input.time * 2.1) * (0.4 + 0.6 * speedRatio)
+    , heel = state.heel + (heelTarget - state.heel) * min 1 (dt * 5)
+    , pitch = 2.5 * sin (input.time * 2.1) * (0.4 + 0.6 * speedRatio) + wavePitch
     , bumped = bumped
     }
+
+
+{-| Half the hull length and beam, where the water is sampled for pitch and
+roll.
+-}
+halfLength : Float
+halfLength =
+    2.2
+
+
+halfBeam : Float
+halfBeam =
+    1.1
 
 
 normalize : Float -> Float
