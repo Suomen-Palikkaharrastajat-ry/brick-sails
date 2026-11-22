@@ -123,7 +123,7 @@ oceanEntity camera simTime width height =
             Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
-            camera.eye
+            Camera.position camera
 
         sunDir =
             Vec3.normalize (vec3 0.45 0.85 0.35)
@@ -161,7 +161,7 @@ skyEntity camera width height =
             Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
-            camera.eye
+            Camera.position camera
 
         uniforms =
             { u_view = view
@@ -173,7 +173,7 @@ skyEntity camera width height =
             }
     in
     WebGL.entityWith
-        [ DepthTest.never
+        [ DepthTest.always { write = False, near = 0, far = 1 }
         ]
         skyVertexShader
         skyFragmentShader
@@ -331,7 +331,7 @@ buoyEntity camera waypoints width height =
             Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
-            camera.eye
+            Camera.position camera
 
         sunDir =
             Vec3.normalize (vec3 0.45 0.85 0.35)
@@ -492,7 +492,7 @@ combatEntity camera balls impacts width height =
             Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
-            camera.eye
+            Camera.position camera
 
         sunDir =
             Vec3.normalize (vec3 0.45 0.85 0.35)
@@ -599,7 +599,7 @@ islandEntity camera width height =
             Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
-            camera.eye
+            Camera.position camera
 
         sunDir =
             Vec3.normalize (vec3 0.45 0.85 0.35)
