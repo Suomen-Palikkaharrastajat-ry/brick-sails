@@ -3,6 +3,7 @@ import { initBricksRuntime } from './vendor/packages/brick-frame-viewport/runtim
 import { decodeHash, isBinaryHash } from './vendor/packages/brick-frame-viewport/runtime/url-hash-codec.js'
 import { createAudioEngine } from './audio.js'
 import { createMultiplayerManager } from './vendor/packages/brick-frame-game/runtime/multiplayer.js'
+import { createQrCameraScanner } from './vendor/packages/brick-frame-game/runtime/qr-camera-scanner.js'
 import { Elm } from './src/Main.elm'
 
 const ldrawBase = import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw'
@@ -109,6 +110,15 @@ const runtime = initBricksRuntime({
 
 const ports = runtime.app?.ports
 const multiplayer = createMultiplayerManager(ports)
+const qrScanner = createQrCameraScanner(ports, {
+  onScanned: (hash) => {
+    const bytes = decodeHashToByteArray(hash)
+    if (bytes) {
+      ports?.binaryHashDecoded?.send(bytes)
+      window.location.hash = hash
+    }
+  },
+})
 
 // Check if loaded with #room=CODE or #join=CODE
 try {

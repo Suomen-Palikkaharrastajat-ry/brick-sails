@@ -81,6 +81,9 @@ type Msg
     | RestartCourse
     | ToggleMute
     | CopyShareUrl
+    | OpenQrScanner
+    | QrCodeScanned String
+    | QrScannerError String
     | HashChanged String
     | BinaryHashDecoded (Maybe (List Int))
     | FileContentReceived String
@@ -311,6 +314,15 @@ update msg model =
         CopyShareUrl ->
             ( model, Ports.copyShareUrl model.currentHash )
 
+        OpenQrScanner ->
+            ( model, Ports.openQrScanner () )
+
+        QrCodeScanned scannedHash ->
+            ( model, Ports.decodeBinaryHash scannedHash )
+
+        QrScannerError _ ->
+            ( model, Cmd.none )
+
         HashChanged newHash ->
             ( model, Ports.decodeBinaryHash newHash )
 
@@ -378,6 +390,8 @@ subscriptions model =
         , Ports.viewportResized ViewportResized
         , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
         , Ports.multiplayerError MultiplayerError
+        , Ports.qrCodeScanned QrCodeScanned
+        , Ports.qrScannerError QrScannerError
         , case ( model.viewMode, model.sailModel ) of
             ( ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)
@@ -408,6 +422,7 @@ view model =
                     , onStartHostMultiplayer = StartHostMultiplayer
                     , onJoinMultiplayer = JoinMultiplayer
                     , onCopyShareUrl = CopyShareUrl
+                    , onOpenQrScanner = OpenQrScanner
                     , onToggleMute = ToggleMute
                     }
                 }

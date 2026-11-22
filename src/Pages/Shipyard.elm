@@ -33,6 +33,7 @@ type alias ShipyardActions msg =
     , onStartHostMultiplayer : msg
     , onJoinMultiplayer : msg
     , onCopyShareUrl : msg
+    , onOpenQrScanner : msg
     , onToggleMute : msg
     }
 
@@ -67,11 +68,19 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                         , span [ Attr.class "text-xs font-normal px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30" ]
                             [ text "Palikkapurjehdus" ]
                         ]
-                    , p [ Attr.class "text-xs text-slate-300" ] [ text "3D LEGO® Sailing Simulator & Regatta" ]
+                    , p [ Attr.class "text-xs text-slate-300" ] [ text "3D Brick Sailing Simulator & Regatta" ]
                     ]
                 ]
             , div [ Attr.class "flex items-center gap-2 pointer-events-auto" ]
                 [ button
+                    [ onClick actions.onOpenQrScanner
+                    , Attr.title "Scan Brick Play QR code with camera"
+                    , Attr.class "flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-all shadow-md shadow-sky-600/30"
+                    ]
+                    [ FeatherIcons.camera |> FeatherIcons.toHtml []
+                    , span [ Attr.class "hidden sm:inline" ] [ text "Scan QR" ]
+                    ]
+                , button
                     [ onClick actions.onToggleMute
                     , Attr.title (if audioMuted then "Unmute audio" else "Mute audio")
                     , Attr.class "p-2.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-white/10 backdrop-blur-md transition-all shadow-md"
@@ -132,20 +141,28 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                     (List.map (\note -> div [ Attr.class "flex items-start gap-1.5" ] [ span [ Attr.class "text-sky-400 mt-0.5" ] [ text "•" ], text note ]) report.notes)
                 , -- External Ecosystem Links
                   div [ Attr.class "flex items-center gap-2 pt-1 border-t border-slate-800 text-xs" ]
-                    [ a
+                    [ button
+                        [ onClick actions.onOpenQrScanner
+                        , Attr.title "Scan Brick Play QR code with camera"
+                        , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-sky-600/80 hover:bg-sky-500 text-center font-bold text-white transition-colors flex items-center justify-center gap-1.5"
+                        ]
+                        [ FeatherIcons.camera |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+                        , text "Scan QR"
+                        ]
+                    , a
                         [ Attr.href ("https://palikkaharrastajat.fi/" ++ currentHash)
                         , Attr.target "_blank"
                         , Attr.rel "noopener noreferrer"
                         , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-center font-semibold text-slate-300 transition-colors"
                         ]
-                        [ text "Edit in Studio" ]
+                        [ text "Studio" ]
                     , a
                         [ Attr.href ("https://leiki.palikkaharrastajat.fi/" ++ currentHash)
                         , Attr.target "_blank"
                         , Attr.rel "noopener noreferrer"
                         , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-center font-semibold text-slate-300 transition-colors"
                         ]
-                        [ text "Play in Brick Play" ]
+                        [ text "Brick Play" ]
                     ]
                 ]
             , -- Right Card: Preset Switcher, Course Selector & "SET SAIL"
