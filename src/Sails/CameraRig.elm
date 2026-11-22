@@ -14,8 +14,11 @@ module Sails.CameraRig exposing
 `target + eyeOffset`. `lookAt` converts a world-space eye and look-at point
 into those values.
 
-The game camera is a high follow camera: it sits behind and above the boat,
-looking down at about 50 degrees, turns smoothly with the boat, leans
+The game camera is a high follow camera: it sits well behind and above the
+boat, looking down at about 25 degrees so the tall brick masts are seen from
+the side rather than end-on (a little round to one side, a three-quarter
+view), aims at mid-mast height so the whole boat stays
+in the middle of the screen, turns smoothly with the boat, leans
 towards the next buoy and pulls back when the buoy is far, so the boat
 stays on screen and the buoy comes into view as early as the screen shape
 allows (the on-water arrow points at it before that).
@@ -57,12 +60,29 @@ type alias Follow =
 
 pitchDegrees : Float
 pitchDegrees =
-    50.0
+    25.0
+
+
+{-| The eye sits this many degrees round from straight behind the boat, a
+three-quarter view: brick sails stand in the boat's centre line, so from
+dead astern they would be seen edge-on.
+-}
+sideDegrees : Float
+sideDegrees =
+    18.0
+
+
+{-| Height above the water the camera aims at: about half a brick mast, so
+hull and masthead both stay on screen.
+-}
+lookHeight : Float
+lookHeight =
+    3.5
 
 
 initFollow : Vec3 -> Float -> Follow
 initFollow boat heading =
-    { yaw = heading, distance = 30.0, focus = boat }
+    { yaw = heading, distance = 40.0, focus = boat }
 
 
 {-| Move an angle (degrees) towards a goal along the short way round.
@@ -139,7 +159,7 @@ stepFollow dt aspect boat heading next follow =
                 1.0
 
         goalDistance =
-            clamp 28 50 (22 + separation * 0.35) * portraitBoost
+            clamp 38 60 (30 + separation * 0.4) * portraitBoost
     in
     { yaw = dampAngle 2.2 follow.yaw goalYaw dt
     , distance = follow.distance + (goalDistance - follow.distance) * min 1 (1.2 * dt)
@@ -155,6 +175,9 @@ followView follow =
         yawRad =
             degrees follow.yaw
 
+        eyeRad =
+            degrees (follow.yaw + sideDegrees)
+
         pitch =
             degrees pitchDegrees
 
@@ -167,10 +190,10 @@ followView follow =
         f =
             Vec3.toRecord follow.focus
 
-        -- Look a little ahead of the focus so the boat sits in the lower half.
+        -- Look a little ahead of the focus, at mid-mast height.
         ahead =
-            follow.distance * 0.1
+            follow.distance * 0.05
     in
-    { eye = vec3 (f.x - sin yawRad * back) up (f.z - cos yawRad * back)
-    , target = vec3 (f.x + sin yawRad * ahead) 0 (f.z + cos yawRad * ahead)
+    { eye = vec3 (f.x - sin eyeRad * back) (lookHeight + up) (f.z - cos eyeRad * back)
+    , target = vec3 (f.x + sin yawRad * ahead) lookHeight (f.z + cos yawRad * ahead)
     }

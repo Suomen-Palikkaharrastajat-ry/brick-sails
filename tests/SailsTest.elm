@@ -616,6 +616,25 @@ suite =
                         , \_ -> Expect.lessThan 10 eye.x
                         ]
                         ()
+            , test "camera looks at mid-mast height from above the tallest brick masthead, off to one side" <|
+                \_ ->
+                    let
+                        view =
+                            CameraRig.followView (CameraRig.initFollow (vec3 0 0 0) 0)
+
+                        eye =
+                            Vec3.toRecord view.eye
+
+                        target =
+                            Vec3.toRecord view.target
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan 9.5 eye.y
+                        , \_ -> Expect.within (Expect.Absolute 1.5) 3.5 target.y
+                        , \_ -> Expect.lessThan -20 eye.z
+                        , \_ -> Expect.notWithin (Expect.Absolute 3) 0 eye.x
+                        ]
+                        ()
             , test "camera turns towards the boat's heading over time" <|
                 \_ ->
                     let
