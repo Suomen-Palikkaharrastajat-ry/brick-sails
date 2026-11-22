@@ -14,6 +14,7 @@ port module Ports exposing
     , leaveMultiplayerRoom
     , multiplayerError
     , multiplayerRoomStateChanged
+    , multiplayerVehicleLoaded
     , openQrScanner
     , playSfx
     , qrCodeScanned
@@ -23,6 +24,7 @@ port module Ports exposing
     , saveLeaderboard
     , sendMultiplayerTelemetry
     , setAudioMuted
+    , setMultiplayerVehicle
     , setUrlHash
     , startMultiplayerCountdown
     , storeLanguage
@@ -188,6 +190,18 @@ port leaveMultiplayerRoom : () -> Cmd msg
 {-| Incoming room state update from WebRTC signaling runtime.
 -}
 port multiplayerRoomStateChanged : (Json.Decode.Value -> msg) -> Sub msg
+
+
+{-| Another player's ship arrived: `id` is the `vehicleId` the room state
+names, `payload` the boat name or build link that player shared. Sent once
+per id and room session; ships never travel inside room updates.
+-}
+port multiplayerVehicleLoaded : ({ id : String, payload : String } -> msg) -> Sub msg
+
+
+{-| Change the local ship (a boat name or build link) while in a room.
+-}
+port setMultiplayerVehicle : String -> Cmd msg
 
 
 {-| Multiplayer error notification.

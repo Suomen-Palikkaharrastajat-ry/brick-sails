@@ -184,6 +184,41 @@ suite =
 
                         Err err ->
                             Expect.fail err
+            , test "a loaded build is shared as a build link that decodes to the same bricks" <|
+                \_ ->
+                    case Ingest.decodeShipInput Nothing playBuildHash of
+                        Ok decoded ->
+                            case Ingest.decodeSharedShip (Ingest.encodeShipLink decoded.document) of
+                                Ingest.SharedBuild shared ->
+                                    Expect.equal 8 (List.length (Document.flattenedPlacements shared.document))
+
+                                _ ->
+                                    Expect.fail "a shared build link was not read back as a build"
+
+                        Err err ->
+                            Expect.fail err
+            , test "a built-in boat is shared by name" <|
+                \_ ->
+                    case Ingest.decodeSharedShip "Cutter" of
+                        Ingest.SharedBoat name ->
+                            Expect.equal "Cutter" name
+
+                        _ ->
+                            Expect.fail "a boat name was not recognised"
+            , test "a shared build over the part limit is not used" <|
+                \_ ->
+                    let
+                        bigBuild =
+                            "0 Name: Raft\n"
+                                ++ String.join "\n"
+                                    (List.repeat (Ingest.maxShipParts + 1) "1 4 0 -24 0 1 0 0 0 1 0 0 0 1 3001.dat")
+                    in
+                    case Ingest.decodeSharedShip bigBuild of
+                        Ingest.SharedUnusable err ->
+                            Expect.equal True (String.contains "too big" err)
+
+                        _ ->
+                            Expect.fail "a build over the part limit was accepted"
             , test "the ship link check spots both link forms" <|
                 \_ ->
                     Expect.equal [ True, True, False ]

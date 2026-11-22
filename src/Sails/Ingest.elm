@@ -1,6 +1,9 @@
 module Sails.Ingest exposing
     ( DecodedShip
+    , SharedShip(..)
+    , decodeSharedShip
     , decodeShipInput
+    , encodeShipLink
     , hasShipPayload
     , ingestDocument
     , ingestFromPlacements
@@ -31,6 +34,7 @@ import LDraw.Document as Document exposing (Document)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
+import Sails.Boats as Boats
 import Sails.Types exposing (ShipSpec, lduToMeters)
 import Studio.HashPayload as HashPayload
 import Studio.UrlPayload as UrlPayload
@@ -138,6 +142,48 @@ validateShip doc =
 
             _ ->
                 Ok spec
+
+
+{-| What another player shared as their ship in a multiplayer room: the name
+of a built-in boat, or a build (a build link or LDraw text).
+-}
+type SharedShip
+    = SharedBoat String
+    | SharedBuild DecodedShip
+    | SharedUnusable String
+
+
+{-| Read a ship another player shared. A build goes through the same checks
+as a loaded one (`validateShip`, at most `maxShipParts` parts), so remote
+boats are built exactly like "Your ship".
+-}
+decodeSharedShip : String -> SharedShip
+decodeSharedShip payload =
+    if List.any (\b -> b.name == payload) Boats.all then
+        SharedBoat payload
+
+    else
+        case
+            decodeShipInput Nothing payload
+                |> Result.andThen (\decoded -> validateShip decoded.document |> Result.map (\_ -> decoded))
+        of
+            Ok decoded ->
+                SharedBuild decoded
+
+            Err err ->
+                SharedUnusable err
+
+
+{-| Encode a build as a compact `#b/...` build link, the form a loaded ship
+is shared in with other players.
+-}
+encodeShipLink : Document -> String
+encodeShipLink doc =
+    HashPayload.encode { mode = HashPayload.FreeBuilding, document = doc, kit = Nothing }
+        |> Flate.deflate
+        |> Base64.fromBytes
+        |> Maybe.map (\b64 -> "#b/" ++ HashPayload.standardToBase64Url b64)
+        |> Maybe.withDefault ""
 
 
 isRawLdrText : String -> Bool

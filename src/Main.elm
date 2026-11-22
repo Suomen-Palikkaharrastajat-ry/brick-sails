@@ -15,6 +15,13 @@ A ship built in the brick building apps can be loaded from a build link in
 the page URL, a pasted link or an opened model file (`Sails.Ingest`). It
 appears as an extra "Your ship" entry in the boat picker.
 
+In a multiplayer room every player shares their ship once: a built-in boat by
+name, a loaded build as a `#b/...` build link. Room updates only name it by
+`vehicleId`; the JS runtime fetches each ship once and hands it over through
+`Ports.multiplayerVehicleLoaded`. A shared build goes through the same checks
+and geometry pipeline as "Your ship" and is kept in `documents` and `meshes`
+under `remoteKey id`, so it is built once per id.
+
 -}
 
 import Browser
@@ -50,12 +57,21 @@ type alias Flags =
     }
 
 
+{-| What we know about a ship another player shared, by vehicle id.
+-}
+type RemoteShip
+    = RemoteBoat String
+    | RemoteBuild
+    | RemoteUnusable
+
+
 type alias Model =
     { resolver : ResolverConfig
     , partCache : PartCache
     , documents : Dict String Document
     , meshes : Dict String ShipMesh
     , customShip : Maybe Boat
+    , remoteShips : Dict String RemoteShip
     , pasteText : String
     , loadError : Maybe String
     , boat : Boat
@@ -78,6 +94,7 @@ type Msg
     | JoinMultiplayer
     | MultiplayerRoomChanged Decode.Value
     | MultiplayerError String
+    | MultiplayerVehicleLoaded { id : String, payload : String }
     | ReturnToShipyard
     | ToggleMute
     | TiltStatusChanged { available : Bool, enabled : Bool }
@@ -122,6 +139,7 @@ init flags =
                     |> Dict.fromList
             , meshes = Dict.empty
             , customShip = Nothing
+            , remoteShips = Dict.empty
             , pasteText = ""
             , loadError = Nothing
             , boat = Boats.default
@@ -235,7 +253,7 @@ update msg model =
                 { roomId = ""
                 , courseId = model.course.id
                 , name = "Host"
-                , vehicleHash = model.boat.name
+                , vehicleHash = sharedShip model
                 }
             )
 
@@ -244,7 +262,7 @@ update msg model =
             , Ports.joinMultiplayerRoom
                 { roomId = ""
                 , name = "Sailor"
-                , vehicleHash = model.boat.name
+                , vehicleHash = sharedShip model
                 }
             )
 
@@ -264,14 +282,45 @@ update msg model =
                             , Cmd.batch
                                 [ Ports.setUrlHash ("#room=" ++ room.roomId)
                                 , Ports.calibrateTilt ()
+
+                                -- Joined from a room link: share the selected ship.
+                                , if room.role == Multiplayer.JoinedPlayer then
+                                    Ports.setMultiplayerVehicle (sharedShip model)
+
+                                  else
+                                    Cmd.none
                                 ]
                             )
 
                 Err _ ->
                     ( model, Cmd.none )
 
-        MultiplayerError _ ->
-            ( model, Cmd.none )
+        MultiplayerError err ->
+            ( { model
+                | loadError = Just err
+                , sailModel = model.sailModel |> Maybe.map (\s -> { s | toast = Just ( err, 4 ) })
+              }
+            , Cmd.none
+            )
+
+        MultiplayerVehicleLoaded vehicle ->
+            if Dict.member vehicle.id model.remoteShips then
+                ( model, Cmd.none )
+
+            else
+                case Ingest.decodeSharedShip vehicle.payload of
+                    Ingest.SharedBoat name ->
+                        ( { model | remoteShips = Dict.insert vehicle.id (RemoteBoat name) model.remoteShips }, Cmd.none )
+
+                    Ingest.SharedBuild decoded ->
+                        requestParts
+                            { model
+                                | remoteShips = Dict.insert vehicle.id RemoteBuild model.remoteShips
+                                , documents = Dict.insert (remoteKey vehicle.id) decoded.document model.documents
+                            }
+
+                    Ingest.SharedUnusable _ ->
+                        ( { model | remoteShips = Dict.insert vehicle.id RemoteUnusable model.remoteShips }, Cmd.none )
 
         ReturnToShipyard ->
             ( { model | viewMode = ViewShipyard, sailModel = Nothing }
@@ -342,6 +391,59 @@ update msg model =
 
                 Nothing ->
                     ( model, Cmd.none )
+
+
+{-| What this player shares as their ship in a room: a built-in boat by name,
+a loaded build as a build link.
+-}
+sharedShip : Model -> String
+sharedShip model =
+    if model.boat.kind == CustomShip then
+        Dict.get model.boat.name model.documents
+            |> Maybe.map Ingest.encodeShipLink
+            |> Maybe.withDefault Boats.default.name
+
+    else
+        model.boat.name
+
+
+{-| Key of another player's shared build in `documents` and `meshes`.
+-}
+remoteKey : String -> String
+remoteKey id =
+    "vehicle:" ++ id
+
+
+{-| Geometry of another player's ship by vehicle id, and whether it is still
+on its way (the default boat is drawn meanwhile).
+-}
+remoteShipFor : Model -> String -> { mesh : Maybe ShipMesh, loading : Bool }
+remoteShipFor model id =
+    let
+        fallback loading =
+            { mesh = Dict.get Boats.default.name model.meshes, loading = loading }
+    in
+    if String.isEmpty id then
+        fallback False
+
+    else
+        case Dict.get id model.remoteShips of
+            Just (RemoteBoat name) ->
+                { mesh = Dict.get name model.meshes, loading = False }
+
+            Just RemoteBuild ->
+                case Dict.get (remoteKey id) model.meshes of
+                    Just mesh ->
+                        { mesh = Just mesh, loading = False }
+
+                    Nothing ->
+                        fallback True
+
+            Just RemoteUnusable ->
+                fallback False
+
+            Nothing ->
+                fallback True
 
 
 {-| Decode, check and add a ship from a build link, LDraw text, or bytes the
@@ -418,6 +520,16 @@ requestParts model =
 
 sailRule : String -> Model -> Document.Placement -> Bool
 sailRule name model =
+    if String.startsWith "vehicle:" name then
+        -- Another player's build: sails are found like on "Your ship".
+        ShipMesh.sailByPartName Ingest.isSailPart
+
+    else
+        sailRuleForBoat name model
+
+
+sailRuleForBoat : String -> Model -> Document.Placement -> Bool
+sailRuleForBoat name model =
     let
         boat =
             case model.customShip of
@@ -500,6 +612,7 @@ subscriptions model =
         [ Ports.viewportResized ViewportResized
         , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
         , Ports.multiplayerError MultiplayerError
+        , Ports.multiplayerVehicleLoaded MultiplayerVehicleLoaded
         , Ports.tiltStatus TiltStatusChanged
         , Ports.fileContentReceived FileContentReceived
         , Ports.fileLoadError FileLoadError
@@ -522,6 +635,7 @@ view model =
                     { onReturnToShipyard = Sail.ReturnToShipyard
                     , onRestartCourse = Sail.RestartCourse
                     , meshFor = \name -> Dict.get name model.meshes
+                    , remoteShip = remoteShipFor model
                     }
                 )
 

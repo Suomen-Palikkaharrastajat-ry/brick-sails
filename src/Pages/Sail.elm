@@ -24,7 +24,6 @@ import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
-import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Physics as Physics
@@ -614,29 +613,23 @@ slotTint slot =
             vec3 0.2 0.75 0.3
 
 
-{-| Another player's boat: their built-in boat by name, in their player
-colour. A loaded build of theirs is not sent over the network, so it shows as
-the default boat.
+{-| Geometry of another player's ship by vehicle id (see `Main`), and whether
+it is still on its way.
 -}
-remoteBoat : (String -> Maybe ShipMesh) -> Multiplayer.RemotePlayer -> RenderBoat
-remoteBoat meshFor p =
+type alias RemoteShipLookup =
+    String -> { mesh : Maybe ShipMesh, loading : Bool }
+
+
+{-| Another player's boat, in their player colour: the ship they shared (a
+built-in boat or their own build), or the default boat until it arrives.
+-}
+remoteBoat : RemoteShipLookup -> Multiplayer.RemotePlayer -> RenderBoat
+remoteBoat remoteShip p =
     let
         rot =
             Vec3.toRecord p.rotation
-
-        mesh =
-            if p.vehicleHash == Boats.customName then
-                meshFor Boats.default.name
-
-            else
-                case meshFor p.vehicleHash of
-                    Just m ->
-                        Just m
-
-                    Nothing ->
-                        meshFor Boats.default.name
     in
-    { mesh = mesh
+    { mesh = (remoteShip p.vehicleId).mesh
     , state =
         { position = p.position
         , heading = rot.y
@@ -661,6 +654,7 @@ viewSail :
         { onReturnToShipyard : SailMsg
         , onRestartCourse : SailMsg
         , meshFor : String -> Maybe ShipMesh
+        , remoteShip : RemoteShipLookup
         }
     -> Html SailMsg
 viewSail model callbacks =
@@ -668,7 +662,7 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostSplitScreen callbacks.meshFor model room
+                    viewHostSplitScreen callbacks.remoteShip model room
 
                 JoinedPlayer ->
                     viewRace model callbacks (Just room)
@@ -677,8 +671,8 @@ viewSail model callbacks =
             viewRace model callbacks Nothing
 
 
-viewHostSplitScreen : (String -> Maybe ShipMesh) -> SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen meshFor model room =
+viewHostSplitScreen : RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen remoteShip model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -687,7 +681,7 @@ viewHostSplitScreen meshFor model room =
             max 120 (model.viewportHeight // 2)
 
         boats =
-            List.map (remoteBoat meshFor) room.players
+            List.map (remoteBoat remoteShip) room.players
 
         quadrant slot =
             case List.filter (\p -> p.slot == slot) room.players |> List.head of
@@ -711,7 +705,12 @@ viewHostSplitScreen meshFor model room =
                             qH
                         , MultiplayerUI.viewPlayerBadge
                             { slot = slot
-                            , name = p.name
+                            , name =
+                                if (remoteShip p.vehicleId).loading then
+                                    p.name ++ " · loading ship…"
+
+                                else
+                                    p.name
                             , speedLabel = String.fromInt (round (p.speed * 1.94)) ++ " kn"
                             , finished = p.finished
                             }
@@ -740,14 +739,18 @@ viewHostSplitScreen meshFor model room =
 
 viewRace :
     SailModel
-    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup }
     -> Maybe RoomState
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
     let
         boats =
             { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing }
-                :: List.map (remoteBoat callbacks.meshFor) (remotePlayers model)
+                :: List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
+
+        loadingShips =
+            remotePlayers model
+                |> List.filter (\p -> (callbacks.remoteShip p.vehicleId).loading)
 
         countdown =
             case model.phase of
@@ -814,6 +817,17 @@ viewRace model callbacks maybeRoom =
                     [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
                         [ text ("P" ++ String.fromInt room.mySlot) ]
                     , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
+                    , if List.isEmpty loadingShips then
+                        text ""
+
+                      else
+                        span [ Attr.class "text-xs font-bold text-amber-300", Attr.attribute "data-testid" "loading-ships" ]
+                            [ text
+                                ("Loading "
+                                    ++ String.join ", " (List.map (\p -> "P" ++ String.fromInt p.slot) loadingShips)
+                                    ++ " ship…"
+                                )
+                            ]
                     , button
                         [ onClick CopyShareUrl
                         , Attr.title "Copy room link"
