@@ -1,678 +1,617 @@
 module Sails.Physics exposing
-    ( checkCombatShipHits
+    ( StepInput
+    , angleDiff
+    , bonusPerHit
+    , cannonRange
+    , checkShipHits
+    , checkTargetHits
     , defaultCourse
+    , finalTime
     , fireCannons
+    , initProgress
     , initSailingState
-    , stepCombatImpacts
-    , stepCombatProjectiles
-    , stepPhysics
+    , starRating
+    , stepBoat
+    , stepImpacts
+    , stepProgress
+    , stepProjectiles
+    , stepTargets
     , waterElevation
-    , waterNormal
+    , windFactor
     )
 
-{-| Hydrodynamic, aerodynamic, and hydrostatic physics engine for Brick Sails.
+{-| Simple, forgiving arcade sailing for a small toy boat.
+
+The boat always keeps moving. The wind only changes how fast it goes: sailing
+straight into the wind is slower, a reach across the wind is fastest. There is
+no stall, no sail trimming and no capsizing.
+
 -}
 
-import Game.Compass as Compass
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Types
     exposing
-        ( BuoyKind(..)
+        ( Boat
+        , BuoyKind(..)
         , Cannonball
         , CombatImpact
         , Course
-        , CourseId(..)
+        , CourseProgress
+        , Island
         , SailingState
-        , ShipSpec
+        , Target
         , Waypoint
         , Wind
         )
 
 
-{-| Default Harbor Slalom regatta course with wind blowing from the North (0°).
+
+-- COURSE
+
+
+{-| A short loop around a small island: seven buoys in order, the last one
+is the finish gate back near the start. Seven floating targets sit beside
+the legs for bonus time.
 -}
 defaultCourse : Course
 defaultCourse =
-    { id = CourseHarborSlalom
-    , title = "Harbor Regatta Slalom"
-    , description = "Tack upwind through the harbor channel buoys, reach across the lighthouse bay, and run downwind to the finish gate."
+    { id = "island-loop"
+    , title = "Island Loop"
+    , description = "Sail through the buoys in order, round the island and back to the finish gate."
     , waypoints =
-        [ { index = 0, position = vec3 0.0 0.0 60.0, radius = 22.0, kind = PortBuoy }
-        , { index = 1, position = vec3 45.0 0.0 150.0, radius = 22.0, kind = StarboardBuoy }
-        , { index = 2, position = vec3 -55.0 0.0 260.0, radius = 25.0, kind = PortBuoy }
-        , { index = 3, position = vec3 70.0 0.0 380.0, radius = 25.0, kind = StarboardBuoy }
-        , { index = 4, position = vec3 0.0 0.0 460.0, radius = 30.0, kind = FinishGate }
+        [ buoy 0 30 38 PortBuoy
+        , buoy 1 68 98 StarboardBuoy
+        , buoy 2 30 158 PortBuoy
+        , buoy 3 -30 188 StarboardBuoy
+        , buoy 4 -82 142 PortBuoy
+        , buoy 5 -68 75 StarboardBuoy
+        , { index = 6, position = vec3 -22 0 22, radius = 10.0, kind = FinishGate }
         ]
-    , wind =
-        { speed = 8.0 -- ~16 knots steady sailing breeze
-        , direction = 180.0 -- blowing from North to South (towards 180°)
-        }
-    , startPosition = vec3 0.0 0.0 0.0
-    , startHeading = 30.0 -- sailing close-hauled initially
-    , targetSeconds = 65.0
+    , targets =
+        List.indexedMap
+            (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 })
+            [ ( 26, 8 ), ( 62, 60 ), ( 64, 134 ), ( 4, 190 ), ( -66, 175 ), ( -92, 108 ), ( -56, 36 ) ]
+    , islands =
+        [ { x = -12, z = 100, radius = 24, height = 6 }
+        , { x = 150, z = 90, radius = 40, height = 10 }
+        , { x = -170, z = 230, radius = 50, height = 12 }
+        , { x = 40, z = 330, radius = 45, height = 9 }
+        , { x = -130, z = -60, radius = 35, height = 7 }
+        ]
+    , wind = { speed = 7.0, direction = 270.0 }
+    , startPosition = vec3 0 0 0
+    , startHeading = 38.0
+    , targetSeconds = 50.0
     }
 
 
-{-| Initialize sailing state at the start line.
+buoy : Int -> Float -> Float -> BuoyKind -> Waypoint
+buoy i x z kind =
+    { index = i, position = vec3 x 0 z, radius = 8.0, kind = kind }
+
+
+{-| Centre of the play area and how far the boat may wander from it.
 -}
+arenaCenter : ( Float, Float )
+arenaCenter =
+    ( -7, 95 )
+
+
+arenaRadius : Float
+arenaRadius =
+    240.0
+
+
 initSailingState : Course -> SailingState
 initSailingState course =
-    let
-        p =
-            course.startPosition
-
-        initV =
-            vec3 0.0 0.0 0.0
-    in
-    { position = p
-    , velocity = initV
+    { position = course.startPosition
     , heading = course.startHeading
-    , angularVelocity = 0.0
-    , heelAngle = 0.0
-    , pitchAngle = 0.0
-    , heave = 0.0
-    , rudderAngle = 0.0
-    , sailSheet = 0.35 -- trimmed for close-hauled by default
-    , apparentWindSpeed = course.wind.speed
-    , apparentWindAngle = 0.0
-    , waterSpeed = 0.0
-    , driftAngle = 0.0
+    , speed = 0
+    , steer = 0
+    , sailPower = windFactor course.wind course.startHeading
+    , sailAngle = 0
+    , heel = 0
+    , pitch = 0
+    , bumped = False
     }
 
 
-{-| Gerstner wave water elevation in meters at world coordinates (x, z) and time t.
+initProgress : Course -> CourseProgress
+initProgress course =
+    { currentWaypointIndex = 0
+    , totalWaypoints = List.length course.waypoints
+    , elapsedSeconds = 0
+    , splits = []
+    , finished = False
+    , targetsHit = 0
+    }
+
+
+
+-- WATER
+
+
+{-| Gentle swell height at (x, z) and time t, in metres.
+Must match the vertex shader in `Sails.OceanShader`.
 -}
 waterElevation : Float -> Float -> Float -> Float
 waterElevation x z t =
     let
-        -- Primary swell: wavelength 40m, speed 4 m/s, amplitude 0.45m
         k1 =
-            2.0 * pi / 40.0
+            2.0 * pi / 36.0
 
-        w1 =
-            k1 * 4.0
-
-        elev1 =
-            0.45 * sin (k1 * (z * 0.9 + x * 0.4) - w1 * t)
-
-        -- Secondary cross-chop: wavelength 16m, amplitude 0.20m
         k2 =
-            2.0 * pi / 16.0
-
-        w2 =
-            k2 * 3.2
-
-        elev2 =
-            0.20 * sin (k2 * (x * 0.8 - z * 0.5) - w2 * t)
+            2.0 * pi / 22.0
     in
-    elev1 + elev2
+    0.22
+        * sin (k1 * (z * 0.9 + x * 0.4) - k1 * 3.0 * t)
+        + 0.1
+        * sin (k2 * (x * 0.8 - z * 0.5) - k2 * 2.4 * t)
 
 
-{-| Surface normal of the water at (x, z) for ship wave alignment.
+
+-- SAILING
+
+
+{-| Signed smallest difference a - b in degrees, in (-180, 180].
 -}
-waterNormal : Float -> Float -> Float -> Vec3
-waterNormal x z t =
+angleDiff : Float -> Float -> Float
+angleDiff a b =
     let
-        eps =
-            0.5
-
-        hC =
-            waterElevation x z t
-
-        hX =
-            waterElevation (x + eps) z t
-
-        hZ =
-            waterElevation x (z + eps) t
-
-        dhDx =
-            (hX - hC) / eps
-
-        dhDz =
-            (hZ - hC) / eps
+        d =
+            a - b - 360.0 * toFloat (floor ((a - b + 180.0) / 360.0))
     in
-    Vec3.normalize (vec3 -dhDx 1.0 -dhDz)
+    d
 
 
-{-| Advance ship physics by time step dt (seconds).
-Calculates apparent wind, sail lift/drag, rudder turning, wave interaction, and heel angle.
+smoothstep : Float -> Float -> Float -> Float
+smoothstep e0 e1 x =
+    let
+        t =
+            clamp 0 1 ((x - e0) / (e1 - e0))
+    in
+    t * t * (3 - 2 * t)
+
+
+{-| How well the wind fills the sail on a heading: 0.65 straight into the
+wind, 1.0 across it, a little less dead downwind. Never zero, so the boat
+never stops.
 -}
-stepPhysics : Float -> Float -> Wind -> ShipSpec -> SailingState -> SailingState
-stepPhysics dt simTime wind spec state =
+windFactor : Wind -> Float -> Float
+windFactor wind heading =
     let
-        clampedDt =
-            clamp 0.001 0.05 dt
-
-        posRec =
-            Vec3.toRecord state.position
-
-        velRec =
-            Vec3.toRecord state.velocity
-
-        -- 1. Forward and lateral unit vectors
-        headingRad =
-            state.heading * pi / 180.0
-
-        forwardX =
-            sin headingRad
-
-        forwardZ =
-            cos headingRad
-
-        rightX =
-            cos headingRad
-
-        rightZ =
-            0.0 - sin headingRad
-
-        -- Forward and lateral velocity components over water
-        vForward =
-            velRec.x * forwardX + velRec.z * forwardZ
-
-        vLateral =
-            velRec.x * rightX + velRec.z * rightZ
-
-        speedOverGround =
-            sqrt (velRec.x * velRec.x + velRec.z * velRec.z)
-
-        waterSpeedKnots =
-            vForward * 1.94384
-
-        -- 2. Apparent wind vector
-        app =
-            Compass.apparentWind
-                { windSpeed = wind.speed, windHeading = wind.direction }
-                { shipSpeed = speedOverGround, shipHeading = state.heading }
-
-        appSpeed =
-            app.speed
-
-        relWindDeg =
-            app.relativeAngle -- [-180, 180] relative to bow
-
-        absRelWind =
-            abs relWindDeg
-
-        -- 3. Sail aerodynamics (Lift & Drag)
-        -- Sail sheet limits how far the boom can swing out (0.0 = tight at 10°, 1.0 = eased at 80°)
-        maxBoomAngle =
-            10.0 + state.sailSheet * 70.0
-
-        -- Boom swings to leeward side of apparent wind
-        boomAngle =
-            if relWindDeg > 0.0 then
-                min absRelWind maxBoomAngle
-
-            else
-                -(min absRelWind maxBoomAngle)
-
-        -- Angle of attack between sail fabric and apparent wind
-        angleAtkDeg =
-            absRelWind - abs boomAngle
-
-        angleAtkRad =
-            angleAtkDeg * pi / 180.0
-
-        -- In irons check: if apparent wind is within 34° of bow, sails luff/stall
-        inIrons =
-            absRelWind < 34.0
-
-        ( liftCoeff, dragCoeff ) =
-            if inIrons then
-                ( 0.0, 0.45 )
-
-            else
-                let
-                    -- Peak lift around 18-22 degrees angle of attack
-                    cl =
-                        1.5 * sin (2.0 * clamp 0.0 (pi / 4.0) angleAtkRad)
-
-                    cd =
-                        0.12 + 1.1 * (sin angleAtkRad * sin angleAtkRad)
-                in
-                ( cl, cd )
-
-        -- Dynamic air pressure q = 0.5 * rho * v^2
-        airPressure =
-            0.5 * 1.225 * (appSpeed * appSpeed)
-
-        sailArea =
-            spec.sailAreaSqMeters
-
-        liftForce =
-            liftCoeff * airPressure * sailArea
-
-        dragForce =
-            dragCoeff * airPressure * sailArea
-
-        -- Project aerodynamic forces into ship forward (thrust) and sideways (heel/drift)
-        relWindRad =
-            relWindDeg * pi / 180.0
-
-        absRelWindRad =
-            absRelWind * pi / 180.0
-
-        -- Project into ship forward axis (scaled by Sail Area to Displacement ratio)
-        dispCubicM =
-            spec.mass / 1025.0
-
-        sad =
-            spec.sailAreaSqMeters / max 0.1 (dispCubicM ^ (2.0 / 3.0))
-
-        thrustScale =
-            clamp 0.75 1.55 (sad / 18.0)
-
-        rawThrust =
-            if inIrons then
-                0.0 - (dragForce * 0.3) -- In irons, wind pushes ship slowly backwards
-
-            else
-                liftForce * sin absRelWindRad - dragForce * cos absRelWindRad
-
-        fThrust =
-            rawThrust * thrustScale
-
-        -- Project into ship lateral axis (heeling & drift force)
-        fHeelLateral =
-            if inIrons then
-                0.0
-
-            else
-                (if relWindDeg > 0.0 then
-                    -1.0
-
-                 else
-                    1.0
-                )
-                    * (liftForce * cos absRelWindRad + dragForce * sin absRelWindRad)
-
-        -- 4. Hydrodynamic water resistance
-        -- Forward skin friction + quadratic wave-making resistance
-        -- Slender hulls (high length/beam) experience less wave resistance
-        slenderness =
-            spec.lengthMeters / max 0.8 spec.beamMeters
-
-        slenderFactor =
-            clamp 0.7 1.4 (2.2 / slenderness)
-
-        fricCoeff =
-            0.08 * spec.mass
-
-        waveResistCoeff =
-            0.02 * spec.mass * (1.0 + max 0.0 (vForward - 3.5) * 1.5) * slenderFactor
-
-        waterDrag =
-            fricCoeff * vForward + waveResistCoeff * vForward * abs vForward
-
-        -- Hull/keel lateral resistance prevents sliding sideways; deeper draft keel holds better line
-        keelHolding =
-            clamp 3.0 7.5 (3.2 + spec.draftMeters * 3.5)
-
-        lateralDrag =
-            -vLateral * (spec.mass * keelHolding)
-
-        -- Total longitudinal and lateral acceleration
-        netForwardForce =
-            fThrust - waterDrag
-
-        accelForward =
-            netForwardForce / spec.mass
-
-        accelLateral =
-            (fHeelLateral + lateralDrag) / spec.mass
-
-        -- Integrate linear velocity
-        newVForward =
-            max -1.5 (vForward + accelForward * clampedDt)
-
-        newVLateral =
-            vLateral + accelLateral * clampedDt
-
-        newVelX =
-            newVForward * forwardX + newVLateral * rightX
-
-        newVelZ =
-            newVForward * forwardZ + newVLateral * rightZ
-
-        newPosX =
-            posRec.x + newVelX * clampedDt
-
-        newPosZ =
-            posRec.z + newVelZ * clampedDt
-
-        -- 5. Steering and Rudder dynamics
-        -- Turning torque depends on water flowing past the rudder (vForward)
-        rudderRad =
-            state.rudderAngle * pi / 180.0
-
-        rudderTorque =
-            (0.0 - sin rudderRad) * (newVForward * 1.8)
-
-        yawDamping =
-            -state.angularVelocity * 2.2
-
-        angularAccel =
-            rudderTorque + yawDamping
-
-        newAngVel =
-            state.angularVelocity + angularAccel * clampedDt
-
-        newHeading =
-            modBy 360 (round ((state.heading + newAngVel * (180.0 / pi) * clampedDt) + 360.0))
-                |> toFloat
-
-        -- 6. Heeling and Wave hydrostatics
-        -- Aerodynamic heeling moment: M_heel = F_heel * mast_lever_arm
-        ceRec =
-            Vec3.toRecord spec.centerOfEffort
-
-        clrRec =
-            Vec3.toRecord spec.centerOfLateralResistance
-
-        leverArm =
-            max 1.5 (ceRec.y - clrRec.y)
-
-        heelingMoment =
-            fHeelLateral * leverArm
-
-        -- Restoring righting moment: M_righting = mass * g * GM * sin(heel)
-        targetHeelRad =
-            clamp (-pi / 3.0) (pi / 3.0) (heelingMoment / (spec.mass * 9.81 * max 0.4 spec.metacentricHeight))
-
-        targetHeelDeg =
-            targetHeelRad * 180.0 / pi
-
-        -- Smooth heel response
-        newHeelDeg =
-            state.heelAngle + (targetHeelDeg - state.heelAngle) * (clampedDt * 4.0)
-
-        -- Water wave interaction
-        waveElev =
-            waterElevation newPosX newPosZ simTime
-
-        norm =
-            Vec3.toRecord (waterNormal newPosX newPosZ simTime)
-
-        wavePitchDeg =
-            (0.0 - asin (clamp -0.99 0.99 (norm.z * forwardZ + norm.x * forwardX))) * (180.0 / pi)
-
-        newPitchDeg =
-            state.pitchAngle + (wavePitchDeg - state.pitchAngle) * (clampedDt * 5.0)
+        from =
+            wind.direction + 180.0
+
+        offWind =
+            abs (angleDiff heading from)
     in
-    { position = vec3 newPosX waveElev newPosZ
-    , velocity = vec3 newVelX 0.0 newVelZ
-    , heading = newHeading
-    , angularVelocity = newAngVel
-    , heelAngle = newHeelDeg
-    , pitchAngle = newPitchDeg
-    , heave = waveElev
-    , rudderAngle = state.rudderAngle
-    , sailSheet = state.sailSheet
-    , apparentWindSpeed = appSpeed
-    , apparentWindAngle = relWindDeg
-    , waterSpeed = max 0.0 (newVForward * 1.94384)
-    , driftAngle = atan2 newVLateral (max 0.1 (abs newVForward)) * (180.0 / pi)
+    0.65 + 0.35 * smoothstep 25 95 offWind - 0.12 * smoothstep 140 180 offWind
+
+
+type alias StepInput =
+    { dt : Float
+    , time : Float
+    , steer : Float
+    , throttle : Float
     }
 
 
-{-| Fire broadside naval cannons.
-Discharges cannonballs laterally out from port and starboard flanks,
-with visual recoil kick applied to the vessel.
+{-| Advance the boat. `steer` is -1 (left) .. 1 (right); `throttle` is 1 while
+racing and 0 while held at the start line.
 -}
-fireCannons : Int -> ShipSpec -> SailingState -> Int -> ( List Cannonball, SailingState )
-fireCannons sourceSlot spec state startId =
+stepBoat : StepInput -> Wind -> Boat -> List Island -> SailingState -> SailingState
+stepBoat input wind boat islands state =
     let
-        headingRad =
-            state.heading * pi / 180.0
+        dt =
+            clamp 0.001 0.05 input.dt
 
-        fwdX =
-            sin headingRad
+        steer =
+            state.steer + (clamp -1 1 input.steer - state.steer) * min 1 (dt * 9)
 
-        fwdZ =
-            cos headingRad
+        speedRatio =
+            clamp 0 1 (state.speed / boat.topSpeed)
 
-        rtX =
-            cos headingRad
+        -- Steering right lowers the heading (screen right in the follow camera).
+        heading =
+            normalize (state.heading - boat.turnRate * steer * (0.55 + 0.45 * speedRatio) * dt)
 
-        rtZ =
-            0.0 - sin headingRad
+        power =
+            windFactor wind heading
 
-        shipPos =
+        targetSpeed =
+            input.throttle * boat.topSpeed * power * (1 - 0.12 * abs steer)
+
+        speed =
+            state.speed + (targetSpeed - state.speed) * min 1 (dt * 1.3)
+
+        rad =
+            degrees heading
+
+        p =
             Vec3.toRecord state.position
 
-        shipVel =
-            Vec3.toRecord state.velocity
+        movedX =
+            p.x + sin rad * speed * dt
 
-        muzzleSpeed =
-            22.0
+        movedZ =
+            p.z + cos rad * speed * dt
 
-        loft =
-            2.4
+        ( bx, bz, bumped ) =
+            List.foldl pushOutOfIsland ( movedX, movedZ, False ) islands
+                |> keepInArena
 
-        halfBeam =
-            max 0.6 (spec.beamMeters * 0.5)
-
-        halfLen =
-            max 0.8 (spec.lengthMeters * 0.3)
-
-        -- Determine number of cannon pairs (minimum 1 pair: 1 port, 1 starboard)
-        pairsCount =
-            max 1 (min 3 (spec.cannonCount // 2 + 1))
-
-        offsets =
-            case pairsCount of
-                1 ->
-                    [ 0.0 ]
-
-                2 ->
-                    [ -halfLen * 0.6, halfLen * 0.6 ]
-
-                _ ->
-                    [ -halfLen * 0.8, 0.0, halfLen * 0.8 ]
-
-        makePair idx longOffset =
-            let
-                starboardOrigin =
-                    vec3
-                        (shipPos.x + rtX * halfBeam + fwdX * longOffset)
-                        (shipPos.y + 0.45)
-                        (shipPos.z + rtZ * halfBeam + fwdZ * longOffset)
-
-                starboardVel =
-                    vec3
-                        (shipVel.x + rtX * muzzleSpeed)
-                        (shipVel.y + loft)
-                        (shipVel.z + rtZ * muzzleSpeed)
-
-                starboardBall =
-                    { id = startId + idx * 2
-                    , sourceSlot = sourceSlot
-                    , position = starboardOrigin
-                    , velocity = starboardVel
-                    , age = 0.0
-                    }
-
-                portOrigin =
-                    vec3
-                        (shipPos.x - rtX * halfBeam + fwdX * longOffset)
-                        (shipPos.y + 0.45)
-                        (shipPos.z - rtZ * halfBeam + fwdZ * longOffset)
-
-                portVel =
-                    vec3
-                        (shipVel.x - rtX * muzzleSpeed)
-                        (shipVel.y + loft)
-                        (shipVel.z - rtZ * muzzleSpeed)
-
-                portBall =
-                    { id = startId + idx * 2 + 1
-                    , sourceSlot = sourceSlot
-                    , position = portOrigin
-                    , velocity = portVel
-                    , age = 0.0
-                    }
-            in
-            [ starboardBall, portBall ]
-
-        balls =
-            List.indexedMap makePair offsets |> List.concat
-
-        -- Recoil kick: slight dip in pitch and momentary roll rocking
-        recoilHeel =
-            if modBy 2 startId == 0 then
-                3.5
+        finalSpeed =
+            if bumped then
+                speed * 0.6
 
             else
-                -3.5
+                speed
 
-        recoilState =
-            { state
-                | pitchAngle = state.pitchAngle - 1.8
-                , heelAngle = state.heelAngle + recoilHeel
-            }
+        y =
+            waterElevation bx bz input.time
+
+        -- Boom swings out to the side away from the wind.
+        windSide =
+            angleDiff (wind.direction + 180) heading
+
+        sailAngle =
+            if windSide > 0 then
+                20 + 50 * smoothstep 30 170 (abs windSide)
+
+            else
+                -(20 + 50 * smoothstep 30 170 (abs windSide))
     in
-    ( balls, recoilState )
+    { position = vec3 bx y bz
+    , heading = heading
+    , speed = finalSpeed
+    , steer = steer
+    , sailPower = power
+    , sailAngle = state.sailAngle + (sailAngle - state.sailAngle) * min 1 (dt * 4)
+    , heel = state.heel + ((steer * 14 * speedRatio) - state.heel) * min 1 (dt * 5)
+    , pitch = 2.5 * sin (input.time * 2.1) * (0.4 + 0.6 * speedRatio)
+    , bumped = bumped
+    }
 
 
-{-| Advance active cannonballs along ballistic trajectory under gravity.
-Generates water splash impact if projectile strikes the ocean surface.
--}
-stepCombatProjectiles : Float -> Float -> List Cannonball -> ( List Cannonball, List CombatImpact )
-stepCombatProjectiles dt simTime balls =
+normalize : Float -> Float
+normalize h =
+    h - 360.0 * toFloat (floor (h / 360.0))
+
+
+boatRadius : Float
+boatRadius =
+    2.0
+
+
+pushOutOfIsland : Island -> ( Float, Float, Bool ) -> ( Float, Float, Bool )
+pushOutOfIsland island ( x, z, bumped ) =
     let
-        stepOne ball ( activeAcc, impactAcc ) =
-            let
-                newAge =
-                    ball.age + dt
+        dx =
+            x - island.x
 
+        dz =
+            z - island.z
+
+        d =
+            sqrt (dx * dx + dz * dz)
+
+        minD =
+            island.radius + boatRadius
+    in
+    if d < minD && d > 0.001 then
+        ( island.x + dx / d * minD, island.z + dz / d * minD, True )
+
+    else
+        ( x, z, bumped )
+
+
+keepInArena : ( Float, Float, Bool ) -> ( Float, Float, Bool )
+keepInArena ( x, z, bumped ) =
+    let
+        ( cx, cz ) =
+            arenaCenter
+
+        dx =
+            x - cx
+
+        dz =
+            z - cz
+
+        d =
+            sqrt (dx * dx + dz * dz)
+    in
+    if d > arenaRadius then
+        ( cx + dx / d * arenaRadius, cz + dz / d * arenaRadius, True )
+
+    else
+        ( x, z, bumped )
+
+
+
+-- PROGRESS
+
+
+{-| Count time and tick off the next buoy when the boat is within its radius.
+Returns the index of the buoy just passed, if any.
+-}
+stepProgress : Float -> SailingState -> List Waypoint -> CourseProgress -> ( CourseProgress, Maybe Int )
+stepProgress dt state waypoints progress =
+    if progress.finished then
+        ( progress, Nothing )
+
+    else
+        let
+            elapsed =
+                progress.elapsedSeconds + dt
+
+            ticked =
+                { progress | elapsedSeconds = elapsed }
+        in
+        case List.drop progress.currentWaypointIndex waypoints |> List.head of
+            Just wp ->
+                if horizontalDistance state.position wp.position <= wp.radius then
+                    let
+                        next =
+                            progress.currentWaypointIndex + 1
+                    in
+                    ( { ticked
+                        | currentWaypointIndex = next
+                        , splits = progress.splits ++ [ elapsed ]
+                        , finished = next >= progress.totalWaypoints
+                      }
+                    , Just progress.currentWaypointIndex
+                    )
+
+                else
+                    ( ticked, Nothing )
+
+            Nothing ->
+                ( { ticked | finished = True }, Nothing )
+
+
+horizontalDistance : Vec3 -> Vec3 -> Float
+horizontalDistance a b =
+    let
+        pa =
+            Vec3.toRecord a
+
+        pb =
+            Vec3.toRecord b
+    in
+    sqrt ((pa.x - pb.x) ^ 2 + (pa.z - pb.z) ^ 2)
+
+
+{-| Seconds taken off the time for each target hit.
+-}
+bonusPerHit : Float
+bonusPerHit =
+    2.0
+
+
+{-| Race time minus the target bonus.
+-}
+finalTime : CourseProgress -> Float
+finalTime progress =
+    max 0 (progress.elapsedSeconds - bonusPerHit * toFloat progress.targetsHit)
+
+
+{-| 3 stars at or under the target time, 2 within 30 % of it, otherwise 1.
+-}
+starRating : Float -> Float -> Int
+starRating targetSeconds time =
+    if time <= targetSeconds then
+        3
+
+    else if time <= targetSeconds * 1.3 then
+        2
+
+    else
+        1
+
+
+
+-- CANNONS
+
+
+{-| Targets further than this are out of reach.
+-}
+cannonRange : Float
+cannonRange =
+    34.0
+
+
+muzzleSpeed : Float
+muzzleSpeed =
+    26.0
+
+
+gravity : Float
+gravity =
+    9.81
+
+
+{-| Fire. If something is within range, one ball is lobbed straight at the
+nearest one (it will hit if the target stays put). Otherwise a broadside
+goes out to both sides for the splash.
+-}
+fireCannons : Int -> SailingState -> List Vec3 -> Int -> List Cannonball
+fireCannons slot state aimPoints startId =
+    let
+        origin =
+            Vec3.add state.position (vec3 0 1.0 0)
+
+        nearest =
+            aimPoints
+                |> List.map (\p -> ( horizontalDistance origin p, p ))
+                |> List.filter (\( d, _ ) -> d <= cannonRange && d > 1.5)
+                |> List.sortBy Tuple.first
+                |> List.head
+    in
+    case nearest of
+        Just ( d, aim ) ->
+            let
+                o =
+                    Vec3.toRecord origin
+
+                a =
+                    Vec3.toRecord aim
+
+                t =
+                    max 0.25 (d / muzzleSpeed)
+
+                vy =
+                    (a.y + 0.6 - o.y + 0.5 * gravity * t * t) / t
+            in
+            [ { id = startId
+              , sourceSlot = slot
+              , position = origin
+              , velocity = vec3 ((a.x - o.x) / t) vy ((a.z - o.z) / t)
+              , age = 0
+              }
+            ]
+
+        Nothing ->
+            let
+                rad =
+                    degrees state.heading
+
+                side sign =
+                    vec3 (sign * cos rad * 18) 5 (sign * -(sin rad) * 18)
+            in
+            [ { id = startId, sourceSlot = slot, position = origin, velocity = side 1, age = 0 }
+            , { id = startId + 1, sourceSlot = slot, position = origin, velocity = side -1, age = 0 }
+            ]
+
+
+{-| Move cannonballs; the ones that reach the water become splashes.
+-}
+stepProjectiles : Float -> Float -> List Cannonball -> ( List Cannonball, List CombatImpact )
+stepProjectiles dt time balls =
+    let
+        stepOne ball ( alive, splashes ) =
+            let
                 p =
                     Vec3.toRecord ball.position
 
                 v =
                     Vec3.toRecord ball.velocity
 
-                newVy =
-                    v.y - 9.81 * dt
+                vy =
+                    v.y - gravity * dt
 
-                newPosX =
+                nx =
                     p.x + v.x * dt
 
-                newPosY =
-                    p.y + newVy * dt
+                ny =
+                    p.y + vy * dt
 
-                newPosZ =
+                nz =
                     p.z + v.z * dt
 
-                waterH =
-                    waterElevation newPosX newPosZ simTime
-
-                hitWater =
-                    newPosY <= waterH
+                water =
+                    waterElevation nx nz time
             in
-            if newAge > 3.8 then
-                -- Expired
-                ( activeAcc, impactAcc )
+            if ball.age + dt > 4.0 then
+                ( alive, splashes )
 
-            else if hitWater then
-                let
-                    impact =
-                        { id = ball.id
-                        , position = vec3 newPosX waterH newPosZ
-                        , age = 0.0
-                        , isHit = False
-                        }
-                in
-                ( activeAcc, impact :: impactAcc )
+            else if ny <= water then
+                ( alive, { id = ball.id, position = vec3 nx water nz, age = 0, isHit = False } :: splashes )
 
             else
-                let
-                    updatedBall =
-                        { ball
-                            | position = vec3 newPosX newPosY newPosZ
-                            , velocity = vec3 v.x newVy v.z
-                            , age = newAge
-                        }
-                in
-                ( updatedBall :: activeAcc, impactAcc )
+                ( { ball | position = vec3 nx ny nz, velocity = vec3 v.x vy v.z, age = ball.age + dt } :: alive
+                , splashes
+                )
     in
     List.foldl stepOne ( [], [] ) balls
 
 
-{-| Check cannonball collisions against ship targets.
-Returns remaining in-flight cannonballs, newly triggered hit impacts, and slots of ships struck.
+targetHitRadius : Float
+targetHitRadius =
+    2.2
+
+
+{-| Sink targets the balls touch. Returns surviving balls, hit flashes,
+updated targets and the number of new hits.
 -}
-checkCombatShipHits :
-    List Cannonball
-    -> List { slot : Int, position : Vec3, radius : Float }
-    -> ( List Cannonball, List CombatImpact, List Int )
-checkCombatShipHits balls targets =
+checkTargetHits : List Cannonball -> List Target -> ( List Cannonball, List CombatImpact, ( List Target, Int ) )
+checkTargetHits balls targets =
     let
-        checkBall ball ( survBalls, hitsAcc, hitSlotsAcc ) =
-            let
-                bPos =
-                    Vec3.toRecord ball.position
+        hits ball target =
+            not target.sunk && Vec3.distance ball.position (Vec3.add target.position (vec3 0 0.6 0)) <= targetHitRadius
 
-                checkTarget target =
-                    if target.slot == ball.sourceSlot then
-                        False
+        step ball ( alive, flashes, ( ts, count ) ) =
+            case List.filter (hits ball) ts |> List.head of
+                Just struck ->
+                    ( alive
+                    , { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes
+                    , ( List.map
+                            (\t ->
+                                if t.id == struck.id then
+                                    { t | sunk = True }
 
-                    else
-                        let
-                            tPos =
-                                Vec3.toRecord target.position
-
-                            dx =
-                                bPos.x - tPos.x
-
-                            dy =
-                                bPos.y - tPos.y
-
-                            dz =
-                                bPos.z - tPos.z
-
-                            distSq =
-                                dx * dx + dy * dy + dz * dz
-
-                            r =
-                                target.radius
-                        in
-                        distSq <= (r * r)
-
-                struckTarget =
-                    List.filter checkTarget targets |> List.head
-            in
-            case struckTarget of
-                Just target ->
-                    let
-                        hitImpact =
-                            { id = ball.id
-                            , position = ball.position
-                            , age = 0.0
-                            , isHit = True
-                            }
-                    in
-                    ( survBalls, hitImpact :: hitsAcc, target.slot :: hitSlotsAcc )
+                                else
+                                    t
+                            )
+                            ts
+                      , count + 1
+                      )
+                    )
 
                 Nothing ->
-                    ( ball :: survBalls, hitsAcc, hitSlotsAcc )
+                    ( ball :: alive, flashes, ( ts, count ) )
     in
-    List.foldl checkBall ( [], [], [] ) balls
+    List.foldl step ( [], [], ( targets, 0 ) ) balls
 
 
-{-| Advance combat impact animations and cull finished ones.
+{-| Balls hitting other boats (multiplayer). Returns surviving balls, flashes
+and the slots hit.
 -}
-stepCombatImpacts : Float -> List CombatImpact -> List CombatImpact
-stepCombatImpacts dt impacts =
-    impacts
-        |> List.filterMap
-            (\imp ->
-                let
-                    newAge =
-                        imp.age + dt
-                in
-                if newAge < 0.65 then
-                    Just { imp | age = newAge }
+checkShipHits : List Cannonball -> List { slot : Int, position : Vec3 } -> ( List Cannonball, List CombatImpact, List Int )
+checkShipHits balls ships =
+    let
+        step ball ( alive, flashes, slots ) =
+            case List.filter (\s -> s.slot /= ball.sourceSlot && Vec3.distance ball.position s.position <= 2.6) ships |> List.head of
+                Just ship ->
+                    ( alive, { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes, ship.slot :: slots )
 
-                else
-                    Nothing
-            )
+                Nothing ->
+                    ( ball :: alive, flashes, slots )
+    in
+    List.foldl step ( [], [], [] ) balls
+
+
+{-| Age sinking targets; keep their bob in sync with the water.
+-}
+stepTargets : Float -> Float -> List Target -> List Target
+stepTargets dt time targets =
+    List.map
+        (\t ->
+            let
+                p =
+                    Vec3.toRecord t.position
+            in
+            { t
+                | position = vec3 p.x (waterElevation p.x p.z time) p.z
+                , sinkAge =
+                    if t.sunk then
+                        t.sinkAge + dt
+
+                    else
+                        0
+            }
+        )
+        targets
+
+
+stepImpacts : Float -> List CombatImpact -> List CombatImpact
+stepImpacts dt impacts =
+    List.filterMap
+        (\imp ->
+            if imp.age + dt < 0.7 then
+                Just { imp | age = imp.age + dt }
+
+            else
+                Nothing
+        )
+        impacts

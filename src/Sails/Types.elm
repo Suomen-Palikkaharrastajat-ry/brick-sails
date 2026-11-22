@@ -1,34 +1,32 @@
 module Sails.Types exposing
-    ( BuoyKind(..)
-    , CameraMode(..)
+    ( Boat
+    , BoatKind(..)
+    , BuoyKind(..)
     , Cannonball
     , CombatImpact
     , Course
-    , CourseId(..)
     , CourseProgress
+    , Island
     , LeaderboardEntry
     , SailingState
-    , SfxEvent(..)
     , ShipSpec
+    , Target
     , ViewMode(..)
     , Waypoint
     , Wind
-    , courseIdFromString
-    , courseIdToString
     , lduToMeters
     , metersToLdu
     )
 
-{-| Domain data types for Brick Sails: ship geometry specs, sailing dynamics,
-navigation courses, waypoints, and leaderboard records.
+{-| Domain data types for Brick Sails: the toy boats, the buoy course,
+floating targets, the arcade sailing state and leaderboard records.
 -}
 
 import Math.Vector3 exposing (Vec3)
 
 
-{-| Conversion factor: 1 LDU (LDraw Unit) ≈ 0.008 meters (0.8 cm; 1 stud = 20 LDU = 16 mm).
-For sailing scale, we scale up by 5x so micro-builds (e.g. 100 LDU ~ 0.8m) behave as
-lively dinghies/sloops (~4.0 m).
+{-| Conversion factor: 1 LDU (LDraw Unit) = 0.04 m at the game's scale.
+Used by the LDraw ingestion helpers.
 -}
 lduToMeters : Float
 lduToMeters =
@@ -40,15 +38,15 @@ metersToLdu =
     1.0 / lduToMeters
 
 
-{-| Buoy navigation marking according to IALA maritime buoyage system.
+{-| Buoy colour / role.
 -}
 type BuoyKind
-    = PortBuoy -- Red cylindrical can buoy (leave to port when entering harbour)
-    | StarboardBuoy -- Green conical nun buoy (leave to starboard when entering)
+    = PortBuoy
+    | StarboardBuoy
     | FinishGate
 
 
-{-| Navigation waypoint in a course.
+{-| A buoy the player must sail through, in order.
 -}
 type alias Waypoint =
     { index : Int
@@ -58,55 +56,43 @@ type alias Waypoint =
     }
 
 
-{-| Course identifier.
+{-| A floating target the player can shoot for a time bonus.
 -}
-type CourseId
-    = CourseHarborSlalom
-    | CourseArchipelagoBeat
-    | CourseOpenOcean
-
-
-courseIdToString : CourseId -> String
-courseIdToString cid =
-    case cid of
-        CourseHarborSlalom ->
-            "harbor-slalom"
-
-        CourseArchipelagoBeat ->
-            "archipelago-beat"
-
-        CourseOpenOcean ->
-            "open-ocean"
-
-
-courseIdFromString : String -> CourseId
-courseIdFromString str =
-    case str of
-        "archipelago-beat" ->
-            CourseArchipelagoBeat
-
-        "open-ocean" ->
-            CourseOpenOcean
-
-        _ ->
-            CourseHarborSlalom
-
-
-{-| Wind conditions in the sailing environment.
--}
-type alias Wind =
-    { speed : Float -- true wind velocity in m/s (e.g. 7.5 m/s ≈ 15 knots)
-    , direction : Float -- compass degrees the wind is blowing TOWARDS (0° = blowing North)
+type alias Target =
+    { id : Int
+    , position : Vec3
+    , sunk : Bool
+    , sinkAge : Float
     }
 
 
-{-| A full sailing challenge course.
+{-| A round island the boat bumps off.
+-}
+type alias Island =
+    { x : Float
+    , z : Float
+    , radius : Float
+    , height : Float
+    }
+
+
+{-| Wind conditions: speed in m/s and the compass heading the wind blows towards.
+-}
+type alias Wind =
+    { speed : Float
+    , direction : Float
+    }
+
+
+{-| One short course: buoys in order, targets along the way and a few islands.
 -}
 type alias Course =
-    { id : CourseId
+    { id : String
     , title : String
     , description : String
     , waypoints : List Waypoint
+    , targets : List Target
+    , islands : List Island
     , wind : Wind
     , startPosition : Vec3
     , startHeading : Float
@@ -114,20 +100,44 @@ type alias Course =
     }
 
 
-{-| Ingested LEGO ship specification derived from LDraw model.
+{-| The four toy boats on offer.
+-}
+type BoatKind
+    = Sloop
+    | Cutter
+    | Schooner
+    | Catamaran
+
+
+{-| A toy boat: how it looks and how it handles.
+`topSpeed` is in m/s, `turnRate` in degrees per second at full helm.
+-}
+type alias Boat =
+    { kind : BoatKind
+    , name : String
+    , description : String
+    , hullColor : Vec3
+    , sailColor : Vec3
+    , topSpeed : Float
+    , turnRate : Float
+    }
+
+
+{-| Specification ingested from an LDraw model (used by `Sails.Ingest` and
+`Sails.Analyze`).
 -}
 type alias ShipSpec =
     { name : String
-    , mass : Float -- kilograms
+    , mass : Float
     , lengthMeters : Float
     , beamMeters : Float
     , draftMeters : Float
     , mastHeightMeters : Float
     , sailAreaSqMeters : Float
     , centerOfBuoyancy : Vec3
-    , centerOfEffort : Vec3 -- sail center of aerodynamic force
-    , centerOfLateralResistance : Vec3 -- keel/hull lateral hydrodynamic resistance center
-    , metacentricHeight : Float -- GM in meters (>0 means stable upright)
+    , centerOfEffort : Vec3
+    , centerOfLateralResistance : Vec3
+    , metacentricHeight : Float
     , hullPartCount : Int
     , sailPartCount : Int
     , mastPartCount : Int
@@ -136,7 +146,7 @@ type alias ShipSpec =
     }
 
 
-{-| Flying cannonball projectile in 3D space.
+{-| Flying cannonball.
 -}
 type alias Cannonball =
     { id : Int
@@ -147,7 +157,7 @@ type alias Cannonball =
     }
 
 
-{-| Combat visual impact (water splash or wooden ship hull hit).
+{-| Splash or hit flash.
 -}
 type alias CombatImpact =
     { id : Int
@@ -157,26 +167,30 @@ type alias CombatImpact =
     }
 
 
-{-| Dynamic sailing simulation state updated every frame.
+{-| Arcade boat state, updated every frame.
+
+  - `heading`: compass degrees, 0 = +Z, 90 = +X.
+  - `speed`: m/s along the heading.
+  - `steer`: smoothed helm, -1 (left) .. 1 (right).
+  - `sailPower`: 0..1, how well the wind fills the sail on this heading.
+  - `sailAngle`: visual boom angle in degrees.
+  - `heel`, `pitch`: visual tilt in degrees.
+
 -}
 type alias SailingState =
     { position : Vec3
-    , velocity : Vec3
-    , heading : Float -- compass degrees (0° = North, 90° = East)
-    , angularVelocity : Float -- yaw rate rad/s
-    , heelAngle : Float -- roll degrees (positive = tilted to starboard)
-    , pitchAngle : Float -- pitch degrees (bow up positive)
-    , heave : Float -- vertical water offset in meters
-    , rudderAngle : Float -- rudder angle [-35°, +35°]
-    , sailSheet : Float -- sail sheet trim [0.0 = tight in, 1.0 = eased fully out]
-    , apparentWindSpeed : Float -- m/s
-    , apparentWindAngle : Float -- relative degrees from bow [-180°, 180°]
-    , waterSpeed : Float -- speed through water in knots
-    , driftAngle : Float -- leeway angle in degrees
+    , heading : Float
+    , speed : Float
+    , steer : Float
+    , sailPower : Float
+    , sailAngle : Float
+    , heel : Float
+    , pitch : Float
+    , bumped : Bool
     }
 
 
-{-| Active course progress tracking.
+{-| Progress through the course.
 -}
 type alias CourseProgress =
     { currentWaypointIndex : Int
@@ -184,15 +198,8 @@ type alias CourseProgress =
     , elapsedSeconds : Float
     , splits : List Float
     , finished : Bool
+    , targetsHit : Int
     }
-
-
-{-| Camera viewing mode.
--}
-type CameraMode
-    = Chase
-    | Orbit
-    | Helm
 
 
 {-| Top-level UI view mode.
@@ -200,19 +207,6 @@ type CameraMode
 type ViewMode
     = ViewShipyard
     | ViewSailing
-    | ViewResults
-
-
-{-| Sound effect event.
--}
-type SfxEvent
-    = SfxBell
-    | SfxSplash Float
-    | SfxHorn
-    | SfxCheckpoint
-    | SfxFinish
-    | SfxCannonFire
-    | SfxCannonHit
 
 
 {-| Leaderboard run entry.
