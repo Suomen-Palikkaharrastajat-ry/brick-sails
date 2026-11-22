@@ -1,0 +1,61 @@
+0 FILE long-cruiser.ldr
+0 Long Cruiser Hull
+0 Name: Long Cruiser Hull
+0 Author: Brick Family starter bases
+0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
+0 // Description: Long 4 x 28 stud hull with a pointed bow and a full-length 1-wide keel.
+0 // Parts: 38 (all inside the grouped submodel long-cruiser-base.ldr)
+0 // Hull only: no mast or sail (add them in the editor)
+0 // Bounds LDU: x -40..40, y -20..72, z -280..280 (size 80 x 92 x 560)
+0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 long-cruiser-base.ldr
+0 NOFILE
+0 FILE long-cruiser-base.ldr
+0 Long Cruiser Hull (grouped)
+0 Name: long-cruiser-base.ldr
+0 Author: Brick Family starter bases
+0 // Upper hull course (y 0..24): 4 wide, 26 studs long, staggered
+1 72 -20 0 -200 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 -120 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 -40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 120 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 200 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 -20 0 260 1 0 0 0 1 0 0 0 1 3003.dat
+1 72 20 0 -220 1 0 0 0 1 0 0 0 1 3003.dat
+1 72 20 0 -160 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 20 0 -80 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 20 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 20 0 80 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 20 0 160 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 20 0 240 0 0 1 0 1 0 -1 0 0 3001.dat
+0 // Bow: inverted 2x2 slopes
+1 72 -20 0 -250 1 0 0 0 1 0 0 0 1 3660b.dat
+1 72 20 0 -250 1 0 0 0 1 0 0 0 1 3660b.dat
+0 // Lower hull course (y 24..48): 2 wide, inverted slopes fore and aft
+1 72 0 24 -180 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 0 24 -100 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 0 24 -20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 0 24 60 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 0 24 140 0 0 1 0 1 0 -1 0 0 3001.dat
+1 72 0 24 200 1 0 0 0 1 0 0 0 1 3003.dat
+1 72 0 24 -230 1 0 0 0 1 0 0 0 1 3660b.dat
+1 72 0 24 230 -1 0 0 0 1 0 0 0 -1 3660b.dat
+0 // Long keel (y 48..72): two 2x8 bricks
+1 0 0 48 -80 0 0 1 0 1 0 -1 0 0 3007.dat
+1 0 0 48 80 0 0 1 0 1 0 -1 0 0 3007.dat
+0 // Flat deck (y -8..0): 4x12 + 4x10 + 4x4 plates, wing plate at the bow
+1 15 0 -8 -120 0 0 1 0 1 0 -1 0 0 3029.dat
+1 15 0 -8 100 0 0 1 0 1 0 -1 0 0 3030.dat
+1 15 0 -8 240 1 0 0 0 1 0 0 0 1 3031.dat
+1 15 0 -8 -260 1 0 0 0 1 0 0 0 1 51739.dat
+0 // Gunwales (y -16..-8): 1-wide plates down both sides
+1 0 -30 -16 -140 0 0 1 0 1 0 -1 0 0 4477.dat
+1 0 -30 -16 60 0 0 1 0 1 0 -1 0 0 4477.dat
+1 0 -30 -16 220 0 0 1 0 1 0 -1 0 0 3666.dat
+1 0 30 -16 -160 0 0 1 0 1 0 -1 0 0 3460.dat
+1 0 30 -16 0 0 0 1 0 1 0 -1 0 0 3460.dat
+1 0 30 -16 160 0 0 1 0 1 0 -1 0 0 3460.dat
+1 0 30 -16 260 0 0 1 0 1 0 -1 0 0 3023b.dat
+1 0 0 -16 270 1 0 0 0 1 0 0 0 1 3023b.dat
+0 NOFILE

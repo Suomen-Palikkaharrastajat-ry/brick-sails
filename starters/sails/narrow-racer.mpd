@@ -1,0 +1,49 @@
+0 FILE narrow-racer.ldr
+0 Narrow Racing Hull
+0 Name: Narrow Racing Hull
+0 Author: Brick Family starter bases
+0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
+0 // Description: Slim 4 x 16 stud hull with a wing-plate bow, flat plate deck and deep fin keel.
+0 // Parts: 26 (all inside the grouped submodel narrow-racer-base.ldr)
+0 // Hull only: no mast or sail (add them in the editor)
+0 // Bounds LDU: x -40..40, y -20..96, z -160..160 (size 80 x 116 x 320)
+0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 narrow-racer-base.ldr
+0 NOFILE
+0 FILE narrow-racer-base.ldr
+0 Narrow Racing Hull (grouped)
+0 Name: narrow-racer-base.ldr
+0 Author: Brick Family starter bases
+0 // Upper hull course (y 0..24): 4 studs wide, staggered 2x bricks
+1 1 -20 0 -80 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 -20 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 -20 0 80 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 -20 0 140 1 0 0 0 1 0 0 0 1 3003.dat
+1 1 20 0 -100 1 0 0 0 1 0 0 0 1 3003.dat
+1 1 20 0 -40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 20 0 40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 20 0 120 0 0 1 0 1 0 -1 0 0 3001.dat
+0 // Bow: inverted 2x2 slopes
+1 1 -20 0 -130 1 0 0 0 1 0 0 0 1 3660b.dat
+1 1 20 0 -130 1 0 0 0 1 0 0 0 1 3660b.dat
+0 // Lower hull course (y 24..48): 2 wide, inverted slopes fore and aft
+1 1 0 24 -60 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 0 24 20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 1 0 24 90 0 0 1 0 1 0 -1 0 0 3002.dat
+1 1 0 24 -110 1 0 0 0 1 0 0 0 1 3660b.dat
+1 1 0 24 130 -1 0 0 0 1 0 0 0 -1 3660b.dat
+0 // Deep fin keel (y 48..96): a 2x4 and a 2x2 brick on the centreline
+1 0 0 48 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 0 0 72 0 1 0 0 0 1 0 0 0 1 3003.dat
+0 // Flat deck (y -8..0): plates with joints off the hull joints, wing plate at the bow
+1 15 0 -8 -20 0 0 1 0 1 0 -1 0 0 3030.dat
+1 15 0 -8 120 1 0 0 0 1 0 0 0 1 3031.dat
+1 15 0 -8 -140 1 0 0 0 1 0 0 0 1 51739.dat
+0 // Gunwales (y -16..-8): 1-wide plates round the deck edge
+1 0 -30 -16 -20 0 0 1 0 1 0 -1 0 0 4477.dat
+1 0 -30 -16 120 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 30 -16 -80 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 30 -16 20 0 0 1 0 1 0 -1 0 0 3666.dat
+1 0 30 -16 120 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 0 -16 150 1 0 0 0 1 0 0 0 1 3023b.dat
+0 NOFILE
