@@ -100,24 +100,33 @@ type alias Course =
     }
 
 
-{-| The four toy boats on offer.
+{-| The four built-in toy boats, plus a ship loaded from a build link.
 -}
 type BoatKind
     = Sloop
     | Cutter
     | Schooner
     | Catamaran
+    | CustomShip
 
 
-{-| A toy boat: how it looks and how it handles.
-`topSpeed` is in m/s, `turnRate` in degrees per second at full helm.
+{-| A toy boat: what it is built from and how it handles.
+
+  - `ldraw`: the LDraw model text of the boat. Every part of the boat on screen
+    comes from these bricks (see `Sails.ShipMesh`). Empty for a ship loaded
+    from a build link, whose parsed document is kept by `Main` instead.
+  - `sailColour`: the LDraw colour code of the sail bricks. Bricks of this
+    colour take the player colour when the boat is drawn for another player.
+    `Nothing` means: find sails by part name (see `Sails.Ingest.isSailPart`).
+  - `topSpeed` is in m/s, `turnRate` in degrees per second at full helm.
+
 -}
 type alias Boat =
     { kind : BoatKind
     , name : String
     , description : String
-    , hullColor : Vec3
-    , sailColor : Vec3
+    , ldraw : String
+    , sailColour : Maybe Int
     , topSpeed : Float
     , turnRate : Float
     }

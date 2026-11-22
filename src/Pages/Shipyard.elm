@@ -3,18 +3,21 @@ module Pages.Shipyard exposing
     , viewShipyard
     )
 
-{-| Start screen: pick one of four toy boats, see it bob on the water, and
-set sail. Online play (host a split-screen room or join one) sits below.
+{-| Start screen: pick one of four toy boats (or a ship loaded from a build
+link), see it bob on the water, and set sail. A build link can be pasted or a
+model file opened. Online play (host a split-screen room or join one) sits
+below.
 -}
 
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
-import Html exposing (Html, button, div, h1, p, span, text)
+import Html exposing (Html, button, div, h1, input, p, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Render as Render
+import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, Course, LeaderboardEntry)
 
 
@@ -24,11 +27,25 @@ type alias ShipyardActions msg =
     , onStartHostMultiplayer : msg
     , onJoinMultiplayer : msg
     , onToggleMute : msg
+    , onPasteChanged : String -> msg
+    , onLoadPasted : msg
+    , onOpenFile : msg
     }
+
+
+{-| Loading state of the selected boat's bricks.
+-}
+type alias Loading =
+    { loaded : Int, total : Int }
 
 
 viewShipyard :
     { boat : Boat
+    , mesh : Maybe ShipMesh
+    , loading : Maybe Loading
+    , customShip : Maybe Boat
+    , pasteText : String
+    , loadError : Maybe String
     , course : Course
     , personalBest : Maybe LeaderboardEntry
     , time : Float
@@ -42,10 +59,24 @@ viewShipyard :
 viewShipyard cfg =
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 font-sans select-none" ]
         [ div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderShipyard cfg.boat cfg.time cfg.viewportWidth cfg.viewportHeight ]
+            [ Render.renderShipyard cfg.mesh cfg.time cfg.viewportWidth cfg.viewportHeight ]
         , viewHeader cfg
+        , viewLoading cfg.mesh cfg.loading
         , viewPanel cfg
         ]
+
+
+viewLoading : Maybe ShipMesh -> Maybe Loading -> Html msg
+viewLoading mesh loading =
+    case ( mesh, loading ) of
+        ( Nothing, Just l ) ->
+            div [ Attr.class "absolute z-10 left-0 right-0 top-1/4 flex justify-center pointer-events-none" ]
+                [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-slate-900/80 text-sky-100 text-xs font-bold" ]
+                    [ text ("Loading bricks " ++ String.fromInt l.loaded ++ " / " ++ String.fromInt (max l.loaded l.total)) ]
+                ]
+
+        _ ->
+            text ""
 
 
 viewHeader : { a | audioMuted : Bool, tilt : { available : Bool, enabled : Bool }, actions : ShipyardActions msg } -> Html msg
@@ -116,12 +147,15 @@ viewPanel :
     { a
         | boat : Boat
         , course : Course
+        , customShip : Maybe Boat
+        , pasteText : String
+        , loadError : Maybe String
         , personalBest : Maybe LeaderboardEntry
         , tilt : { available : Bool, enabled : Bool }
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewPanel { boat, course, personalBest, tilt, actions } =
+viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, actions } =
     let
         bestLine =
             case personalBest of
@@ -142,7 +176,7 @@ viewPanel { boat, course, personalBest, tilt, actions } =
                 "Hold ◀ ▶ (or arrow keys) to steer. FIRE (Space) near targets."
     in
     div
-        [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"
+        [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:pt-[68px] landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"
         , Attr.style "padding-bottom" "max(12px, env(safe-area-inset-bottom))"
         ]
         [ div [ Attr.class "w-full max-w-md mx-auto bg-slate-900/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
@@ -150,7 +184,16 @@ viewPanel { boat, course, personalBest, tilt, actions } =
                 [ span [ Attr.class "text-sm font-black" ] [ text course.title ]
                 , span [ Attr.class "text-xs text-amber-300 font-bold" ] [ text bestLine ]
                 ]
-            , div [ Attr.class "grid grid-cols-4 gap-1.5" ] (List.map (boatChip boat actions) Boats.all)
+            , div [ Attr.class "grid grid-cols-4 gap-1.5" ]
+                (List.map (boatChip boat actions) Boats.all
+                    ++ (case customShip of
+                            Just c ->
+                                [ div [ Attr.class "col-span-4 grid" ] [ boatChip boat actions c ] ]
+
+                            Nothing ->
+                                []
+                       )
+                )
             , div [ Attr.class "flex items-center gap-3 text-[11px]" ]
                 [ span [ Attr.class "text-slate-300 flex-1 min-w-0" ] [ text boat.description ]
                 , statBar "Speed" ((boat.topSpeed - 7) / 3.2)
@@ -164,7 +207,8 @@ viewPanel { boat, course, personalBest, tilt, actions } =
                 [ FeatherIcons.play |> FeatherIcons.toHtml []
                 , text "Set sail"
                 ]
-            , p [ Attr.class "text-[11px] text-slate-400 text-center" ] [ text controlsHint ]
+            , p [ Attr.class "text-[11px] text-slate-400 text-center landscape:hidden lg:landscape:block" ] [ text controlsHint ]
+            , viewLoadShip pasteText loadError actions
             , div [ Attr.class "flex gap-1.5 pt-1 border-t border-slate-800" ]
                 [ button
                     [ onClick actions.onStartHostMultiplayer
@@ -184,6 +228,46 @@ viewPanel { boat, course, personalBest, tilt, actions } =
                     ]
                 ]
             ]
+        ]
+
+
+{-| Paste a build link (or open a model file) to sail your own ship.
+-}
+viewLoadShip : String -> Maybe String -> ShipyardActions msg -> Html msg
+viewLoadShip pasteText loadError actions =
+    div [ Attr.class "flex flex-col gap-1" ]
+        [ Html.form [ onSubmit actions.onLoadPasted, Attr.class "flex gap-1.5" ]
+            [ input
+                [ Attr.type_ "text"
+                , Attr.value pasteText
+                , onInput actions.onPasteChanged
+                , Attr.placeholder "Paste a build link to sail your ship"
+                , Attr.attribute "aria-label" "Build link"
+                , Attr.attribute "data-ship-link" ""
+                , Attr.attribute "autocomplete" "off"
+                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-xl bg-slate-800 border border-white/10 text-sm text-white placeholder:text-slate-500"
+                ]
+                []
+            , button
+                [ Attr.type_ "submit"
+                , Attr.attribute "data-ship-load" ""
+                , Attr.class "min-h-[44px] px-3 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs"
+                ]
+                [ text "Load" ]
+            , button
+                [ Attr.type_ "button"
+                , onClick actions.onOpenFile
+                , Attr.title "Open a model file"
+                , Attr.class "w-11 min-h-[44px] flex items-center justify-center rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200"
+                ]
+                [ FeatherIcons.folder |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
+            ]
+        , case loadError of
+            Just err ->
+                p [ Attr.attribute "role" "alert", Attr.class "text-[11px] text-rose-300 font-bold" ] [ text err ]
+
+            Nothing ->
+                text ""
         ]
 
 

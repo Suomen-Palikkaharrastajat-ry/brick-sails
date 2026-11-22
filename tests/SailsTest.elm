@@ -1,12 +1,19 @@
 module SailsTest exposing (suite)
 
+import Dict
 import Expect
+import LDraw.Document as Document
+import LDraw.Parser as Parser
+import LDraw.Resolve exposing (PartStatus(..))
+import LDraw.Types exposing (LDrawLine)
+import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
+import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (Boat, CourseProgress, SailingState)
 import Test exposing (Test, describe, test)
 
@@ -22,6 +29,30 @@ sampleShipPlacements =
     , ( "3957a.dat", vec3 40.0 -40.0 40.0 )
     , ( "87580.dat", vec3 40.0 -32.0 40.0 )
     ]
+
+
+{-| A small ship built in the brick building app and shared as a binary
+build link: inverted-slope hulls, a 2 x 2 brick, tiles, an antenna mast,
+a flag and a jumper plate (8 parts).
+-}
+playBuildHash : String
+playBuildHash =
+    "#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws"
+
+
+{-| Every part file a built-in boat may use.
+-}
+knownParts : List String
+knownParts =
+    [ "3001.dat", "3003.dat", "3004.dat", "3005.dat", "3008.dat", "3009.dat", "3010.dat", "3622.dat", "3660b.dat", "3068b.dat", "3460.dat", "87580.dat", "43888.dat", "3957a.dat", "2335.dat", "2431.dat", "6636.dat" ]
+
+
+{-| A stand-in part: one square, 20 LDU wide and 24 LDU tall, so geometry
+can be built without the network.
+-}
+boxPart : List LDrawLine
+boxPart =
+    Parser.parseFile "4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"
 
 
 course : Sails.Types.Course
@@ -102,6 +133,117 @@ suite =
                         , \s -> Expect.greaterThan 2.0 s.lengthMeters
                         ]
                         spec
+            ]
+        , describe "Loading ships from build links"
+            [ test "a ship shared from the building app decodes and floats" <|
+                \_ ->
+                    case Ingest.decodeShipInput Nothing playBuildHash of
+                        Ok decoded ->
+                            case Ingest.validateShip decoded.document of
+                                Ok spec ->
+                                    Expect.all
+                                        [ \sp -> Expect.equal 8 sp.totalPartCount
+                                        , \sp -> Expect.atLeast 2 sp.hullPartCount
+                                        , \sp -> Expect.equal 1 sp.sailPartCount
+                                        ]
+                                        spec
+
+                                Err err ->
+                                    Expect.fail ("valid build was refused: " ++ err)
+
+                        Err err ->
+                            Expect.fail ("valid link did not decode: " ++ err)
+            , test "the same link inside a full page URL with other fields still decodes" <|
+                \_ ->
+                    Ingest.decodeShipInput Nothing ("https://example.invalid/sails/?x=1" ++ String.replace "#b/" "#lang=en&b/" playBuildHash)
+                        |> Result.map (.document >> Document.flattenedPlacements >> List.length)
+                        |> Expect.equal (Ok 8)
+            , test "a damaged link returns an error message, not a crash" <|
+                \_ ->
+                    case Ingest.decodeShipInput Nothing "#b/not-a-real-build" of
+                        Err err ->
+                            Expect.notEqual "" err
+
+                        Ok _ ->
+                            Expect.fail "damaged link was accepted"
+            , test "text that is not a link returns an error message" <|
+                \_ ->
+                    Ingest.decodeShipInput Nothing "hello there"
+                        |> Result.map .title
+                        |> Expect.err
+            , test "a build without a hull is refused as not a boat" <|
+                \_ ->
+                    case Ingest.decodeShipInput Nothing "0 Name: Pole\n1 4 0 -40 0 1 0 0 0 1 0 0 0 1 3957a.dat\n1 15 0 -120 0 1 0 0 0 1 0 0 0 1 2335.dat" of
+                        Ok decoded ->
+                            case Ingest.validateShip decoded.document of
+                                Err err ->
+                                    Expect.equal True (String.startsWith "Not a boat" err)
+
+                                Ok _ ->
+                                    Expect.fail "a mast and a flag were accepted as a boat"
+
+                        Err err ->
+                            Expect.fail err
+            , test "the ship link check spots both link forms" <|
+                \_ ->
+                    Expect.equal [ True, True, False ]
+                        (List.map Ingest.hasShipPayload [ playBuildHash, "#model=1%2016%200%200%200%201%200%200%200%201%200%200%200%201%203001.dat", "#room=ABCD" ])
+            ]
+        , describe "Built-in brick boats"
+            [ test "every boat is a brick model of known parts with sails, mast and hull" <|
+                \_ ->
+                    Boats.all
+                        |> List.map
+                            (\b ->
+                                let
+                                    placements =
+                                        Document.flattenedPlacements (Document.parse b.ldraw)
+
+                                    sails =
+                                        List.filter (\p -> Just p.color == b.sailColour) placements
+                                in
+                                { parts = List.length placements >= 25
+                                , known = List.all (\p -> List.member p.part knownParts) placements
+                                , sails = List.length sails >= 5
+                                , floats = Ingest.validateShip (Document.parse b.ldraw) |> Result.map (\_ -> True) |> Result.withDefault False
+                                }
+                            )
+                        |> Expect.equal (List.repeat 4 { parts = True, known = True, sails = True, floats = True })
+            , test "boat geometry is scaled to the course and sits on the waterline" <|
+                \_ ->
+                    let
+                        doc =
+                            Document.parse Boats.default.ldraw
+
+                        cache =
+                            knownParts |> List.map (\n -> ( n, Loaded boxPart )) |> Dict.fromList
+
+                        mesh =
+                            ShipMesh.build (ShipMesh.sailByColour 15) doc cache
+
+                        ys =
+                            mesh.scene.surface
+                                |> List.concatMap (\( a, b, c ) -> [ a, b, c ])
+                                |> List.map (\v -> Vec3.getY (Mat4.transform mesh.toBoat v.position))
+
+                        sailVertices =
+                            mesh.scene.surface |> List.filter (\( a, _, _ ) -> a.inherit > 0.5) |> List.length
+                    in
+                    Expect.all
+                        [ \_ -> Expect.atMost 4.6 mesh.lengthMeters
+                        , \_ -> Expect.atLeast 3.5 mesh.lengthMeters
+                        , \_ -> Expect.atMost 9.01 mesh.heightMeters
+                        , \_ -> Expect.all [ Expect.lessThan -0.05, Expect.greaterThan -0.4 ] (List.minimum ys |> Maybe.withDefault 0)
+                        , \_ -> Expect.greaterThan 3 (List.maximum ys |> Maybe.withDefault 0)
+                        , \_ -> Expect.greaterThan 0 sailVertices
+                        , \_ -> Expect.equal [] (ShipMesh.partProgress doc cache).needed
+                        ]
+                        ()
+            , test "a boat lists its missing parts before anything is fetched" <|
+                \_ ->
+                    (ShipMesh.partProgress (Document.parse Boats.default.ldraw) Dict.empty).needed
+                        |> List.length
+                        |> Expect.atLeast 8
             ]
         , describe "Seaworthiness & Architecture Analysis"
             [ test "analyzes micro sloop as seaworthy" <|

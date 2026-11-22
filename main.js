@@ -19,10 +19,9 @@ const indicesBase = import.meta.env.VITE_LDRAW_INDICES_BASE || 'https://catalog.
 const coarsePointer =
   typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
 
-// Default to user's example ship if no hash is present in URL
-const defaultShipHash =
-  '#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws'
-const initialHash = window.location.hash || defaultShipHash
+// A build link in the page URL (`#b/...` or `#model=...`) is loaded as the
+// player's own ship; without one the four built-in boats are offered.
+const initialHash = window.location.hash ?? ''
 const savedAudioMuted = readAudioMuted('sails')
 const audioEngine = createAudioEngine(savedAudioMuted)
 

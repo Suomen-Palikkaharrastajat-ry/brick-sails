@@ -5,6 +5,7 @@ module Sails.OceanShader exposing
     , oceanEntity
     , propEntity
     , skyEntity
+    , sunDirection
     )
 
 {-| WebGL shaders for Brick Sails: a bright toy-like sea with a gentle swell,
@@ -44,6 +45,13 @@ makeCtx cam time width height =
     , eye = cam.eye
     , time = time
     }
+
+
+{-| Direction towards the sun, shared by the sea, the props and the boats.
+-}
+sunDirection : Vec3
+sunDirection =
+    sunDir
 
 
 sunDir : Vec3

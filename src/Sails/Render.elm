@@ -5,20 +5,30 @@ module Sails.Render exposing
     )
 
 {-| Draws the sailing world: sea, sky, blocky islands, buoys, the finish
-gate, floating targets, cannonballs and the toy boats. Every prop is a small
-procedural mesh built from bricks (boxes, studs and prisms).
+gate, floating targets, cannonballs and the toy boats.
+
+The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
+pipeline's plastic shader and edge shader. Everything in one canvas shares a
+single view and projection (`Sails.OceanShader.Ctx`), so the depth buffer is
+consistent: the water hides exactly the part of the hull below the waterline.
+The props around the course are small procedural meshes.
+
 -}
 
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Math.Vector4 as Vec4 exposing (Vec4, vec4)
+import Render.EdgeShader as EdgeShader
+import Render.Mesh exposing (Vertex)
+import Render.Shader as Shader
 import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
+import Sails.Physics as Physics
+import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types
     exposing
-        ( Boat
-        , BoatKind(..)
-        , BuoyKind(..)
+        ( BuoyKind(..)
         , Cannonball
         , CombatImpact
         , Course
@@ -27,17 +37,20 @@ import Sails.Types
         , Waypoint
         )
 import WebGL
+import WebGL.Settings.Blend as Blend
+import WebGL.Settings.DepthTest as DepthTest
 
 
 
 -- PUBLIC
 
 
-{-| A boat to draw: its look, its state, and an optional sail colour
-override (used to tell multiplayer boats apart).
+{-| A boat to draw: its brick geometry (`Nothing` while its parts are still
+loading), its state, and an optional sail colour override (used to tell
+multiplayer boats apart).
 -}
 type alias RenderBoat =
-    { boat : Boat
+    { mesh : Maybe ShipMesh
     , state : SailingState
     , sailTint : Maybe Vec3
     }
@@ -72,7 +85,7 @@ renderWorld cam scene width height =
                 ++ islandEntities ctx scene.course
                 ++ List.concatMap (buoyEntities ctx scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
                 ++ List.concatMap (targetEntities ctx scene.time) scene.targets
-                ++ List.concatMap (boatEntities ctx) scene.boats
+                ++ List.concatMap (boatEntities ctx width height) scene.boats
                 ++ guideEntities ctx scene.guide
                 ++ List.map (ballEntity ctx) scene.balls
                 ++ List.map (impactEntity ctx) scene.impacts
@@ -80,35 +93,53 @@ renderWorld cam scene width height =
     canvas width height entities
 
 
-{-| Shipyard preview: one boat on the water, seen from the side.
+{-| Shipyard preview: one boat on the water, seen from the side, slowly
+circling. Shows only the sea while the boat's parts are loading.
 -}
-renderShipyard : Boat -> Float -> Int -> Int -> Html msg
-renderShipyard boat time width height =
+renderShipyard : Maybe ShipMesh -> Float -> Int -> Int -> Html msg
+renderShipyard mesh time width height =
     let
         aspect =
             toFloat (max 1 width) / toFloat (max 1 height)
 
+        size =
+            mesh
+                |> Maybe.map (\m -> max m.lengthMeters (m.heightMeters * 0.8))
+                |> Maybe.withDefault 5
+
         -- Pull back on narrow portrait screens so the whole boat fits.
         dist =
             if aspect < 1 then
-                13 / max 0.45 aspect
+                2.5 * size / max 0.45 aspect
 
             else
-                12
+                2.4 * size
+
+        boatMid =
+            mesh |> Maybe.map (\m -> m.heightMeters * 0.32) |> Maybe.withDefault 1.6
+
+        -- On portrait screens the boat picker covers the lower half, so aim
+        -- below the boat to lift it into the open sky above the panel.
+        lookY =
+            if aspect < 1 then
+                boatMid - 0.55 * size
+
+            else
+                boatMid
 
         angle =
             time * 0.35
 
         cam =
-            { eye = vec3 (sin angle * dist) (dist * 0.5) (cos angle * dist)
-            , target = vec3 0 1.6 0
+            { eye = vec3 (sin angle * dist) (boatMid + dist * 0.3) (cos angle * dist)
+            , target = vec3 0 lookY 0
             }
 
         ctx =
             Ocean.makeCtx cam time width height
 
         state =
-            { position = vec3 0 0 0
+            { position = vec3 0 (Physics.waterElevation 0 0 time) 0
             , heading = 0
             , speed = 0
             , steer = 0
@@ -122,7 +153,7 @@ renderShipyard boat time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx { boat = boat, state = state, sailTint = Nothing }
+            ++ boatEntities ctx width height { mesh = mesh, state = state, sailTint = Nothing }
         )
 
 
@@ -150,42 +181,124 @@ white =
     vec3 1 1 1
 
 
-boatEntities : Ctx -> RenderBoat -> List WebGL.Entity
-boatEntities ctx rb =
-    let
-        s =
-            rb.state
+{-| Draw one brick boat: the plastic surface pass, then the brick edges while
+the boat is near enough for them to read as edges rather than a dark smear.
+-}
+boatEntities : Ctx -> Int -> Int -> RenderBoat -> List WebGL.Entity
+boatEntities ctx width height rb =
+    case rb.mesh of
+        Nothing ->
+            []
 
-        p =
-            Vec3.toRecord s.position
+        Just mesh ->
+            let
+                s =
+                    rb.state
 
-        base =
-            Mat4.makeTranslate3 p.x p.y p.z
-                |> rotY (degrees s.heading)
-                |> rotZ (degrees -s.heel)
-                |> rotX (degrees -s.pitch)
+                p =
+                    Vec3.toRecord s.position
 
-        sailColor =
-            Maybe.withDefault rb.boat.sailColor rb.sailTint
+                world =
+                    Mat4.makeTranslate3 p.x p.y p.z
+                        |> rotY (degrees s.heading)
+                        |> rotZ (degrees -s.heel)
+                        |> rotX (degrees -s.pitch)
 
-        sail mastZ size =
-            ocean ctx
-                (base
-                    |> Mat4.translate3 0 0 mastZ
-                    |> rotY (degrees s.sailAngle)
-                    |> Mat4.scale3 size size size
-                )
-                sailColor
-                sailMesh
-    in
-    ocean ctx base white (hullMesh rb.boat.kind)
-        :: (case rb.boat.kind of
-                Schooner ->
-                    [ sail 0.8 1.0, sail -0.8 0.85 ]
+                model =
+                    Mat4.mul world mesh.toBoat
 
-                _ ->
-                    [ sail 0.2 1.0 ]
-           )
+                tint =
+                    case rb.sailTint of
+                        Just c ->
+                            vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
+
+                        Nothing ->
+                            vec4 1 1 1 0
+
+                distance =
+                    Vec3.distance ctx.eye s.position
+
+                surface =
+                    WebGL.entityWith [ DepthTest.default ]
+                        brickVertexShader
+                        Shader.fragmentShader
+                        mesh.scene.triangleMesh
+                        { modelMatrix = model
+                        , viewMatrix = ctx.view
+                        , projectionMatrix = ctx.perspective
+                        , viewPosition = ctx.eye
+                        , lightDirection = Ocean.sunDirection
+                        , instanceColor = tint
+                        , ambientStrength = 0.62
+                        , lightStrength = 0.5
+                        , specularStrength = 0.18
+                        , specularPower = 24
+                        , rimStrength = 0.1
+                        , rimPower = 2.5
+                        , vibrance = 0.2
+                        , metallic = 0
+                        , u_ghostMode = 0
+                        , u_ghostAlpha = 1
+                        }
+
+                edgeWidth =
+                    clamp 0 1.2 (1.2 * (26 - distance) / 10)
+
+                edges =
+                    if edgeWidth > 0.3 then
+                        [ WebGL.entityWith
+                            [ DepthTest.lessOrEqual { write = False, near = 0, far = 1 }
+                            , Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha
+                            ]
+                            EdgeShader.vertexShader
+                            EdgeShader.fragmentShader
+                            mesh.scene.lineMesh
+                            { modelMatrix = model
+                            , viewMatrix = ctx.view
+                            , projectionMatrix = ctx.perspective
+                            , edgeColor = vec3 0.12 0.13 0.16
+                            , viewportWidth = toFloat width
+                            , viewportHeight = toFloat height
+                            , lineWidth = edgeWidth
+                            }
+                        ]
+
+                    else
+                        []
+            in
+            surface :: edges
+
+
+{-| The brick pipeline's vertex shader, with one change: vertices flagged in
+`inherit` (the sail bricks, see `Sails.ShipMesh`) take `instanceColor` when
+its alpha is 1, which paints another player's sails in their colour. With
+alpha 0 every brick keeps its own colour.
+-}
+brickVertexShader : WebGL.Shader Vertex Shader.Uniforms { vColor : Vec4, vNormalWorld : Vec3, vPositionWorld : Vec3 }
+brickVertexShader =
+    [glsl|
+        attribute vec3 position;
+        attribute vec3 normal;
+        attribute vec4 color;
+        attribute float inherit;
+
+        uniform mat4 modelMatrix;
+        uniform mat4 viewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform vec4 instanceColor;
+
+        varying vec4 vColor;
+        varying vec3 vNormalWorld;
+        varying vec3 vPositionWorld;
+
+        void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            vColor = mix(color, vec4(instanceColor.rgb, color.a), inherit * instanceColor.a);
+            vNormalWorld = mat3(modelMatrix) * normal;
+            vPositionWorld = worldPosition.xyz;
+        }
+    |]
 
 
 ocean : Ctx -> Mat4 -> Vec3 -> WebGL.Mesh PropVertex -> WebGL.Entity
@@ -474,38 +587,6 @@ stud x y z col =
     prism 8 0.15 ( x, z ) ( y, y + 0.1 ) col
 
 
-{-| Thin triangular panel in the YZ plane (a sail), given three (y, z) corners.
--}
-panel : ( Float, Float ) -> ( Float, Float ) -> ( Float, Float ) -> Float -> Vec3 -> List Tri
-panel ( ay, az ) ( by, bz ) ( cy, cz ) t col =
-    let
-        a x =
-            vec3 x ay az
-
-        b x =
-            vec3 x by bz
-
-        c x =
-            vec3 x cy cz
-
-        tri p q r =
-            let
-                n =
-                    Vec3.normalize (Vec3.cross (Vec3.sub q p) (Vec3.sub r p))
-
-                v pos =
-                    { position = pos, normal = n, color = col }
-            in
-            ( v p, v q, v r )
-    in
-    [ tri (a t) (b t) (c t)
-    , tri (a -t) (c -t) (b -t)
-    ]
-        ++ face (a -t) (b -t) (b t) (a t) col
-        ++ face (b -t) (c -t) (c t) (b t) col
-        ++ face (c -t) (a -t) (a t) (c t) col
-
-
 transformTris : Mat4 -> List Tri -> List Tri
 transformTris m =
     let
@@ -519,11 +600,6 @@ transformTris m =
 -- MESHES
 
 
-deckColor : Vec3
-deckColor =
-    vec3 0.86 0.74 0.52
-
-
 darkWood : Vec3
 darkWood =
     vec3 0.35 0.22 0.12
@@ -532,117 +608,6 @@ darkWood =
 black : Vec3
 black =
     vec3 0.12 0.12 0.14
-
-
-hullMesh : BoatKind -> WebGL.Mesh PropVertex
-hullMesh kind =
-    case kind of
-        Sloop ->
-            sloopMesh
-
-        Cutter ->
-            cutterMesh
-
-        Schooner ->
-            schoonerMesh
-
-        Catamaran ->
-            catamaranMesh
-
-
-monoHull : Vec3 -> Float -> List Tri
-monoHull col len =
-    let
-        stern =
-            -len / 2
-
-        bowStart =
-            len / 2 - 1.0
-
-        bowTip =
-            len / 2
-
-        p =
-            vec3
-
-        bow =
-            ( { position = p -0.8 0.5 bowStart, normal = vec3 0 1 0, color = deckColor }
-            , { position = p 0.8 0.5 bowStart, normal = vec3 0 1 0, color = deckColor }
-            , { position = p 0 0.5 bowTip, normal = vec3 0 1 0, color = deckColor }
-            )
-                :: face (p -0.8 -0.3 bowStart) (p 0 -0.3 bowTip) (p 0 0.5 bowTip) (p -0.8 0.5 bowStart) col
-                ++ face (p 0.8 -0.3 bowStart) (p 0 -0.3 bowTip) (p 0 0.5 bowTip) (p 0.8 0.5 bowStart) col
-    in
-    box ( -0.8, -0.3, stern ) ( 0.8, 0.5, bowStart ) col
-        ++ bow
-        ++ box ( -0.7, 0.5, stern + 0.1 ) ( 0.7, 0.58, bowStart ) deckColor
-        ++ box ( -0.55, 0.58, stern + 0.15 ) ( 0.55, 1.0, stern + 0.95 ) col
-        ++ List.concatMap (\( x, z ) -> stud x 1.0 z col) [ ( -0.25, stern + 0.35 ), ( 0.25, stern + 0.35 ), ( -0.25, stern + 0.75 ), ( 0.25, stern + 0.75 ) ]
-        ++ box ( 0.8, 0.15, -0.25 ) ( 1.15, 0.4, 0.25 ) black
-        ++ box ( -1.15, 0.15, -0.25 ) ( -0.8, 0.4, 0.25 ) black
-
-
-mast : Float -> Float -> List Tri
-mast z h =
-    box ( -0.08, 0.5, z - 0.08 ) ( 0.08, h, z + 0.08 ) darkWood
-        ++ box ( 0, h - 0.45, z - 0.02 ) ( 0.02, h - 0.1, z + 0.55 ) (vec3 0.9 0.15 0.15)
-
-
-sloopMesh : WebGL.Mesh PropVertex
-sloopMesh =
-    WebGL.triangles
-        (monoHull (vec3 0.55 0.33 0.16) 4.2
-            ++ mast 0.2 4.8
-            ++ panel ( 4.3, 0.3 ) ( 1.0, 0.3 ) ( 1.0, 1.9 ) 0.03 (vec3 0.97 0.96 0.9)
-        )
-
-
-cutterMesh : WebGL.Mesh PropVertex
-cutterMesh =
-    WebGL.triangles
-        (monoHull (vec3 0.12 0.35 0.7) 3.8
-            ++ mast 0.2 4.2
-            ++ panel ( 3.8, 0.3 ) ( 1.0, 0.3 ) ( 1.0, 1.7 ) 0.03 (vec3 0.98 0.85 0.3)
-        )
-
-
-schoonerMesh : WebGL.Mesh PropVertex
-schoonerMesh =
-    WebGL.triangles
-        (monoHull (vec3 0.22 0.22 0.25) 4.8
-            ++ mast 0.8 5.2
-            ++ mast -0.8 4.4
-        )
-
-
-catamaranMesh : WebGL.Mesh PropVertex
-catamaranMesh =
-    let
-        col =
-            vec3 0.95 0.95 0.95
-
-        pontoon x =
-            box ( x - 0.32, -0.3, -2.1 ) ( x + 0.32, 0.35, 1.7 ) col
-                ++ box ( x - 0.2, -0.3, 1.7 ) ( x + 0.2, 0.3, 2.2 ) col
-    in
-    WebGL.triangles
-        (pontoon -1.0
-            ++ pontoon 1.0
-            ++ box ( -1.0, 0.35, -1.4 ) ( 1.0, 0.5, 0.9 ) (vec3 0.2 0.7 0.85)
-            ++ List.concatMap (\( x, z ) -> stud x 0.5 z (vec3 0.2 0.7 0.85)) [ ( -0.4, -1.0 ), ( 0.4, -1.0 ), ( -0.4, -0.5 ), ( 0.4, -0.5 ) ]
-            ++ mast 0.2 5.0
-        )
-
-
-{-| Main sail around a mast at the origin; the boom points aft (-Z).
-Painted white so the boat's sail colour comes through the tint.
--}
-sailMesh : WebGL.Mesh PropVertex
-sailMesh =
-    WebGL.triangles
-        (panel ( 4.4, -0.1 ) ( 0.9, -0.1 ) ( 0.9, -2.3 ) 0.04 white
-            ++ box ( -0.05, 0.8, -2.4 ) ( 0.05, 0.9, -0.05 ) darkWood
-        )
 
 
 buoyMesh : WebGL.Mesh PropVertex

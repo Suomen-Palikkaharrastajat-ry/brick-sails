@@ -5,31 +5,60 @@ Deployed to <https://ohoi.palikkaharrastajat.fi>.
 
 Two screens: the boat picker (`Pages.Shipyard`) and the race (`Pages.Sail`).
 
+Every boat is a brick model. `Main` owns the part cache: it parses each boat's
+LDraw document once, fetches the parts it needs from the catalog
+(`LDraw.Resolve`, one pre-bundled MPD per part), and builds each boat's
+geometry once all of its parts are in (`Sails.ShipMesh`). The meshes are kept
+in `meshes` by boat name and handed to the views.
+
+A ship built in the brick building apps can be loaded from a build link in
+the page URL, a pasted link or an opened model file (`Sails.Ingest`). It
+appears as an extra "Your ship" entry in the boat picker.
+
 -}
 
 import Browser
 import Browser.Events
+import Dict exposing (Dict)
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
 import Game.Multiplayer as Multiplayer
-import Html exposing (Html, div)
+import Html exposing (Html)
+import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
+import LDraw.Document as Document exposing (Document)
+import LDraw.Parser as Parser
+import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
 import Pages.Sail as Sail
 import Pages.Shipyard as Shipyard
 import Ports
 import Sails.Boats as Boats
+import Sails.Ingest as Ingest
 import Sails.Physics as Physics
-import Sails.Types exposing (Boat, Course, ViewMode(..))
+import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
+import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
+import Studio.HashPayload as HashPayload
 
 
 type alias Flags =
     { savedAudioMuted : Bool
     , savedLeaderboardJson : String
+    , ldrawBase : String
+    , ldrawFallbackBase : String
+    , initialHash : String
+    , predecodedInitialBytes : Maybe (List Int)
     }
 
 
 type alias Model =
-    { boat : Boat
+    { resolver : ResolverConfig
+    , partCache : PartCache
+    , documents : Dict String Document
+    , meshes : Dict String ShipMesh
+    , customShip : Maybe Boat
+    , pasteText : String
+    , loadError : Maybe String
+    , boat : Boat
     , course : Course
     , viewMode : ViewMode
     , sailModel : Maybe Sail.SailModel
@@ -55,6 +84,13 @@ type Msg
     | ShipyardTick Float
     | ViewportResized { width : Int, height : Int }
     | SailMessage Sail.SailMsg
+    | PartFetched String (Result Http.Error String)
+    | PasteChanged String
+    | LoadPasted
+    | OpenFile
+    | FileContentReceived String
+    | FileLoadError String
+    | HashChanged String
 
 
 main : Program Flags Model Msg
@@ -69,21 +105,47 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { boat = Boats.default
-      , course = Physics.defaultCourse
-      , viewMode = ViewShipyard
-      , sailModel = Nothing
-      , audioMuted = flags.savedAudioMuted
-      , leaderboard =
-            Decode.decodeString Leaderboard.decodeLeaderboard flags.savedLeaderboardJson
-                |> Result.withDefault Leaderboard.empty
-      , tilt = { available = False, enabled = False }
-      , shipyardTime = 0
-      , viewportWidth = 1024
-      , viewportHeight = 768
-      }
-    , Cmd.none
-    )
+    let
+        fallback =
+            if String.isEmpty (String.trim flags.ldrawFallbackBase) then
+                Nothing
+
+            else
+                Just flags.ldrawFallbackBase
+
+        base =
+            { resolver = Resolve.resolverConfig flags.ldrawBase fallback
+            , partCache = Resolve.initCache
+            , documents =
+                Boats.all
+                    |> List.map (\b -> ( b.name, Document.parse b.ldraw ))
+                    |> Dict.fromList
+            , meshes = Dict.empty
+            , customShip = Nothing
+            , pasteText = ""
+            , loadError = Nothing
+            , boat = Boats.default
+            , course = Physics.defaultCourse
+            , viewMode = ViewShipyard
+            , sailModel = Nothing
+            , audioMuted = flags.savedAudioMuted
+            , leaderboard =
+                Decode.decodeString Leaderboard.decodeLeaderboard flags.savedLeaderboardJson
+                    |> Result.withDefault Leaderboard.empty
+            , tilt = { available = False, enabled = False }
+            , shipyardTime = 0
+            , viewportWidth = 1024
+            , viewportHeight = 768
+            }
+
+        hasPayload =
+            flags.predecodedInitialBytes /= Nothing || Ingest.hasShipPayload flags.initialHash
+    in
+    if hasPayload then
+        loadShip flags.predecodedInitialBytes flags.initialHash base
+
+    else
+        requestParts base
 
 
 personalBest : Model -> Maybe Sails.Types.LeaderboardEntry
@@ -114,7 +176,53 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         SelectBoat name ->
-            ( { model | boat = Boats.byName name }, Cmd.none )
+            case model.customShip of
+                Just ship ->
+                    if name == ship.name then
+                        ( { model | boat = ship }, Cmd.none )
+
+                    else
+                        ( { model | boat = Boats.byName name }, Cmd.none )
+
+                Nothing ->
+                    ( { model | boat = Boats.byName name }, Cmd.none )
+
+        PartFetched name result ->
+            requestParts { model | partCache = Resolve.updateCache name result Parser.parseFile model.partCache }
+
+        PasteChanged text ->
+            ( { model | pasteText = text }, Cmd.none )
+
+        LoadPasted ->
+            let
+                ( next, cmd ) =
+                    loadShip Nothing model.pasteText model
+            in
+            case ( next.loadError, HashPayload.parseDirectBase64 model.pasteText ) of
+                ( Nothing, Just b64 ) ->
+                    ( { next | pasteText = "" }, Cmd.batch [ cmd, Ports.setUrlHash ("#b/" ++ b64) ] )
+
+                ( Nothing, Nothing ) ->
+                    ( { next | pasteText = "" }, cmd )
+
+                _ ->
+                    ( next, cmd )
+
+        OpenFile ->
+            ( model, Ports.requestFileUpload () )
+
+        FileContentReceived text ->
+            loadShip Nothing text model
+
+        FileLoadError err ->
+            ( { model | loadError = Just ("Could not open that file: " ++ err) }, Cmd.none )
+
+        HashChanged hash ->
+            if Ingest.hasShipPayload hash && model.viewMode == ViewShipyard then
+                loadShip Nothing hash model
+
+            else
+                ( model, Cmd.none )
 
         StartSailing ->
             ( { model | viewMode = ViewSailing, sailModel = Just (newSail Nothing model) }
@@ -236,6 +344,136 @@ update msg model =
                     ( model, Cmd.none )
 
 
+{-| Decode, check and add a ship from a build link, LDraw text, or bytes the
+JS runtime already inflated. A valid ship becomes "Your ship" and is
+selected; an invalid one leaves the boats as they were and shows why.
+-}
+loadShip : Maybe (List Int) -> String -> Model -> ( Model, Cmd Msg )
+loadShip bytes input model =
+    case
+        Ingest.decodeShipInput bytes input
+            |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\_ -> decoded))
+    of
+        Ok decoded ->
+            let
+                ship =
+                    Boats.custom decoded.title
+            in
+            requestParts
+                { model
+                    | customShip = Just ship
+                    , boat = ship
+                    , documents = Dict.insert ship.name decoded.document model.documents
+                    , meshes = Dict.remove ship.name model.meshes
+                    , loadError = Nothing
+                }
+
+        Err err ->
+            ( { model | loadError = Just err }, Cmd.none )
+
+
+{-| Fetch every part a boat still needs, and build the geometry of each boat
+whose parts are all in. Called at start-up and after every fetched part.
+-}
+requestParts : Model -> ( Model, Cmd Msg )
+requestParts model =
+    let
+        progress =
+            model.documents
+                |> Dict.filter (\name _ -> not (Dict.member name model.meshes))
+                |> Dict.map (\_ doc -> ShipMesh.partProgress doc model.partCache)
+
+        needed =
+            Dict.values progress
+                |> List.concatMap .needed
+                |> uniqueNames
+
+        ready name p =
+            List.isEmpty p.needed && p.waiting == 0 && not (Dict.member name model.meshes)
+
+        built =
+            Dict.foldl
+                (\name p acc ->
+                    if ready name p then
+                        case Dict.get name model.documents of
+                            Just doc ->
+                                Dict.insert name (ShipMesh.build (sailRule name model) doc model.partCache) acc
+
+                            Nothing ->
+                                acc
+
+                    else
+                        acc
+                )
+                model.meshes
+                progress
+    in
+    ( { model
+        | partCache = Resolve.markLoading needed model.partCache
+        , meshes = built
+      }
+    , Cmd.batch (List.map (\name -> Resolve.fetchPart model.resolver name PartFetched) needed)
+    )
+
+
+sailRule : String -> Model -> Document.Placement -> Bool
+sailRule name model =
+    let
+        boat =
+            case model.customShip of
+                Just ship ->
+                    if ship.name == name then
+                        ship
+
+                    else
+                        Boats.byName name
+
+                Nothing ->
+                    Boats.byName name
+    in
+    case boat.sailColour of
+        Just code ->
+            ShipMesh.sailByColour code
+
+        Nothing ->
+            ShipMesh.sailByPartName Ingest.isSailPart
+
+
+uniqueNames : List String -> List String
+uniqueNames names =
+    List.foldl
+        (\n ( seen, acc ) ->
+            if Dict.member n seen then
+                ( seen, acc )
+
+            else
+                ( Dict.insert n () seen, n :: acc )
+        )
+        ( Dict.empty, [] )
+        names
+        |> Tuple.second
+        |> List.reverse
+
+
+{-| Brick loading progress of a boat, while it is not built yet.
+-}
+loadingOf : Model -> Boat -> Maybe { loaded : Int, total : Int }
+loadingOf model boat =
+    if Dict.member boat.name model.meshes then
+        Nothing
+
+    else
+        Dict.get boat.name model.documents
+            |> Maybe.map
+                (\doc ->
+                    let
+                        p =
+                            ShipMesh.partProgress doc model.partCache
+                    in
+                    { loaded = p.total - p.waiting - List.length p.needed, total = p.total }
+                )
+
+
 {-| Save the finished run to the local leaderboard.
 -}
 recordFinish : Sail.SailModel -> Model -> Cmd Msg -> ( Model, Cmd Msg )
@@ -263,6 +501,9 @@ subscriptions model =
         , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
         , Ports.multiplayerError MultiplayerError
         , Ports.tiltStatus TiltStatusChanged
+        , Ports.fileContentReceived FileContentReceived
+        , Ports.fileLoadError FileLoadError
+        , Ports.hashChanged HashChanged
         , case ( model.viewMode, model.sailModel ) of
             ( ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)
@@ -280,12 +521,18 @@ view model =
                 (Sail.viewSail sModel
                     { onReturnToShipyard = Sail.ReturnToShipyard
                     , onRestartCourse = Sail.RestartCourse
+                    , meshFor = \name -> Dict.get name model.meshes
                     }
                 )
 
         _ ->
             Shipyard.viewShipyard
                 { boat = model.boat
+                , mesh = Dict.get model.boat.name model.meshes
+                , loading = loadingOf model model.boat
+                , customShip = model.customShip
+                , pasteText = model.pasteText
+                , loadError = model.loadError
                 , course = model.course
                 , personalBest = personalBest model
                 , time = model.shipyardTime
@@ -299,5 +546,8 @@ view model =
                     , onStartHostMultiplayer = StartHostMultiplayer
                     , onJoinMultiplayer = JoinMultiplayer
                     , onToggleMute = ToggleMute
+                    , onPasteChanged = PasteChanged
+                    , onLoadPasted = LoadPasted
+                    , onOpenFile = OpenFile
                     }
                 }

@@ -24,10 +24,12 @@ import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
+import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Physics as Physics
 import Sails.Render as Render exposing (RenderBoat)
+import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types
     exposing
         ( Boat
@@ -612,13 +614,29 @@ slotTint slot =
             vec3 0.2 0.75 0.3
 
 
-remoteBoat : Boat -> Multiplayer.RemotePlayer -> RenderBoat
-remoteBoat boat p =
+{-| Another player's boat: their built-in boat by name, in their player
+colour. A loaded build of theirs is not sent over the network, so it shows as
+the default boat.
+-}
+remoteBoat : (String -> Maybe ShipMesh) -> Multiplayer.RemotePlayer -> RenderBoat
+remoteBoat meshFor p =
     let
         rot =
             Vec3.toRecord p.rotation
+
+        mesh =
+            if p.vehicleHash == Boats.customName then
+                meshFor Boats.default.name
+
+            else
+                case meshFor p.vehicleHash of
+                    Just m ->
+                        Just m
+
+                    Nothing ->
+                        meshFor Boats.default.name
     in
-    { boat = boat
+    { mesh = mesh
     , state =
         { position = p.position
         , heading = rot.y
@@ -634,11 +652,15 @@ remoteBoat boat p =
     }
 
 
+{-| Draw the race. `meshFor` looks up a boat's brick geometry by boat name
+(see `Main`); the player's own boat is looked up as `model.boat.name`.
+-}
 viewSail :
     SailModel
     ->
         { onReturnToShipyard : SailMsg
         , onRestartCourse : SailMsg
+        , meshFor : String -> Maybe ShipMesh
         }
     -> Html SailMsg
 viewSail model callbacks =
@@ -646,7 +668,7 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostSplitScreen model room
+                    viewHostSplitScreen callbacks.meshFor model room
 
                 JoinedPlayer ->
                     viewRace model callbacks (Just room)
@@ -655,8 +677,8 @@ viewSail model callbacks =
             viewRace model callbacks Nothing
 
 
-viewHostSplitScreen : SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen model room =
+viewHostSplitScreen : (String -> Maybe ShipMesh) -> SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen meshFor model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -665,7 +687,7 @@ viewHostSplitScreen model room =
             max 120 (model.viewportHeight // 2)
 
         boats =
-            List.map (remoteBoat model.boat) room.players
+            List.map (remoteBoat meshFor) room.players
 
         quadrant slot =
             case List.filter (\p -> p.slot == slot) room.players |> List.head of
@@ -718,14 +740,14 @@ viewHostSplitScreen model room =
 
 viewRace :
     SailModel
-    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh }
     -> Maybe RoomState
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
     let
         boats =
-            { boat = model.boat, state = model.state, sailTint = Nothing }
-                :: List.map (remoteBoat model.boat) (remotePlayers model)
+            { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing }
+                :: List.map (remoteBoat callbacks.meshFor) (remotePlayers model)
 
         countdown =
             case model.phase of
