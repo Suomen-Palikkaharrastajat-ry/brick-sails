@@ -157,7 +157,7 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                         ]
                         [ text "Studio" ]
                     , a
-                        [ Attr.href ("https://leiki.palikkaharrastajat.fi/" ++ currentHash)
+                        [ Attr.href ("https://rakenna.palikkaharrastajat.fi/" ++ currentHash)
                         , Attr.target "_blank"
                         , Attr.rel "noopener noreferrer"
                         , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-center font-semibold text-slate-300 transition-colors"
