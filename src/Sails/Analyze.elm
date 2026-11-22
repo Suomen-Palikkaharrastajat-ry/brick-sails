@@ -5,7 +5,7 @@ module Sails.Analyze exposing
     , analyzeShip
     )
 
-{-| Seaworthiness, stability, and sail-plan analysis for LEGO ships.
+{-| Seaworthiness, stability, and sail-plan analysis for brick-built ships.
 -}
 
 import Sails.Types exposing (ShipSpec)
@@ -75,7 +75,7 @@ analyzeShip spec =
 
             else if spec.mastPartCount == 0 then
                 ( MinorAdvisory "No mast detected. Rigging is low to the deck."
-                , [ "Add an antenna (3957a) or technic axle for a taller sail plan." ]
+                , [ "Add an antenna (3957a) or an axle for a taller sail plan." ]
                 )
 
             else
@@ -91,6 +91,7 @@ analyzeShip spec =
 
                         else
                             "Cruising rig: very stable and forgiving in heavy seas."
+
                     cannonNote =
                         if spec.cannonCount > 0 then
                             "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " naval cannons equipped. Press [Space] or tap FIRE to shoot!"

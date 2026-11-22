@@ -1,47 +1,198 @@
 module Sails.Ingest exposing
-    ( defaultShipHash
+    ( DecodedShip
+    , decodeShipInput
+    , hasShipPayload
     , ingestDocument
     , ingestFromPlacements
-    , presets
+    , isSailPart
+    , maxShipParts
+    , validateShip
     )
 
-{-| Ingest LDraw models into physics-ready `ShipSpec` specifications.
-Detects hull displacement volume, masts, sails, rudders, and metacentric stability.
+{-| Load ships built in the brick building apps and check that they float.
+
+Accepts the same inputs as the other brick games of the family, decoded with
+the same vendor code:
+
+  - binary `#b/<base64url>` build links (bytes decoded in JS by
+    `url-hash-codec.js`, or the base64 text decoded here), read by
+    `Studio.HashPayload`,
+  - text `#model=...&parts=...` links, read by `Studio.UrlPayload`,
+  - raw LDraw `.ldr` / `.mpd` text from a file or a paste.
+
+`ingestDocument` then sorts the parts into hull, mast, sail and fittings, and
+`validateShip` turns that into a short error when the build is not a boat.
+
 -}
 
-import Dict exposing (Dict)
+import Base64
+import Flate
 import LDraw.Document as Document exposing (Document)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Types exposing (ShipSpec, lduToMeters)
+import Studio.HashPayload as HashPayload
+import Studio.UrlPayload as UrlPayload
 
 
-defaultShipHash : String
-defaultShipHash =
-    "#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws"
-
-
-{-| Built-in ship presets.
+{-| A decoded build and a title for it.
 -}
-presets : List { name : String, hash : String, description : String }
-presets =
-    [ { name = "Micro Sloop"
-      , hash = defaultShipHash
-      , description = "Classic single-masted coastal sloop. Agile and balanced, ideal for navigating tight harbor channels."
-      }
-    , { name = "Gaff Cutter"
-      , hash = "#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws"
-      , description = "Sturdy ocean cutter with broad waterline beam and heavy keel for high stability in strong winds."
-      }
-    , { name = "Twin-Mast Schooner"
-      , hash = "#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws"
-      , description = "Fast double-masted vessel with large total sail area for reaching high speeds downwind."
-      }
-    , { name = "Catamaran Racer"
-      , hash = "#b/FYixDYMwEADvwR-lI0XK7JBXXjaO6ChooaKHKRiHkg1YD1PcnXT9IDzUU7I1uJmrW8pr-LlH9X9sF81tzBZmPkDDs5jp-waBrQBdVdKMt9mlruCUMdRwCFrmiws"
-      , description = "Twin-hull modern racer with wide righting moment and minimal water resistance."
-      }
-    ]
+type alias DecodedShip =
+    { document : Document
+    , title : String
+    }
+
+
+{-| Builds with more parts than this are refused: they would be slow to load
+and to draw on a phone.
+-}
+maxShipParts : Int
+maxShipParts =
+    600
+
+
+{-| Whether a URL or hash carries a build (`#b/...` or `#model=...`).
+-}
+hasShipPayload : String -> Bool
+hasShipPayload raw =
+    let
+        fragment =
+            HashPayload.extractFragment (String.trim raw)
+    in
+    (HashPayload.parseDirectBase64 raw /= Nothing)
+        || String.startsWith "model=" fragment
+        || String.contains "&model=" fragment
+
+
+{-| Decode a build from bytes already inflated by JS (if any) or from a URL,
+a hash or LDraw text. Errors are short sentences to show the player.
+-}
+decodeShipInput : Maybe (List Int) -> String -> Result String DecodedShip
+decodeShipInput maybeBytes rawInput =
+    let
+        trimmed =
+            String.trim rawInput
+    in
+    case maybeBytes |> Maybe.andThen HashPayload.decodeBytes of
+        Just payload ->
+            Ok (named payload.document)
+
+        Nothing ->
+            if String.isEmpty trimmed then
+                Err "Paste a build link first."
+
+            else if isRawLdrText trimmed then
+                Ok (named (Document.parse trimmed))
+
+            else
+                case HashPayload.parseDirectBase64 trimmed of
+                    Just b64 ->
+                        case decodeBase64Payload b64 of
+                            Just doc ->
+                                Ok (named doc)
+
+                            Nothing ->
+                                Err "That build link is damaged and could not be read."
+
+                    Nothing ->
+                        case (UrlPayload.decodeHash (HashPayload.extractFragment trimmed)).modelText of
+                            Just text ->
+                                Ok (named (Document.parse text))
+
+                            Nothing ->
+                                Err "That is not a build link. Copy the link from the building app."
+
+
+named : Document -> DecodedShip
+named doc =
+    { document = doc, title = modelTitle doc }
+
+
+{-| Check that a decoded build can sail: it has bricks, is not too big for a
+phone, and has enough hull to float. Returns the ship's specification.
+-}
+validateShip : Document -> Result String ShipSpec
+validateShip doc =
+    let
+        placements =
+            Document.flattenedPlacements doc
+
+        count =
+            List.length placements
+    in
+    if count == 0 then
+        Err "That build has no bricks."
+
+    else if count > maxShipParts then
+        Err ("That build is too big to sail here (" ++ String.fromInt count ++ " parts, at most " ++ String.fromInt maxShipParts ++ ").")
+
+    else
+        let
+            spec =
+                ingestDocument (modelTitle doc) doc
+        in
+        case (Analyze.analyzeShip spec).seaworthiness of
+            Unseaworthy reason ->
+                Err ("Not a boat: " ++ reason)
+
+            _ ->
+                Ok spec
+
+
+isRawLdrText : String -> Bool
+isRawLdrText input =
+    String.lines input
+        |> List.any
+            (\line ->
+                let
+                    t =
+                        String.trim line
+                in
+                String.startsWith "1 " t || String.startsWith "0 FILE" t || String.startsWith "0 Name:" t
+            )
+
+
+decodeBase64Payload : String -> Maybe Document
+decodeBase64Payload b64 =
+    Base64.toBytes (HashPayload.base64UrlToStandard b64)
+        |> Maybe.andThen Flate.inflate
+        |> Maybe.andThen HashPayload.decode
+        |> Maybe.map .document
+
+
+modelTitle : Document -> String
+modelTitle doc =
+    let
+        main =
+            Document.mainSubmodel doc
+
+        fromMeta entry =
+            case entry of
+                Document.Raw raw ->
+                    let
+                        t =
+                            String.trim raw
+                    in
+                    if String.startsWith "0 Name:" t then
+                        Just (String.trim (String.dropLeft 7 t))
+
+                    else
+                        Nothing
+
+                Document.PlacementEntry _ ->
+                    Nothing
+
+        title =
+            List.filterMap fromMeta main.entries
+                |> List.head
+                |> Maybe.withDefault main.name
+    in
+    if String.endsWith ".ldr" (String.toLower title) || String.endsWith ".mpd" (String.toLower title) then
+        String.dropRight 4 title
+
+    else
+        title
 
 
 type PartCategory
@@ -76,6 +227,14 @@ classifyPart rawName yPos =
 
     else
         DeckFitting
+
+
+{-| Whether a part file is a sail (flags, cloth, sails and wedge plates).
+Used to give another player's copy of a loaded build its player colour.
+-}
+isSailPart : String -> Bool
+isSailPart part =
+    classifyPart part 0 == Sail
 
 
 {-| Ingest an LDraw document into a `ShipSpec`.
