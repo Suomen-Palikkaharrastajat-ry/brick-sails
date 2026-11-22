@@ -8,8 +8,9 @@
 // - Neutral point: the angle at race start (`calibrateTilt` port) is
 //   "straight ahead". Rotating the screen re-calibrates.
 // - Dead zone of a few degrees, full helm at about 22 degrees.
+// - On by default on phones (`(pointer: coarse)`), off elsewhere.
 // - On/off toggle: any element with `data-tilt-toggle`. The choice is saved
-//   in localStorage. On iOS the permission prompt must run inside a tap,
+//   in localStorage and overrides the default. On iOS the permission prompt must run inside a tap,
 //   so the toggle and the start button (`data-tilt-start`) are handled here,
 //   in the click itself, not through an Elm command.
 // - If permission is denied or no sensor exists, tilt quietly switches off
@@ -21,12 +22,28 @@ const STORAGE_KEY = 'sails.steerMode'
 const DEAD_ZONE_DEG = 3
 const FULL_LOCK_DEG = 22
 
-function readMode() {
+// Phones (touch-primary screens) start with tilt on; other devices start with
+// buttons. A choice saved with the toggle always wins over this default.
+export function defaultTiltOn(win = typeof window !== 'undefined' ? window : undefined) {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === 'tilt'
+    return typeof win?.matchMedia === 'function' && win.matchMedia('(pointer: coarse)').matches
   } catch {
     return false
   }
+}
+
+export function resolveMode(saved, phoneDefault) {
+  if (saved === 'tilt') return true
+  if (saved === 'touch') return false
+  return phoneDefault
+}
+
+function readMode() {
+  let saved = null
+  try {
+    saved = window.localStorage.getItem(STORAGE_KEY)
+  } catch {}
+  return resolveMode(saved, defaultTiltOn())
 }
 
 function saveMode(tilt) {
@@ -157,7 +174,8 @@ export function setupTilt(ports) {
   window.addEventListener('orientationchange', recalibrate)
   window.screen?.orientation?.addEventListener?.('change', recalibrate)
 
-  // Without an iOS-style prompt, a saved "tilt" choice can start listening now.
+  // Without an iOS-style prompt, tilt (saved or default) can start listening
+  // now. With one, the first tap on the start button asks for permission.
   if (enabled && permitted) listen()
   sendStatus()
   setTimeout(sendStatus, 0)
