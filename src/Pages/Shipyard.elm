@@ -11,6 +11,7 @@ below.
 
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
+import Game.Multiplayer exposing (SessionMode(..))
 import Html exposing (Html, button, div, h1, input, p, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick, onInput, onSubmit)
@@ -24,8 +25,9 @@ import Sails.Types exposing (Boat, Course, LeaderboardEntry)
 type alias ShipyardActions msg =
     { onSelectBoat : String -> msg
     , onStartSailing : msg
-    , onStartHostMultiplayer : msg
-    , onJoinMultiplayer : msg
+    , onStartHostMultiplayer : SessionMode -> msg
+    , onJoinMultiplayer : String -> msg
+    , onRoomCodeChanged : String -> msg
     , onToggleMute : msg
     , onPasteChanged : String -> msg
     , onLoadPasted : msg
@@ -53,6 +55,7 @@ viewShipyard :
     , tilt : { available : Bool, enabled : Bool }
     , viewportWidth : Int
     , viewportHeight : Int
+    , roomCode : String
     , actions : ShipyardActions msg
     }
     -> Html msg
@@ -152,10 +155,11 @@ viewPanel :
         , loadError : Maybe String
         , personalBest : Maybe LeaderboardEntry
         , tilt : { available : Bool, enabled : Bool }
+        , roomCode : String
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, actions } =
+viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, roomCode, actions } =
     let
         bestLine =
             case personalBest of
@@ -209,22 +213,30 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
                 ]
             , p [ Attr.class "text-[11px] text-slate-400 text-center landscape:hidden lg:landscape:block" ] [ text controlsHint ]
             , viewLoadShip pasteText loadError actions
-            , div [ Attr.class "flex gap-1.5 pt-1 border-t border-slate-800" ]
-                [ button
-                    [ onClick actions.onStartHostMultiplayer
-                    , Attr.title "Host a 4-player room on this screen"
-                    , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs flex items-center justify-center gap-1.5"
+            , div [ Attr.class "flex flex-col gap-1.5 pt-1 border-t border-slate-800" ]
+                [ div [ Attr.class "flex gap-1.5" ]
+                    [ hostButton actions TwoPlayers "Host 2-player"
+                    , hostButton actions GridSession "Host grid (8)"
                     ]
-                    [ FeatherIcons.tv |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-                    , text "Host race"
-                    ]
-                , button
-                    [ onClick actions.onJoinMultiplayer
-                    , Attr.title "Join a hosted race"
-                    , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5"
-                    ]
-                    [ FeatherIcons.users |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-                    , text "Join race"
+                , div [ Attr.class "flex gap-1.5" ]
+                    [ input
+                        [ Attr.type_ "text"
+                        , Attr.value roomCode
+                        , onInput actions.onRoomCodeChanged
+                        , Attr.placeholder "Room code or link"
+                        , Attr.attribute "aria-label" "Room code"
+                        , Attr.attribute "autocomplete" "off"
+                        , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-xl bg-slate-800 border border-white/10 text-xs font-mono text-white placeholder:text-slate-500"
+                        ]
+                        []
+                    , button
+                        [ onClick (actions.onJoinMultiplayer roomCode)
+                        , Attr.title "Join a hosted race"
+                        , Attr.class "min-h-[44px] px-3 rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5"
+                        ]
+                        [ FeatherIcons.users |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                        , text "Join race"
+                        ]
                     ]
                 ]
             ]
@@ -301,4 +313,18 @@ statBar label v =
         [ span [ Attr.class "text-slate-400 font-bold uppercase text-[10px]" ] [ text label ]
         , div [ Attr.class "h-1.5 rounded-full bg-slate-700 overflow-hidden" ]
             [ div [ Attr.class "h-full bg-sky-400 rounded-full", Attr.style "width" (String.fromInt (round (clamp 0 1 v * 100)) ++ "%") ] [] ]
+        ]
+
+
+{-| A host button for one session mode (a 2-player room or a grid session).
+-}
+hostButton : ShipyardActions msg -> SessionMode -> String -> Html msg
+hostButton actions mode label =
+    button
+        [ onClick (actions.onStartHostMultiplayer mode)
+        , Attr.title (label ++ " on this screen")
+        , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs flex items-center justify-center gap-1.5"
+        ]
+        [ FeatherIcons.tv |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+        , text label
         ]

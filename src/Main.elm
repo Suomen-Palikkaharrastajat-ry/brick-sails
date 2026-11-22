@@ -90,14 +90,16 @@ type alias Model =
     , shipyardTime : Float
     , viewportWidth : Int
     , viewportHeight : Int
+    , roomCodeInput : String
     }
 
 
 type Msg
     = SelectBoat String
     | StartSailing
-    | StartHostMultiplayer
-    | JoinMultiplayer
+    | StartHostMultiplayer Multiplayer.SessionMode
+    | JoinMultiplayer String
+    | RoomCodeChanged String
     | MultiplayerRoomChanged Decode.Value
     | MultiplayerError String
     | MultiplayerVehicleLoaded { id : String, payload : String }
@@ -152,6 +154,7 @@ init flags =
             , shipyardTime = 0
             , viewportWidth = 1024
             , viewportHeight = 768
+            , roomCodeInput = ""
             }
 
         hasPayload =
@@ -245,20 +248,24 @@ update msg model =
             , GamePorts.calibrateTilt ()
             )
 
-        StartHostMultiplayer ->
+        StartHostMultiplayer mode ->
             ( model
             , GamePorts.createMultiplayerRoom
                 { roomId = ""
                 , courseId = model.course.id
                 , name = "Host"
                 , vehicleHash = sharedShip model
+                , maxPlayers = Multiplayer.sessionCapacity mode
                 }
             )
 
-        JoinMultiplayer ->
+        RoomCodeChanged code ->
+            ( { model | roomCodeInput = Multiplayer.roomCodeFrom code }, Cmd.none )
+
+        JoinMultiplayer code ->
             ( model
             , GamePorts.joinMultiplayerRoom
-                { roomId = ""
+                { roomId = Multiplayer.roomCodeFrom code
                 , name = "Sailor"
                 , vehicleHash = sharedShip model
                 }
@@ -653,11 +660,13 @@ view model =
                 , tilt = model.tilt
                 , viewportWidth = model.viewportWidth
                 , viewportHeight = model.viewportHeight
+                , roomCode = model.roomCodeInput
                 , actions =
                     { onSelectBoat = SelectBoat
                     , onStartSailing = StartSailing
                     , onStartHostMultiplayer = StartHostMultiplayer
                     , onJoinMultiplayer = JoinMultiplayer
+                    , onRoomCodeChanged = RoomCodeChanged
                     , onToggleMute = ToggleMute
                     , onPasteChanged = PasteChanged
                     , onLoadPasted = LoadPasted

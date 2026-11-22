@@ -15,6 +15,7 @@ at the nearest floating target in range; each hit takes 2 s off the time.
 import Browser.Events
 import FeatherIcons
 import Game.Audio as GameAudio
+import Game.Grid as Grid
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
 import Game.MultiplayerUI as MultiplayerUI
 import Game.Ports as GamePorts
@@ -748,87 +749,7 @@ viewSail :
         }
     -> Html SailMsg
 viewSail model callbacks =
-    case model.multiplayer of
-        Just room ->
-            case room.role of
-                HostCommentator ->
-                    viewHostSplitScreen callbacks.meshFor callbacks.props callbacks.remoteShip model room
-
-                JoinedPlayer ->
-                    viewRace model callbacks (Just room)
-
-        Nothing ->
-            viewRace model callbacks Nothing
-
-
-viewHostSplitScreen : (String -> Maybe ShipMesh) -> Render.Props -> RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen scenery props remoteShip model room =
-    let
-        qW =
-            max 160 (model.viewportWidth // 2)
-
-        qH =
-            max 120 (model.viewportHeight // 2)
-
-        boats =
-            List.map (remoteBoat remoteShip) room.players
-
-        quadrant slot =
-            case List.filter (\p -> p.slot == slot) room.players |> List.head of
-                Just p ->
-                    let
-                        cam =
-                            CameraRig.followView { yaw = (Vec3.toRecord p.rotation).y, distance = CameraRig.chaseDistance, focus = p.position }
-                    in
-                    div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
-                        [ Render.renderWorld cam
-                            { course = model.course
-                            , nextIndex = -1
-                            , boats = boats
-                            , guide = Nothing
-                            , targets = model.targets
-                            , balls = []
-                            , impacts = []
-                            , time = model.simTime
-                            , weather = Weather.conditions model.course.wind model.weather
-                            , scenery = scenery
-                            , treasureFound = []
-                            , props = props
-                            }
-                            qW
-                            qH
-                        , MultiplayerUI.viewPlayerBadge
-                            { slot = slot
-                            , name =
-                                if (remoteShip p.vehicleId).loading then
-                                    p.name ++ " · loading ship…"
-
-                                else
-                                    p.name
-                            , speedLabel = String.fromInt (round (p.speed * 1.94)) ++ " kn"
-                            , finished = p.finished
-                            }
-                        ]
-
-                Nothing ->
-                    MultiplayerUI.viewWaitingSlotCard slot room.roomId "sailor"
-    in
-    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
-        [ div [ Attr.class "grid grid-cols-2 grid-rows-2 w-full h-full" ]
-            [ quadrant 1, quadrant 2, quadrant 3, quadrant 4 ]
-        , MultiplayerUI.viewCommentatorHeader
-            { room = room
-            , startLabel = "START RACE"
-            , onCopyShareLink = CopyShareUrl
-            , onStartCountdown = StartMultiplayerCountdown
-            }
-        , case room.status of
-            Multiplayer.Countdown n ->
-                MultiplayerUI.viewCountdownOverlay { secondsRemaining = n }
-
-            _ ->
-                text ""
-        ]
+    viewRace model callbacks model.multiplayer
 
 
 viewRace :
@@ -861,30 +782,38 @@ viewRace model callbacks maybeRoom =
 
                 Racing ->
                     Nothing
+
+        worldArgs =
+            { course = model.course
+            , nextIndex =
+                if model.progress.finished then
+                    model.progress.totalWaypoints
+
+                else
+                    model.progress.currentWaypointIndex
+            , boats = boats
+            , guide = nextBuoy model |> Maybe.map (\n -> { from = model.state.position, to = n })
+            , targets = model.targets
+            , balls = model.cannonballs
+            , impacts = model.impacts
+            , time = model.simTime
+            , weather = Weather.conditions model.course.wind model.weather
+            , scenery = callbacks.meshFor
+            , treasureFound = model.progress.treasureFound
+            , props = callbacks.props
+            }
+
+        playerCount =
+            maybeRoom |> Maybe.map (\r -> List.length r.players) |> Maybe.withDefault 1
     in
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
         [ div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderWorld (CameraRig.followView model.follow)
-                { course = model.course
-                , nextIndex =
-                    if model.progress.finished then
-                        model.progress.totalWaypoints
+            [ case ( Grid.layoutFor (Grid.orientation model.viewportWidth model.viewportHeight) playerCount, maybeRoom ) of
+                ( Grid.Tiles shape, Just room ) ->
+                    viewBoatGrid (\camera w h -> Render.renderWorld camera worldArgs w h) shape model.viewportWidth model.viewportHeight room model
 
-                    else
-                        model.progress.currentWaypointIndex
-                , boats = boats
-                , guide = nextBuoy model |> Maybe.map (\n -> { from = model.state.position, to = n })
-                , targets = model.targets
-                , balls = model.cannonballs
-                , impacts = model.impacts
-                , time = model.simTime
-                , weather = Weather.conditions model.course.wind model.weather
-                , scenery = callbacks.meshFor
-                , treasureFound = model.progress.treasureFound
-                , props = callbacks.props
-                }
-                model.viewportWidth
-                model.viewportHeight
+                _ ->
+                    Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight
             ]
         , if model.progress.finished then
             text ""
@@ -915,6 +844,8 @@ viewRace model callbacks maybeRoom =
                     , onExit = callbacks.onReturnToShipyard
                     }
                 }
+        , hostHeader maybeRoom
+        , lobbyRoster maybeRoom
         , case maybeRoom of
             Just room ->
                 div [ Attr.class "absolute bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
@@ -957,3 +888,94 @@ viewRace model callbacks maybeRoom =
           else
             text ""
         ]
+
+
+{-| One view per player on the grid, each following its own boat (the local
+player's from the local boat), the local player's first.
+-}
+viewBoatGrid :
+    ({ eye : Vec3, target : Vec3 } -> Int -> Int -> Html SailMsg)
+    -> Grid.GridShape
+    -> Int
+    -> Int
+    -> RoomState
+    -> SailModel
+    -> Html SailMsg
+viewBoatGrid renderFrom shape width height room model =
+    let
+        tileW =
+            max 160 (width // shape.cols)
+
+        tileH =
+            max 120 (height // shape.rows)
+
+        followOf p =
+            if p.slot == room.mySlot then
+                { yaw = model.state.heading, distance = CameraRig.chaseDistance, focus = model.state.position }
+
+            else
+                { yaw = (Vec3.toRecord p.rotation).y, distance = CameraRig.chaseDistance, focus = p.position }
+
+        tile p =
+            div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
+                [ renderFrom (CameraRig.followView (followOf p)) tileW tileH
+                , MultiplayerUI.viewPlayerBadge
+                    { slot = p.slot
+                    , name =
+                        if p.slot == room.mySlot then
+                            p.name ++ " (you)"
+
+                        else
+                            p.name
+                    , speedLabel = String.fromInt (round (p.speed * 1.94)) ++ " kn"
+                    , finished = p.finished
+                    }
+                ]
+    in
+    div
+        [ Attr.class "absolute inset-0"
+        , Attr.style "display" "grid"
+        , Attr.style "grid-template-columns" ("repeat(" ++ String.fromInt shape.cols ++ ", minmax(0, 1fr))")
+        , Attr.style "grid-template-rows" ("repeat(" ++ String.fromInt shape.rows ++ ", minmax(0, 1fr))")
+        ]
+        (List.map tile (Grid.selfFirst .slot room.mySlot room.players))
+
+
+{-| Commentator controls (player count, copy link, start) for the host of a room.
+-}
+hostHeader : Maybe RoomState -> Html SailMsg
+hostHeader maybeRoom =
+    case maybeRoom of
+        Just room ->
+            case room.role of
+                HostCommentator ->
+                    MultiplayerUI.viewCommentatorHeader
+                        { room = room
+                        , startLabel = "START RACE"
+                        , onCopyShareLink = CopyShareUrl
+                        , onStartCountdown = StartMultiplayerCountdown
+                        }
+
+                JoinedPlayer ->
+                    text ""
+
+        Nothing ->
+            text ""
+
+
+{-| Who is in the room, while it waits in its lobby.
+-}
+lobbyRoster : Maybe RoomState -> Html SailMsg
+lobbyRoster maybeRoom =
+    case maybeRoom of
+        Just room ->
+            case room.status of
+                Lobby ->
+                    div [ Attr.class "absolute bottom-3 inset-x-0 z-30 px-3 pointer-events-none" ]
+                        [ MultiplayerUI.viewRoster room ]
+
+                _ ->
+                    text ""
+
+        Nothing ->
+            text ""
