@@ -7,7 +7,8 @@ import Expect
 import Math.Vector3 as Vec3
 import Sails.Boats as Boats
 import Sails.Physics as Physics
-import Sails.Types exposing (SailingState, Wind)
+import Sails.Types exposing (CourseProgress, SailingState, Wind)
+import Sails.Weather as Weather exposing (Spell(..), Weather)
 import Test exposing (Test, describe, test)
 
 
@@ -99,6 +100,86 @@ turnedWith area wind =
                 (List.range 1 100)
     in
     abs (Physics.angleDiff after.heading moving.heading)
+
+
+{-| Autopilot round the course in a weather that keeps going, with a sail
+area. Returns the progress when the course is done or `limit` runs out.
+-}
+raceIn : Weather -> Float -> Float -> CourseProgress
+raceIn weather0 area limit =
+    let
+        go weather state progress =
+            if progress.finished || progress.elapsedSeconds > limit then
+                progress
+
+            else
+                let
+                    goal =
+                        List.drop progress.currentWaypointIndex course.waypoints
+                            |> List.head
+                            |> Maybe.map (.position >> Vec3.toRecord)
+                            |> Maybe.withDefault { x = 0, y = 0, z = 0 }
+
+                    p =
+                        Vec3.toRecord state.position
+
+                    bearing =
+                        atan2 (goal.x - p.x) (goal.z - p.z) * 180 / pi
+
+                    ( nextWeather, _ ) =
+                        Weather.step 0.02 weather
+
+                    now =
+                        Weather.conditions course.wind nextWeather
+
+                    next =
+                        Physics.stepBoat
+                            { dt = 0.02
+                            , time = progress.elapsedSeconds
+                            , steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
+                            , throttle = 1
+                            , sea = now.sea
+                            , sail = area
+                            }
+                            now.wind
+                            Boats.default
+                            course.islands
+                            state
+
+                    ( nextProgress, _ ) =
+                        Physics.stepProgress 0.02 next course.waypoints progress
+                in
+                go nextWeather next nextProgress
+    in
+    go weather0 (Physics.initSailingState course) (Physics.initProgress course)
+
+
+{-| The spells a seed's weather goes through in `seconds`, with how long
+each lasted.
+-}
+spells : Int -> Float -> List ( Spell, Float )
+spells seed seconds =
+    List.foldl
+        (\_ ( w, acc ) ->
+            let
+                ( next, _ ) =
+                    Weather.step 0.1 w
+            in
+            case acc of
+                ( spell, length ) :: rest ->
+                    if next.spell == spell then
+                        ( next, ( spell, length + 0.1 ) :: rest )
+
+                    else
+                        ( next, ( next.spell, 0.1 ) :: ( spell, length ) :: rest )
+
+                [] ->
+                    ( next, [ ( next.spell, 0.1 ) ] )
+        )
+        ( Weather.init seed, [] )
+        (List.range 1 (round (seconds / 0.1)))
+        |> Tuple.second
+        |> List.reverse
 
 
 suite : Test
@@ -232,6 +313,115 @@ suite =
                     Expect.all
                         [ \_ -> Expect.greaterThan 0.6 (stepped 10).sail
                         , \_ -> Expect.within (Expect.Absolute 0.05) 0.35 (stepped 200).sail
+                        ]
+                        ()
+            ]
+        , describe "Storms"
+            [ test "fair weather is the course wind and the normal sea" <|
+                \_ ->
+                    let
+                        now =
+                            Weather.conditions course.wind (Weather.init 42)
+                    in
+                    Expect.equal ( now.wind, now.sea, now.rain ) ( course.wind, 1, 0 )
+            , test "storms raise the wind and the waves" <|
+                \_ ->
+                    let
+                        windOf spell =
+                            (Weather.conditions course.wind (Weather.developed spell)).wind.speed
+
+                        seaOf spell =
+                            (Weather.conditions course.wind (Weather.developed spell)).sea
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan (course.wind.speed * 1.5) (windOf Thunderstorm)
+                        , \_ -> Expect.greaterThan (course.wind.speed * 1.3) (windOf Squall)
+                        , \_ -> Expect.lessThan course.wind.speed (windOf Lull)
+                        , \_ -> Expect.atLeast 2.2 (seaOf Thunderstorm)
+                        , \_ -> Expect.greaterThan 1.4 (seaOf Squall)
+                        , \_ -> Expect.lessThan 1 (seaOf Lull)
+                        , \_ -> Expect.greaterThan (2 * peakWave 1) (peakWave (seaOf Thunderstorm))
+                        ]
+                        ()
+            , test "storms start at random and end after a while" <|
+                \_ ->
+                    let
+                        runs =
+                            List.map (\seed -> spells seed 600) [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+
+                        storms =
+                            List.concat runs |> List.filter (\( s, _ ) -> s /= Fair)
+
+                        -- The last spell of a run may be cut short by the end of the run.
+                        finished =
+                            List.concatMap (List.reverse >> List.drop 1) runs
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True (List.all (\r -> List.any (\( s, _ ) -> s /= Fair) r) runs)
+                        , \_ -> Expect.equal True (List.all (\( s, l ) -> s == Fair || l <= 26.2) finished)
+                        , \_ -> Expect.equal True (List.all (\r -> List.head r |> Maybe.map (\( s, l ) -> s == Fair && l >= 9.9) |> Maybe.withDefault False) runs)
+                        , \_ -> Expect.equal True (List.member Squall (List.map Tuple.first storms) && List.member Thunderstorm (List.map Tuple.first storms) && List.member Lull (List.map Tuple.first storms))
+                        , \_ -> Expect.notEqual (spells 1 300) (spells 2 300)
+                        ]
+                        ()
+            , test "a calm before the storm is always followed by a thunderstorm" <|
+                \_ ->
+                    let
+                        pairs r =
+                            List.map2 Tuple.pair r (List.drop 1 r)
+                    in
+                    List.range 1 12
+                        |> List.concatMap (\seed -> pairs (List.map Tuple.first (spells seed 600)))
+                        |> List.filter (\( a, _ ) -> a == Lull)
+                        |> List.all (\( _, b ) -> b == Thunderstorm)
+                        |> Expect.equal True
+            , test "the same seed always gives the same weather" <|
+                \_ ->
+                    Expect.equal (spells 99 400) (spells 99 400)
+            , test "lightning strikes in a thunderstorm, never in a squall" <|
+                \_ ->
+                    let
+                        bolts w =
+                            List.foldl
+                                (\_ ( s, n ) ->
+                                    let
+                                        ( next, struck ) =
+                                            Weather.step 0.02 s
+                                    in
+                                    ( next
+                                    , if struck then
+                                        n + 1
+
+                                      else
+                                        n
+                                    )
+                                )
+                                ( w, 0 )
+                                (List.range 1 1000)
+                                |> Tuple.second
+                    in
+                    Expect.all
+                        [ \_ -> Expect.atLeast 2 (bolts (Weather.developed Thunderstorm))
+                        , \_ -> Expect.equal 0 (bolts (Weather.developed Squall))
+                        ]
+                        ()
+            , test "the course stays finishable in a thunderstorm that never ends" <|
+                \_ ->
+                    let
+                        reefed =
+                            raceIn (Weather.developed Thunderstorm) 0.65 400
+
+                        full =
+                            raceIn (Weather.developed Thunderstorm) 1 400
+
+                        fairRace =
+                            raceIn (Weather.init 1) 1 400
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True reefed.finished
+                        , \_ -> Expect.equal True full.finished
+                        , \_ -> Expect.atMost (course.targetSeconds * 3) reefed.elapsedSeconds
+                        , \_ -> Expect.greaterThan fairRace.elapsedSeconds reefed.elapsedSeconds
                         ]
                         ()
             ]

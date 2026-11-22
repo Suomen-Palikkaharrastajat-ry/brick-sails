@@ -41,6 +41,7 @@ import Sails.Types
         , SailingState
         , Target
         )
+import Sails.Weather as Weather exposing (Weather)
 
 
 type Phase
@@ -71,6 +72,8 @@ type alias SailModel =
     , touchRight : Bool
     , tiltSteer : Float
     , sailLevel : Int
+    , weather : Weather
+    , run : Int
     , tilt : { available : Bool, enabled : Bool }
     , toast : Maybe ( String, Float )
     , viewportWidth : Int
@@ -160,11 +163,26 @@ initSail boat course audioMuted pb maybeMulti tilt width height =
     , touchRight = False
     , tiltSteer = 0
     , sailLevel = Physics.defaultSailLevel
+    , weather = Weather.init (weatherSeed course maybeMulti 0)
+    , run = 0
     , tilt = tilt
     , toast = Nothing
     , viewportWidth = width
     , viewportHeight = height
     }
+
+
+{-| Seed of the race's weather. In a room every player gets the room's
+weather; alone, each new run of the course gets new weather.
+-}
+weatherSeed : Course -> Maybe RoomState -> Int -> Int
+weatherSeed course room run =
+    case room of
+        Just r ->
+            Weather.seedFrom (course.id ++ "#" ++ r.roomId)
+
+        Nothing ->
+            Weather.seedFrom (course.id ++ "/" ++ String.fromInt run)
 
 
 sfx : GameAudio.OneShotSound -> Cmd msg
@@ -365,7 +383,14 @@ update msg model =
                 fresh =
                     initSail model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
             in
-            ( { fresh | multiplayer = model.multiplayer }, GamePorts.calibrateTilt () )
+            ( { fresh
+                | multiplayer = model.multiplayer
+                , run = model.run + 1
+                , weather = Weather.init (weatherSeed model.course model.multiplayer (model.run + 1))
+                , sailLevel = model.sailLevel
+              }
+            , GamePorts.calibrateTilt ()
+            )
 
         CopyShareUrl ->
             ( model
@@ -434,6 +459,12 @@ tick dt model =
         racing =
             phase == Racing && not model.progress.finished
 
+        ( weather, boltStruck ) =
+            Weather.step dt model.weather
+
+        conditions =
+            Weather.conditions model.course.wind weather
+
         state =
             Physics.stepBoat
                 { dt = dt
@@ -445,10 +476,10 @@ tick dt model =
 
                     else
                         0
-                , sea = 1
+                , sea = conditions.sea
                 , sail = Tuple.second (Physics.sailLevel model.sailLevel)
                 }
-                model.course.wind
+                conditions.wind
                 model.boat
                 model.course.islands
                 model.state
@@ -534,6 +565,11 @@ tick dt model =
 
               else
                 Cmd.none
+            , if boltStruck && not model.audioMuted then
+                sfx (GameAudio.Impact 0.5)
+
+              else
+                Cmd.none
             , if state.bumped && not model.state.bumped then
                 sfx (GameAudio.Splash 0.8)
 
@@ -564,8 +600,8 @@ tick dt model =
             else
                 Ports.updateAudioState
                     { active = not progress.finished
-                    , windGain = 0.15 + 0.35 * state.sailPower
-                    , windHz = 300 + 200 * state.sailPower
+                    , windGain = clamp 0 0.9 ((0.15 + 0.35 * state.sailPower) * (0.6 + 0.4 * conditions.wind.speed / model.course.wind.speed) + 0.2 * conditions.rain)
+                    , windHz = 300 + 200 * state.sailPower + 120 * conditions.gloom
                     , washGain = clamp 0 0.6 (state.speed / 14)
                     , washHz = 140 + state.speed * 20
                     , hullGain = clamp 0 0.2 (abs state.heel / 40)
@@ -597,7 +633,8 @@ tick dt model =
         , phase = phase
         , follow = follow
         , simTime = time
-        , targets = Physics.stepTargets dt time targets
+        , targets = Physics.stepTargets conditions.sea dt time targets
+        , weather = weather
         , cannonballs = afterShips
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes)
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
@@ -726,6 +763,7 @@ viewHostSplitScreen remoteShip model room =
                             , balls = []
                             , impacts = []
                             , time = model.simTime
+                            , weather = Weather.conditions model.course.wind model.weather
                             }
                             qW
                             qH
@@ -810,6 +848,7 @@ viewRace model callbacks maybeRoom =
                 , balls = model.cannonballs
                 , impacts = model.impacts
                 , time = model.simTime
+                , weather = Weather.conditions model.course.wind model.weather
                 }
                 model.viewportWidth
                 model.viewportHeight
@@ -830,7 +869,9 @@ viewRace model callbacks maybeRoom =
                 , countdown = countdown
                 , toast = Maybe.map Tuple.first model.toast
                 , sailLevel = model.sailLevel
-                , wind = model.course.wind
+                , wind = (Weather.conditions model.course.wind model.weather).wind
+                , weather = Weather.label model.weather
+                , flash = (Weather.conditions model.course.wind model.weather).flash
                 , actions =
                     { onSteer = Steer
                     , onFire = FireCannons

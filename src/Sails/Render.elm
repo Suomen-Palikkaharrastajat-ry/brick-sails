@@ -37,6 +37,7 @@ import Sails.Types
         , Target
         , Waypoint
         )
+import Sails.Weather exposing (Conditions)
 import WebGL
 import WebGL.Settings.Blend as Blend
 import WebGL.Settings.DepthTest as DepthTest
@@ -70,6 +71,7 @@ renderWorld :
         , balls : List Cannonball
         , impacts : List CombatImpact
         , time : Float
+        , weather : Conditions
         }
     -> Int
     -> Int
@@ -78,6 +80,7 @@ renderWorld cam scene width height =
     let
         ctx =
             Ocean.makeCtx cam scene.time width height
+                |> Ocean.withWeather scene.weather
 
         entities =
             [ Ocean.skyEntity ctx
@@ -90,6 +93,9 @@ renderWorld cam scene width height =
                 ++ guideEntities ctx scene.guide
                 ++ List.map (ballEntity ctx) scene.balls
                 ++ List.map (impactEntity ctx) scene.impacts
+                ++ List.concatMap (sprayEntities ctx scene.time) (List.take 1 scene.boats)
+                ++ boltEntities ctx scene.weather
+                ++ rainEntities ctx scene.time scene.weather
     in
     canvas width height entities
 
@@ -769,3 +775,215 @@ splashMesh =
             ++ prism 8 0.65 ( 0, 0 ) ( 0.35, 0.7 ) white
             ++ prism 8 0.3 ( 0, 0 ) ( 0.7, 1.0 ) white
         )
+
+
+
+-- WEATHER
+
+
+{-| Spray thrown up at the bow when the boat drives through a rough sea.
+-}
+sprayEntities : Ctx -> Float -> RenderBoat -> List WebGL.Entity
+sprayEntities ctx time rb =
+    let
+        s =
+            rb.state
+
+        p =
+            Vec3.toRecord s.position
+
+        rough =
+            clamp 0 1 ((ctx.sea - 1.1) / 1.2) * clamp 0 1 ((s.speed - 2) / 5)
+
+        rad =
+            degrees s.heading
+
+        puff i =
+            let
+                phase =
+                    fract (time * 1.4 + toFloat i * 0.5)
+
+                side =
+                    if i == 0 then
+                        1
+
+                    else
+                        -1
+
+                r =
+                    (0.4 + phase * 1.4) * rough
+
+                h =
+                    max 0.05 (sin (phase * pi)) * 1.6 * rough
+            in
+            ocean ctx
+                (Mat4.makeTranslate3
+                    (p.x + sin rad * 2.3 + side * cos rad * (0.6 + phase))
+                    (p.y + 0.2)
+                    (p.z + cos rad * 2.3 - side * sin rad * (0.6 + phase))
+                    |> Mat4.scale3 r h r
+                )
+                white
+                splashMesh
+    in
+    if rough > 0.05 then
+        [ puff 0, puff 1 ]
+
+    else
+        []
+
+
+fract : Float -> Float
+fract x =
+    x - toFloat (floor x)
+
+
+{-| A lightning bolt far off on the bearing of the last strike, while its
+flash lasts.
+-}
+boltEntities : Ctx -> Conditions -> List WebGL.Entity
+boltEntities ctx weather =
+    if weather.flash > 0.25 then
+        let
+            e =
+                Vec3.toRecord ctx.eye
+
+            rad =
+                degrees weather.bolt
+        in
+        [ ocean ctx
+            (Mat4.makeTranslate3 (e.x + sin rad * 150) 0 (e.z + cos rad * 150) |> rotY rad)
+            (vec3 1 1 1)
+            boltMesh
+        ]
+
+    else
+        []
+
+
+{-| Rain falling around the camera: two layers of streaks scrolled down at
+different speeds, slanted by the wind. The second layer only in heavy rain.
+-}
+rainEntities : Ctx -> Float -> Conditions -> List WebGL.Entity
+rainEntities ctx time weather =
+    let
+        e =
+            Vec3.toRecord ctx.eye
+
+        lean =
+            clamp 0 0.5 (weather.wind.speed / 40)
+
+        windRad =
+            degrees weather.wind.direction
+
+        layer speed offset =
+            let
+                fall =
+                    fract (time * speed / rainHeight + offset) * rainHeight
+            in
+            List.map
+                (\k ->
+                    ocean ctx
+                        (Mat4.makeTranslate3 e.x (e.y + rainHeight * (0.5 - toFloat k) - fall) e.z
+                            |> rotY windRad
+                            |> (\m -> Mat4.mul m (shear lean))
+                        )
+                        (vec3 0.78 0.84 0.92)
+                        rainMesh
+                )
+                [ 0, 1 ]
+    in
+    if weather.rain > 0.05 then
+        layer 22 0
+            ++ (if weather.rain > 0.5 then
+                    layer 17 0.5
+
+                else
+                    []
+               )
+
+    else
+        []
+
+
+{-| Lean the rain streaks downwind: x and z move with height.
+-}
+shear : Float -> Mat4
+shear lean =
+    Mat4.fromRecord
+        { m11 = 1
+        , m21 = 0
+        , m31 = 0
+        , m41 = 0
+        , m12 = 0
+        , m22 = 1
+        , m32 = -lean
+        , m42 = 0
+        , m13 = 0
+        , m23 = 0
+        , m33 = 1
+        , m43 = 0
+        , m14 = 0
+        , m24 = 0
+        , m34 = 0
+        , m44 = 1
+        }
+
+
+rainHeight : Float
+rainHeight =
+    30
+
+
+{-| Rain streaks scattered through a 70 x 30 x 70 m box around the origin,
+at fixed pseudo-random places.
+-}
+rainMesh : WebGL.Mesh PropVertex
+rainMesh =
+    let
+        pick i k =
+            fract (sin (toFloat i * 12.9898 + toFloat k * 78.233) * 43758.5453)
+
+        streak i =
+            let
+                x =
+                    (pick i 1 - 0.5) * 70
+
+                y =
+                    (pick i 2 - 0.5) * rainHeight
+
+                z =
+                    (pick i 3 - 0.5) * 70
+            in
+            box ( x - 0.025, y, z - 0.025 ) ( x + 0.025, y + 1.1, z + 0.025 ) white
+    in
+    WebGL.triangles (List.concatMap streak (List.range 0 599))
+
+
+{-| A jagged bolt from the cloud base to the sea, 80 m tall.
+-}
+boltMesh : WebGL.Mesh PropVertex
+boltMesh =
+    let
+        pts =
+            [ ( 0, 80 ), ( 4, 64 ), ( -2, 50 ), ( 5, 34 ), ( -1, 20 ), ( 3, 8 ), ( 0, 0 ) ]
+
+        seg ( ( x0, y0 ), ( x1, y1 ) ) =
+            let
+                dx =
+                    x1 - x0
+
+                dy =
+                    y1 - y0
+
+                len =
+                    sqrt (dx * dx + dy * dy)
+            in
+            box ( -0.6, 0, -0.6 ) ( 0.6, len, 0.6 ) (vec3 0.95 0.95 1)
+                |> transformTris
+                    (Mat4.makeTranslate3 x0 y0 0
+                        |> Mat4.rotate (atan2 -dx dy) (vec3 0 0 1)
+                    )
+    in
+    WebGL.triangles
+        (List.concatMap seg (List.map2 Tuple.pair pts (List.drop 1 pts)))

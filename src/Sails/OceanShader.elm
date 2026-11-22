@@ -37,7 +37,7 @@ type alias Ctx =
 `Sails.Physics.seaElevation`), `gloom` 0..1 (storm clouds: darker sky, sea
 and light, closer fog) and lightning `flash` 0..1.
 -}
-withWeather : { sea : Float, gloom : Float, flash : Float } -> Ctx -> Ctx
+withWeather : { a | sea : Float, gloom : Float, flash : Float } -> Ctx -> Ctx
 withWeather w ctx =
     { ctx | sea = w.sea, gloom = clamp 0 1 w.gloom, flash = clamp 0 1 w.flash }
 

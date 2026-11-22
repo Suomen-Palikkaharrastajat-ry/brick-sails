@@ -840,10 +840,11 @@ checkShipHits balls ships =
     List.foldl step ( [], [], [] ) balls
 
 
-{-| Age sinking targets; keep their bob in sync with the water.
+{-| Age sinking targets; keep their bob in sync with the water of the sea
+state `sea`.
 -}
-stepTargets : Float -> Float -> List Target -> List Target
-stepTargets dt time targets =
+stepTargets : Float -> Float -> Float -> List Target -> List Target
+stepTargets sea dt time targets =
     List.map
         (\t ->
             let
@@ -851,7 +852,7 @@ stepTargets dt time targets =
                     Vec3.toRecord t.position
             in
             { t
-                | position = vec3 p.x (waterElevation p.x p.z time) p.z
+                | position = vec3 p.x (seaElevation sea p.x p.z time) p.z
                 , sinkAge =
                     if t.sunk then
                         t.sinkAge + dt

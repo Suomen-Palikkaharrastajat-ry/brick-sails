@@ -53,6 +53,8 @@ viewHud :
     , toast : Maybe String
     , sailLevel : Int
     , wind : Wind
+    , weather : Maybe String
+    , flash : Float
     , actions : HudActions msg
     }
     -> Html msg
@@ -61,7 +63,8 @@ viewHud cfg =
         [ Attr.class "absolute inset-0 z-20 pointer-events-none select-none overflow-hidden text-white"
         , Attr.style "padding" "max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
         ]
-        [ div [ Attr.class "relative w-full h-full" ]
+        [ viewFlash cfg.flash
+        , div [ Attr.class "relative w-full h-full" ]
             [ div [ Attr.class "absolute top-0 left-0 right-0 flex justify-between items-start gap-2" ]
                 [ viewStatus cfg
                 , viewTopButtons cfg
@@ -88,12 +91,13 @@ panel =
 viewStatus :
     { a
         | progress : CourseProgress
-        , course : Course
         , state : SailingState
         , cameraYaw : Float
+        , wind : Wind
+        , weather : Maybe String
     }
     -> Html msg
-viewStatus { progress, course, state, cameraYaw } =
+viewStatus { progress, state, cameraYaw, wind, weather } =
     let
         total =
             progress.totalWaypoints
@@ -117,7 +121,7 @@ viewStatus { progress, course, state, cameraYaw } =
 
         -- Screen angle of the wind arrow: camera yaw minus the direction the wind blows to.
         windRotation =
-            cameraYaw - course.wind.direction
+            cameraYaw - wind.direction
 
         powerLabel =
             if state.sailPower > 0.9 then
@@ -152,7 +156,46 @@ viewStatus { progress, course, state, cameraYaw } =
               else
                 text ""
             ]
+        , case weather of
+            Just name ->
+                div
+                    [ Attr.class "flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wide text-violet-200"
+                    , Attr.attribute "data-testid" "weather"
+                    ]
+                    [ (if name == "Thunderstorm" then
+                        FeatherIcons.cloudLightning
+
+                       else if name == "Squall" then
+                        FeatherIcons.cloudRain
+
+                       else
+                        FeatherIcons.cloud
+                      )
+                        |> FeatherIcons.withSize 14
+                        |> FeatherIcons.toHtml []
+                    , text name
+                    , span [ Attr.class "text-slate-300 normal-case font-bold" ]
+                        [ text (String.fromInt (round (wind.speed * 1.94)) ++ " kn") ]
+                    ]
+
+            Nothing ->
+                text ""
         ]
+
+
+{-| The whole screen lights up for a moment when lightning strikes.
+-}
+viewFlash : Float -> Html msg
+viewFlash flash =
+    if flash > 0.02 then
+        div
+            [ Attr.class "absolute inset-0 bg-white"
+            , Attr.style "opacity" (String.fromFloat (0.45 * flash))
+            ]
+            []
+
+    else
+        text ""
 
 
 iconButton : List (Html.Attribute msg) -> String -> FeatherIcons.Icon -> Html msg
