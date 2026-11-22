@@ -1,6 +1,10 @@
 module Sails.Physics exposing
-    ( defaultCourse
+    ( checkCombatShipHits
+    , defaultCourse
+    , fireCannons
     , initSailingState
+    , stepCombatImpacts
+    , stepCombatProjectiles
     , stepPhysics
     , waterElevation
     , waterNormal
@@ -14,6 +18,8 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Types
     exposing
         ( BuoyKind(..)
+        , Cannonball
+        , CombatImpact
         , Course
         , CourseId(..)
         , SailingState
@@ -254,13 +260,25 @@ stepPhysics dt simTime wind spec state =
             else
                 liftForce
 
-        -- Project into ship forward axis
-        fThrust =
+        -- Project into ship forward axis (scaled by Sail Area to Displacement ratio)
+        dispCubicM =
+            spec.mass / 1025.0
+
+        sad =
+            spec.sailAreaSqMeters / max 0.1 (dispCubicM ^ (2.0 / 3.0))
+
+        thrustScale =
+            clamp 0.75 1.55 (sad / 18.0)
+
+        rawThrust =
             if inIrons then
                 -dragForce * 0.3 -- In irons, wind pushes ship slowly backwards
 
             else
                 fSailPerpWind * sin relWindRad - fSailAlongWind * cos relWindRad
+
+        fThrust =
+            rawThrust * thrustScale
 
         -- Project into ship lateral axis (heeling & drift force)
         fHeelLateral =
@@ -272,18 +290,28 @@ stepPhysics dt simTime wind spec state =
 
         -- 4. Hydrodynamic water resistance
         -- Forward skin friction + quadratic wave-making resistance
+        -- Slender hulls (high length/beam) experience less wave resistance
+        slenderness =
+            spec.lengthMeters / max 0.8 spec.beamMeters
+
+        slenderFactor =
+            clamp 0.7 1.4 (2.2 / slenderness)
+
         fricCoeff =
             0.08 * spec.mass
 
         waveResistCoeff =
-            0.02 * spec.mass * (1.0 + max 0.0 (vForward - 3.5) * 1.5)
+            0.02 * spec.mass * (1.0 + max 0.0 (vForward - 3.5) * 1.5) * slenderFactor
 
         waterDrag =
             fricCoeff * vForward + waveResistCoeff * vForward * abs vForward
 
-        -- Hull/keel lateral resistance prevents sliding sideways
+        -- Hull/keel lateral resistance prevents sliding sideways; deeper draft keel holds better line
+        keelHolding =
+            clamp 3.0 7.5 (3.2 + spec.draftMeters * 3.5)
+
         lateralDrag =
-            -vLateral * (spec.mass * 4.5)
+            -vLateral * (spec.mass * keelHolding)
 
         -- Total longitudinal and lateral acceleration
         netForwardForce =
@@ -387,3 +415,266 @@ stepPhysics dt simTime wind spec state =
     , waterSpeed = waterSpeedKnots
     , driftAngle = atan2 newVLateral (max 0.1 (abs newVForward)) * (180.0 / pi)
     }
+
+
+{-| Fire broadside naval cannons.
+Discharges cannonballs laterally out from port and starboard flanks,
+with visual recoil kick applied to the vessel.
+-}
+fireCannons : Int -> ShipSpec -> SailingState -> Int -> ( List Cannonball, SailingState )
+fireCannons sourceSlot spec state startId =
+    let
+        headingRad =
+            state.heading * pi / 180.0
+
+        fwdX =
+            sin headingRad
+
+        fwdZ =
+            cos headingRad
+
+        rtX =
+            cos headingRad
+
+        rtZ =
+            -sin headingRad
+
+        shipPos =
+            Vec3.toRecord state.position
+
+        shipVel =
+            Vec3.toRecord state.velocity
+
+        muzzleSpeed =
+            22.0
+
+        loft =
+            2.4
+
+        halfBeam =
+            max 0.6 (spec.beamMeters * 0.5)
+
+        halfLen =
+            max 0.8 (spec.lengthMeters * 0.3)
+
+        -- Determine number of cannon pairs (minimum 1 pair: 1 port, 1 starboard)
+        pairsCount =
+            max 1 (min 3 (spec.cannonCount // 2 + 1))
+
+        offsets =
+            case pairsCount of
+                1 ->
+                    [ 0.0 ]
+
+                2 ->
+                    [ -halfLen * 0.6, halfLen * 0.6 ]
+
+                _ ->
+                    [ -halfLen * 0.8, 0.0, halfLen * 0.8 ]
+
+        makePair idx longOffset =
+            let
+                starboardOrigin =
+                    vec3
+                        (shipPos.x + rtX * halfBeam + fwdX * longOffset)
+                        (shipPos.y + 0.45)
+                        (shipPos.z + rtZ * halfBeam + fwdZ * longOffset)
+
+                starboardVel =
+                    vec3
+                        (shipVel.x + rtX * muzzleSpeed)
+                        (shipVel.y + loft)
+                        (shipVel.z + rtZ * muzzleSpeed)
+
+                starboardBall =
+                    { id = startId + idx * 2
+                    , sourceSlot = sourceSlot
+                    , position = starboardOrigin
+                    , velocity = starboardVel
+                    , age = 0.0
+                    }
+
+                portOrigin =
+                    vec3
+                        (shipPos.x - rtX * halfBeam + fwdX * longOffset)
+                        (shipPos.y + 0.45)
+                        (shipPos.z - rtZ * halfBeam + fwdZ * longOffset)
+
+                portVel =
+                    vec3
+                        (shipVel.x - rtX * muzzleSpeed)
+                        (shipVel.y + loft)
+                        (shipVel.z - rtZ * muzzleSpeed)
+
+                portBall =
+                    { id = startId + idx * 2 + 1
+                    , sourceSlot = sourceSlot
+                    , position = portOrigin
+                    , velocity = portVel
+                    , age = 0.0
+                    }
+            in
+            [ starboardBall, portBall ]
+
+        balls =
+            List.indexedMap makePair offsets |> List.concat
+
+        -- Recoil kick: slight dip in pitch and momentary roll rocking
+        recoilHeel =
+            if modBy 2 startId == 0 then
+                3.5
+
+            else
+                -3.5
+
+        recoilState =
+            { state
+                | pitchAngle = state.pitchAngle - 1.8
+                , heelAngle = state.heelAngle + recoilHeel
+            }
+    in
+    ( balls, recoilState )
+
+
+{-| Advance active cannonballs along ballistic trajectory under gravity.
+Generates water splash impact if projectile strikes the ocean surface.
+-}
+stepCombatProjectiles : Float -> Float -> List Cannonball -> ( List Cannonball, List CombatImpact )
+stepCombatProjectiles dt simTime balls =
+    let
+        stepOne ball ( activeAcc, impactAcc ) =
+            let
+                newAge =
+                    ball.age + dt
+
+                p =
+                    Vec3.toRecord ball.position
+
+                v =
+                    Vec3.toRecord ball.velocity
+
+                newVy =
+                    v.y - 9.81 * dt
+
+                newPosX =
+                    p.x + v.x * dt
+
+                newPosY =
+                    p.y + newVy * dt
+
+                newPosZ =
+                    p.z + v.z * dt
+
+                waterH =
+                    waterElevation newPosX newPosZ simTime
+
+                hitWater =
+                    newPosY <= waterH
+            in
+            if newAge > 3.8 then
+                -- Expired
+                ( activeAcc, impactAcc )
+
+            else if hitWater then
+                let
+                    impact =
+                        { id = ball.id
+                        , position = vec3 newPosX waterH newPosZ
+                        , age = 0.0
+                        , isHit = False
+                        }
+                in
+                ( activeAcc, impact :: impactAcc )
+
+            else
+                let
+                    updatedBall =
+                        { ball
+                            | position = vec3 newPosX newPosY newPosZ
+                            , velocity = vec3 v.x newVy v.z
+                            , age = newAge
+                        }
+                in
+                ( updatedBall :: activeAcc, impactAcc )
+    in
+    List.foldl stepOne ( [], [] ) balls
+
+
+{-| Check cannonball collisions against ship targets.
+Returns remaining in-flight cannonballs, newly triggered hit impacts, and slots of ships struck.
+-}
+checkCombatShipHits :
+    List Cannonball
+    -> List { slot : Int, position : Vec3, radius : Float }
+    -> ( List Cannonball, List CombatImpact, List Int )
+checkCombatShipHits balls targets =
+    let
+        checkBall ball ( survBalls, hitsAcc, hitSlotsAcc ) =
+            let
+                bPos =
+                    Vec3.toRecord ball.position
+
+                checkTarget target =
+                    if target.slot == ball.sourceSlot then
+                        False
+
+                    else
+                        let
+                            tPos =
+                                Vec3.toRecord target.position
+
+                            dx =
+                                bPos.x - tPos.x
+
+                            dy =
+                                bPos.y - tPos.y
+
+                            dz =
+                                bPos.z - tPos.z
+
+                            distSq =
+                                dx * dx + dy * dy + dz * dz
+
+                            r =
+                                target.radius
+                        in
+                        distSq <= (r * r)
+
+                struckTarget =
+                    List.filter checkTarget targets |> List.head
+            in
+            case struckTarget of
+                Just target ->
+                    let
+                        hitImpact =
+                            { id = ball.id
+                            , position = ball.position
+                            , age = 0.0
+                            , isHit = True
+                            }
+                    in
+                    ( survBalls, hitImpact :: hitsAcc, target.slot :: hitSlotsAcc )
+
+                Nothing ->
+                    ( ball :: survBalls, hitsAcc, hitSlotsAcc )
+    in
+    List.foldl checkBall ( [], [], [] ) balls
+
+
+{-| Advance combat impact animations and cull finished ones.
+-}
+stepCombatImpacts : Float -> List CombatImpact -> List CombatImpact
+stepCombatImpacts dt impacts =
+    impacts
+        |> List.filterMap
+            (\imp ->
+                let
+                    newAge =
+                        imp.age + dt
+                in
+                if newAge < 0.65 then
+                    Just { imp | age = newAge }
+
+                else
+                    Nothing
+            )

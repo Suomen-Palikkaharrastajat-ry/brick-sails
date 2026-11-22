@@ -1,9 +1,11 @@
 module Sails.OceanShader exposing
     ( OceanVertex
     , buildBuoyMesh
+    , buildCombatMesh
     , buildIslandMesh
     , buildWaterMesh
     , buoyEntity
+    , combatEntity
     , islandEntity
     , oceanEntity
     , skyEntity
@@ -11,13 +13,13 @@ module Sails.OceanShader exposing
 
 {-| WebGL shaders and procedural meshes for Brick Sails:
 dynamic Gerstner wave water displacement, foam caps, specular sun glint,
-sky dome, archipelago islands, and IALA navigation buoys.
+sky dome, archipelago islands, naval combat projectiles, and IALA navigation buoys.
 -}
 
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Render.Camera as Camera exposing (Camera)
-import Sails.Types exposing (BuoyKind(..), Waypoint)
+import Sails.Types exposing (BuoyKind(..), Cannonball, CombatImpact, Waypoint)
 import WebGL
 import WebGL.Settings
 import WebGL.Settings.Blend as Blend
@@ -348,6 +350,167 @@ buoyEntity camera waypoints width height =
         buoyVertexShader
         buoyFragmentShader
         (buildBuoyMesh waypoints)
+        uniforms
+
+
+{-| Combat projectile and impact meshes (flying iron cannonballs, water splash plumes, hit spark bursts).
+-}
+buildCombatMesh : List Cannonball -> List CombatImpact -> WebGL.Mesh OceanVertex
+buildCombatMesh balls impacts =
+    let
+        ironCol =
+            vec3 0.14 0.14 0.16
+
+        splashCol =
+            vec3 0.92 0.96 1.0
+
+        hitCol =
+            vec3 1.0 0.65 0.15
+
+        makeOctahedron center col r =
+            let
+                p =
+                    Vec3.toRecord center
+
+                top =
+                    OceanVertex (vec3 p.x (p.y + r) p.z) (vec3 0.0 1.0 0.0) col
+
+                bottom =
+                    OceanVertex (vec3 p.x (p.y - r) p.z) (vec3 0.0 -1.0 0.0) col
+
+                v1 =
+                    OceanVertex (vec3 (p.x + r) p.y p.z) (vec3 1.0 0.0 0.0) col
+
+                v2 =
+                    OceanVertex (vec3 p.x p.y (p.z + r)) (vec3 0.0 0.0 1.0) col
+
+                v3 =
+                    OceanVertex (vec3 (p.x - r) p.y p.z) (vec3 -1.0 0.0 0.0) col
+
+                v4 =
+                    OceanVertex (vec3 p.x p.y (p.z - r)) (vec3 0.0 0.0 -1.0) col
+            in
+            [ ( top, v1, v2 )
+            , ( top, v2, v3 )
+            , ( top, v3, v4 )
+            , ( top, v4, v1 )
+            , ( bottom, v2, v1 )
+            , ( bottom, v3, v2 )
+            , ( bottom, v4, v3 )
+            , ( bottom, v1, v4 )
+            ]
+
+        makeSplashCone center age isHit =
+            let
+                p =
+                    Vec3.toRecord center
+
+                col =
+                    if isHit then
+                        hitCol
+
+                    else
+                        splashCol
+
+                hProgress =
+                    clamp 0.0 1.0 (age / 0.65)
+
+                height =
+                    if isHit then
+                        0.8 + 1.2 * sin (hProgress * pi)
+
+                    else
+                        max 0.2 (2.4 * sin (hProgress * pi))
+
+                r =
+                    if isHit then
+                        0.3 + hProgress * 1.6
+
+                    else
+                        0.4 + hProgress * 2.0
+
+                apex =
+                    OceanVertex (vec3 p.x (p.y + height) p.z) (vec3 0.0 1.0 0.0) col
+
+                segs =
+                    6
+
+                step =
+                    2.0 * pi / toFloat segs
+
+                baseVerts =
+                    List.range 0 segs
+                        |> List.map
+                            (\s ->
+                                let
+                                    a =
+                                        toFloat s * step
+
+                                    bx =
+                                        p.x + r * sin a
+
+                                    bz =
+                                        p.z + r * cos a
+
+                                    norm =
+                                        Vec3.normalize (vec3 (sin a) 0.5 (cos a))
+                                in
+                                OceanVertex (vec3 bx p.y bz) norm col
+                            )
+
+                fan list =
+                    case list of
+                        b1 :: b2 :: rest ->
+                            ( apex, b1, b2 ) :: fan (b2 :: rest)
+
+                        _ ->
+                            []
+            in
+            fan baseVerts
+
+        ballTriangles =
+            List.concatMap (\b -> makeOctahedron b.position ironCol 0.28) balls
+
+        impactTriangles =
+            List.concatMap (\imp -> makeSplashCone imp.position imp.age imp.isHit) impacts
+    in
+    WebGL.triangles (ballTriangles ++ impactTriangles)
+
+
+{-| WebGL entity for rendering flying cannonballs and splash/impact VFX.
+-}
+combatEntity : Camera -> List Cannonball -> List CombatImpact -> Int -> Int -> WebGL.Entity
+combatEntity camera balls impacts width height =
+    let
+        aspect =
+            toFloat (max 1 width) / toFloat (max 1 height)
+
+        view =
+            Camera.viewMatrix camera
+
+        perspective =
+            Camera.perspectiveMatrix aspect camera
+
+        eyePos =
+            camera.eye
+
+        sunDir =
+            Vec3.normalize (vec3 0.45 0.85 0.35)
+
+        uniforms =
+            { u_view = view
+            , u_perspective = perspective
+            , u_eyePos = eyePos
+            , u_sunDir = sunDir
+            , u_time = 0.0
+            }
+    in
+    WebGL.entityWith
+        [ DepthTest.default
+        ]
+        buoyVertexShader
+        buoyFragmentShader
+        (buildCombatMesh balls impacts)
         uniforms
 
 

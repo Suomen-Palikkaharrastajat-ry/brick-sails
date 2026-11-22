@@ -1,6 +1,8 @@
 module Sails.Types exposing
     ( BuoyKind(..)
     , CameraMode(..)
+    , Cannonball
+    , CombatImpact
     , Course
     , CourseId(..)
     , CourseProgress
@@ -129,7 +131,29 @@ type alias ShipSpec =
     , hullPartCount : Int
     , sailPartCount : Int
     , mastPartCount : Int
+    , cannonCount : Int
     , totalPartCount : Int
+    }
+
+
+{-| Flying cannonball projectile in 3D space.
+-}
+type alias Cannonball =
+    { id : Int
+    , sourceSlot : Int
+    , position : Vec3
+    , velocity : Vec3
+    , age : Float
+    }
+
+
+{-| Combat visual impact (water splash or wooden ship hull hit).
+-}
+type alias CombatImpact =
+    { id : Int
+    , position : Vec3
+    , age : Float
+    , isHit : Bool
     }
 
 
@@ -187,6 +211,8 @@ type SfxEvent
     | SfxHorn
     | SfxCheckpoint
     | SfxFinish
+    | SfxCannonFire
+    | SfxCannonHit
 
 
 {-| Leaderboard run entry.

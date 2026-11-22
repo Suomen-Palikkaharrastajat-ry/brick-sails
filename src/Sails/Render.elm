@@ -21,7 +21,9 @@ import Render.Style as Style
 import Sails.OceanShader as OceanShader
 import Sails.Types
     exposing
-        ( Course
+        ( Cannonball
+        , CombatImpact
+        , Course
         , SailingState
         , ShipSpec
         , lduToMeters
@@ -105,17 +107,19 @@ type alias RenderShipSlot =
     }
 
 
-{-| Render the full 3D sailing scene with multiple ships (host commentator split-screen or multiplayer opponents).
+{-| Render the full 3D sailing scene with multiple ships and naval cannonball combat VFX.
 -}
 renderSailingViewportMulti :
     Camera
     -> List RenderShipSlot
+    -> List Cannonball
+    -> List CombatImpact
     -> Course
     -> Float
     -> Int
     -> Int
     -> Html msg
-renderSailingViewportMulti camera shipSlots course simTime width height =
+renderSailingViewportMulti camera shipSlots balls impacts course simTime width height =
     let
         sky =
             OceanShader.skyEntity camera width height
@@ -129,6 +133,9 @@ renderSailingViewportMulti camera shipSlots course simTime width height =
         islands =
             OceanShader.islandEntity camera width height
 
+        combat =
+            OceanShader.combatEntity camera balls impacts width height
+
         shipEntities =
             List.concatMap
                 (\s ->
@@ -137,7 +144,7 @@ renderSailingViewportMulti camera shipSlots course simTime width height =
                 shipSlots
 
         allEntities =
-            [ sky, islands, ocean, buoys ] ++ shipEntities
+            [ sky, islands, ocean, buoys, combat ] ++ shipEntities
     in
     WebGL.toHtmlWith
         [ WebGL.alpha False
@@ -158,15 +165,19 @@ renderSailingViewport :
     -> SailingState
     -> ShipSpec
     -> Scene
+    -> List Cannonball
+    -> List CombatImpact
     -> Course
     -> Float
     -> Int
     -> Int
     -> Html msg
-renderSailingViewport camera state spec shipScene course simTime width height =
+renderSailingViewport camera state spec shipScene balls impacts course simTime width height =
     renderSailingViewportMulti
         camera
         [ { spec = spec, scene = shipScene, state = state, slot = 1 } ]
+        balls
+        impacts
         course
         simTime
         width

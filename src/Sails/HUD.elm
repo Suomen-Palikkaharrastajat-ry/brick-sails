@@ -39,6 +39,7 @@ type alias HudActions msg =
     , onSheetIn : msg
     , onSheetOut : msg
     , onTack : msg
+    , onFireCannons : msg
     }
 
 
@@ -51,10 +52,12 @@ viewHudOverlay :
     , progress : CourseProgress
     , audioMuted : Bool
     , cameraMode : CameraMode
+    , cannonCooldown : Float
+    , hitsScored : Int
     , actions : HudActions msg
     }
     -> Html msg
-viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, actions } =
+viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, cannonCooldown, hitsScored, actions } =
     div
         [ Attr.class "absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-20 select-none overflow-hidden"
         ]
@@ -62,8 +65,18 @@ viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, actions 
           div [ Attr.class "flex justify-between items-start w-full pointer-events-auto" ]
             [ -- Left Top: Compass & Wind Rose
               viewWindRose state course
-            , -- Center Top: Waypoint & Race Timer
-              viewTimerSplit progress course
+            , -- Center Top: Waypoint & Race Timer & Combat Score
+              div [ Attr.class "flex flex-col items-center gap-1.5" ]
+                [ viewTimerSplit progress course
+                , if hitsScored > 0 then
+                    div [ Attr.class "flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/85 border border-rose-500/40 text-rose-300 text-xs font-bold shadow-lg" ]
+                        [ FeatherIcons.target |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+                        , text (String.fromInt hitsScored ++ " Broadside Hits")
+                        ]
+
+                  else
+                    text ""
+                ]
             , -- Right Top: Controls (Camera, Audio Mute, Shipyard return)
               div [ Attr.class "flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-2 rounded-2xl border border-white/10 shadow-lg text-white" ]
                 [ button
@@ -110,8 +123,8 @@ viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, actions 
           div [ Attr.class "flex justify-between items-end w-full pointer-events-auto gap-4" ]
             [ -- Bottom Left: Knotmeter & Heel
               viewSpeedAndHeel state
-            , -- Bottom Center/Right: Touch Controls (Tack, Trim Sheet, Rudder)
-              viewTouchControls state actions
+            , -- Bottom Center/Right: Touch Controls (Fire Cannons, Tack, Trim Sheet, Rudder)
+              viewTouchControls state cannonCooldown actions
             ]
         ]
 
@@ -247,15 +260,36 @@ viewSpeedAndHeel state =
         ]
 
 
-{-| Responsive Touch & Button Controls (Sheet In/Out, Tack, Rudder)
+{-| Responsive Touch & Button Controls (Fire Cannons, Sheet In/Out, Tack, Rudder)
 -}
-viewTouchControls : SailingState -> HudActions msg -> Html msg
-viewTouchControls state actions =
+viewTouchControls : SailingState -> Float -> HudActions msg -> Html msg
+viewTouchControls state cannonCooldown actions =
     div [ Attr.class "flex items-center gap-3" ]
-        [ -- Tack button
+        [ -- Cannon Broadside Fire button
+          button
+            [ onClick actions.onFireCannons
+            , Attr.title "Fire broadside naval cannons [Space or KeyF]"
+            , Attr.class
+                (if cannonCooldown <= 0.0 then
+                    "px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 active:scale-95 transition-all text-white font-black text-xs uppercase shadow-lg shadow-rose-600/30 tracking-wider flex items-center gap-1.5"
+
+                 else
+                    "px-3.5 py-2.5 rounded-2xl bg-slate-800 text-slate-400 font-bold text-xs uppercase cursor-not-allowed opacity-70"
+                )
+            ]
+            [ FeatherIcons.target |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+            , text
+                (if cannonCooldown <= 0.0 then
+                    "FIRE"
+
+                 else
+                    "RELOAD"
+                )
+            ]
+        , -- Tack button
           button
             [ onClick actions.onTack
-            , Attr.title "Tack / Gybe through the wind"
+            , Attr.title "Tack / Gybe through the wind [KeyT]"
             , Attr.class "px-3.5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-95 transition-all text-slate-950 font-black text-xs uppercase shadow-md tracking-wider"
             ]
             [ text "TACK" ]

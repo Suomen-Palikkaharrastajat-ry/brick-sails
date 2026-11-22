@@ -49,6 +49,7 @@ type PartCategory
     | Sail
     | RudderKeel
     | DeckFitting
+    | Cannon
 
 
 classifyPart : String -> Float -> PartCategory
@@ -57,7 +58,10 @@ classifyPart rawName yPos =
         p =
             String.toLower rawName
     in
-    if String.contains "antenna" p || String.contains "3957" p || String.contains "bar" p || String.contains "pole" p || String.contains "axle" p then
+    if String.contains "32828" p || String.contains "cannon" p || String.contains "shooting" p then
+        Cannon
+
+    else if String.contains "antenna" p || String.contains "3957" p || String.contains "bar" p || String.contains "pole" p || String.contains "axle" p then
         Mast
 
     else if String.contains "flag" p || String.contains "2335" p || String.contains "sail" p || String.contains "cloth" p || String.contains "wedge" p then
@@ -165,6 +169,9 @@ ingestFromPlacements name placements =
             mastCount =
                 categorized |> List.filter (\( cat, _ ) -> cat == Mast) |> List.length
 
+            cannonCount =
+                categorized |> List.filter (\( cat, _ ) -> cat == Cannon) |> List.length
+
             -- Center of buoyancy is centered in the hull volume
             midX =
                 (minX + maxX) / 2.0 * lduToMeters
@@ -209,8 +216,9 @@ ingestFromPlacements name placements =
                 vec3 midX (waterlineY - draftMeters * 0.6) midZ
 
             -- Total displacement mass estimated from volume and part count (e.g. 350-1200 kg)
+            -- Cannons add concentrated low-deck ballast weight
             mass =
-                max 250.0 (toFloat totalCount * 45.0 + lengthMeters * beamMeters * 80.0)
+                max 250.0 (toFloat totalCount * 45.0 + lengthMeters * beamMeters * 80.0 + toFloat cannonCount * 35.0)
 
             -- Sail area: flags/wedge plates provide ~1.5 - 3.5 m² per piece in scale
             sailAreaSqMeters =
@@ -238,6 +246,7 @@ ingestFromPlacements name placements =
         , hullPartCount = hullCount
         , sailPartCount = sailCount
         , mastPartCount = mastCount
+        , cannonCount = cannonCount
         , totalPartCount = totalCount
         }
 
@@ -258,5 +267,6 @@ defaultFallbackSpec name =
     , hullPartCount = 5
     , sailPartCount = 1
     , mastPartCount = 1
+    , cannonCount = 2
     , totalPartCount = 8
     }

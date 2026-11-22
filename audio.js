@@ -176,6 +176,40 @@ export function createAudioEngine(initialMuted = false) {
       splashGain.connect(masterGain)
       src.start(now)
       src.stop(now + 0.7)
+    } else if (type === 'impact') {
+      // Naval cannon fire / cannonball ship impact: low deep resonant punch + transient crack
+      const strength = Math.max(0.2, Math.min(1.5, event?.strength ?? 0.8))
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(140, now)
+      osc.frequency.exponentialRampToValueAtTime(36, now + 0.35)
+      gain.gain.setValueAtTime(0.75 * strength, now)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
+      osc.connect(gain)
+      gain.connect(masterGain)
+      osc.start(now)
+      osc.stop(now + 0.5)
+
+      const noise = ctx.createBufferSource()
+      const sampleRate = ctx.sampleRate
+      const buf = ctx.createBuffer(1, sampleRate * 0.25, sampleRate)
+      const ch = buf.getChannelData(0)
+      for (let i = 0; i < ch.length; i++) {
+        ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.04))
+      }
+      noise.buffer = buf
+      const noiseFilter = ctx.createBiquadFilter()
+      noiseFilter.type = 'bandpass'
+      noiseFilter.frequency.setValueAtTime(750, now)
+      const noiseGain = ctx.createGain()
+      noiseGain.gain.setValueAtTime(0.6 * strength, now)
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25)
+      noise.connect(noiseFilter)
+      noiseFilter.connect(noiseGain)
+      noiseGain.connect(masterGain)
+      noise.start(now)
+      noise.stop(now + 0.25)
     } else if (type === 'horn') {
       // Ship foghorn: deep dual tone
       const osc1 = ctx.createOscillator()

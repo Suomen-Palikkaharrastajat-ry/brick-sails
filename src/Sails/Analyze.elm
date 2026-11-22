@@ -91,8 +91,14 @@ analyzeShip spec =
 
                         else
                             "Cruising rig: very stable and forgiving in heavy seas."
+                    cannonNote =
+                        if spec.cannonCount > 0 then
+                            "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " naval cannons equipped. Press [Space] or tap FIRE to shoot!"
+
+                        else
+                            "Unarmed vessel: swift racer with low displacement ballast."
                 in
-                ( Seaworthy, baseNotes ++ [ speedNote ] )
+                ( Seaworthy, baseNotes ++ [ speedNote, cannonNote ] )
 
         closeHauledAngle =
             if spec.beamMeters > 2.0 then

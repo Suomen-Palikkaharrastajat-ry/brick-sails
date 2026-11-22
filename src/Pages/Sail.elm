@@ -33,6 +33,8 @@ import Sails.Render as Render
 import Sails.Types
     exposing
         ( CameraMode(..)
+        , Cannonball
+        , CombatImpact
         , Course
         , CourseProgress
         , LeaderboardEntry
@@ -57,6 +59,12 @@ type alias SailModel =
     , audioMuted : Bool
     , personalBest : Maybe LeaderboardEntry
     , multiplayer : Maybe RoomState
+    , cannonballs : List Cannonball
+    , impacts : List CombatImpact
+    , cannonCooldown : Float
+    , hitsScored : Int
+    , hitsTaken : Int
+    , nextCannonId : Int
     , viewportWidth : Int
     , viewportHeight : Int
     }
@@ -72,6 +80,7 @@ type SailMsg
     | SheetIn
     | SheetOut
     | Tack
+    | FireCannons
     | CycleCamera
     | ToggleMute
     | ReturnToShipyard
@@ -115,6 +124,12 @@ initSail spec scene course audioMuted pb maybeMulti width height =
     , audioMuted = audioMuted
     , personalBest = pb
     , multiplayer = maybeMulti
+    , cannonballs = []
+    , impacts = []
+    , cannonCooldown = 0.0
+    , hitsScored = 0
+    , hitsTaken = 0
+    , nextCannonId = 1
     , viewportWidth = width
     , viewportHeight = height
     }
@@ -131,13 +146,87 @@ update msg model =
                 newSimTime =
                     model.simTime + dt
 
+                newCooldown =
+                    max 0.0 (model.cannonCooldown - dt)
+
                 -- Step physics
-                newState =
+                steppedState =
                     if model.progress.finished then
                         model.state
 
                     else
                         Physics.stepPhysics dt newSimTime model.course.wind model.spec model.state
+
+                -- Ballistic cannonball projectile flight and water surface impacts
+                ( steppedBalls, waterSplashes ) =
+                    Physics.stepCombatProjectiles dt newSimTime model.cannonballs
+
+                mySlotNum =
+                    case model.multiplayer of
+                        Just r ->
+                            r.mySlot
+
+                        Nothing ->
+                            1
+
+                localShipTarget =
+                    { slot = mySlotNum
+                    , position = steppedState.position
+                    , radius = max 1.2 (model.spec.lengthMeters * 0.4)
+                    }
+
+                remoteShipTargets =
+                    case model.multiplayer of
+                        Just r ->
+                            List.filter (\p -> p.slot /= r.mySlot) r.players
+                                |> List.map
+                                    (\p ->
+                                        { slot = p.slot
+                                        , position = p.position
+                                        , radius = max 1.2 (model.spec.lengthMeters * 0.4)
+                                        }
+                                    )
+
+                        Nothing ->
+                            []
+
+                allTargets =
+                    localShipTarget :: remoteShipTargets
+
+                ( survBalls, shipHitImpacts, hitSlots ) =
+                    Physics.checkCombatShipHits steppedBalls allTargets
+
+                allNewImpacts =
+                    waterSplashes ++ shipHitImpacts
+
+                steppedImpacts =
+                    Physics.stepCombatImpacts dt (model.impacts ++ allNewImpacts)
+
+                localWasHit =
+                    List.member mySlotNum hitSlots
+
+                scoredCount =
+                    List.filter (\s -> s /= mySlotNum) hitSlots |> List.length
+
+                newState =
+                    if localWasHit then
+                        { steppedState
+                            | heelAngle = steppedState.heelAngle + 5.0
+                            , pitchAngle = steppedState.pitchAngle - 2.5
+                        }
+
+                    else
+                        steppedState
+
+                combatSfxCmd =
+                    if not (List.isEmpty shipHitImpacts) then
+                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Impact 1.0))
+
+                    else if not (List.isEmpty waterSplashes) then
+                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Splash 0.5))
+
+                    else
+                        Cmd.none
 
                 -- Check waypoint completion
                 ( newProgress, sfxCmd ) =
@@ -247,8 +336,13 @@ update msg model =
                 , progress = newProgress
                 , camera = newCam
                 , simTime = newSimTime
+                , cannonballs = survBalls
+                , impacts = steppedImpacts
+                , cannonCooldown = newCooldown
+                , hitsScored = model.hitsScored + scoredCount
+                , hitsTaken = model.hitsTaken + (if localWasHit then 1 else 0)
               }
-            , Cmd.batch [ audioCmd, sfxCmd, telemetryCmd ]
+            , Cmd.batch [ audioCmd, sfxCmd, combatSfxCmd, telemetryCmd ]
             )
 
         SteerLeft ->
@@ -304,6 +398,35 @@ update msg model =
             ( { model | state = { s | heading = newHeading } }
             , Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Splash 0.5))
             )
+
+        FireCannons ->
+            if model.cannonCooldown <= 0.0 then
+                let
+                    mySlotNum =
+                        case model.multiplayer of
+                            Just r ->
+                                r.mySlot
+
+                            Nothing ->
+                                1
+
+                    ( newBalls, recoilState ) =
+                        Physics.fireCannons mySlotNum model.spec model.state model.nextCannonId
+
+                    fireSfx =
+                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Impact 0.8))
+                in
+                ( { model
+                    | cannonballs = model.cannonballs ++ newBalls
+                    , cannonCooldown = 1.2
+                    , nextCannonId = model.nextCannonId + List.length newBalls
+                    , state = recoilState
+                  }
+                , fireSfx
+                )
+
+            else
+                ( model, Cmd.none )
 
         TiltOrientation tiltNorm ->
             let
@@ -364,6 +487,15 @@ update msg model =
                     update SheetOut model
 
                 "Space" ->
+                    update FireCannons model
+
+                "KeyF" ->
+                    update FireCannons model
+
+                "KeyT" ->
+                    update Tack model
+
+                "KeyX" ->
                     update Tack model
 
                 "KeyC" ->
@@ -603,7 +735,7 @@ viewHostCommentatorSplitScreen model callbacks room =
                             }
                     in
                     div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
-                        [ Render.renderSailingViewportMulti cam allShips model.course model.simTime qW qH
+                        [ Render.renderSailingViewportMulti cam allShips model.cannonballs model.impacts model.course model.simTime qW qH
                         , div [ Attr.class "absolute top-2 left-2 z-10 flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg" ]
                             [ span [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black uppercase " ++ Multiplayer.slotBadgeClass slot) ]
                                 [ text ("P" ++ String.fromInt slot) ]
@@ -736,6 +868,8 @@ viewSinglePlayerSail model callbacks maybeRoom =
             [ Render.renderSailingViewportMulti
                 model.camera
                 allShips
+                model.cannonballs
+                model.impacts
                 model.course
                 model.simTime
                 model.viewportWidth
@@ -766,6 +900,8 @@ viewSinglePlayerSail model callbacks maybeRoom =
             , progress = model.progress
             , audioMuted = model.audioMuted
             , cameraMode = model.cameraMode
+            , cannonCooldown = model.cannonCooldown
+            , hitsScored = model.hitsScored
             , actions =
                 { onToggleMute = ToggleMute
                 , onCycleCamera = CycleCamera
@@ -776,6 +912,7 @@ viewSinglePlayerSail model callbacks maybeRoom =
                 , onSheetIn = SheetIn
                 , onSheetOut = SheetOut
                 , onTack = Tack
+                , onFireCannons = FireCannons
                 }
             }
         , -- 4. Synchronized Countdown Overlay

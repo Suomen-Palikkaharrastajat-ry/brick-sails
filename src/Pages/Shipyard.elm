@@ -105,7 +105,7 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                     , viewSeaworthinessBadge report.seaworthiness
                     ]
                 , -- Specs Grid
-                  div [ Attr.class "grid grid-cols-4 gap-2 text-center text-xs" ]
+                  div [ Attr.class "grid grid-cols-5 gap-1.5 text-center text-xs" ]
                     [ div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
                         [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Length" ]
                         , span [ Attr.class "font-bold text-sky-400" ] [ text (String.fromFloat (toFloat (round (spec.lengthMeters * 10.0)) / 10.0) ++ "m") ]
@@ -121,6 +121,10 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                     , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
                         [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Stability" ]
                         , span [ Attr.class "font-bold text-emerald-400" ] [ text ("GM " ++ String.fromFloat (toFloat (round (spec.metacentricHeight * 10.0)) / 10.0)) ]
+                        ]
+                    , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
+                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Cannons" ]
+                        , span [ Attr.class "font-bold text-rose-400" ] [ text (String.fromInt spec.cannonCount) ]
                         ]
                     ]
                 , -- Advisory Notes
