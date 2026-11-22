@@ -401,7 +401,7 @@ sailControl { sailLevel, state, wind, actions } =
             Physics.sailLevel sailLevel
 
         overpowered =
-            Physics.overpower state.sail wind > 0.4
+            Physics.overpower state.sail wind > 1.2
 
         tap label key icon msg enabled =
             button

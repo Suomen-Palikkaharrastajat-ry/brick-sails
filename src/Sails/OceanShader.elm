@@ -227,9 +227,9 @@ waterFragmentShader =
             col += vec3(pow(max(0.0, dot(N, H)), 200.0) * 0.5 * (1.0 - u_gloom));
 
             // White caps: more and lower down the waves as the sea gets up.
-            float capLine = 0.31 - 0.12 * clamp(u_sea - 1.0, 0.0, 1.5);
-            float crest = smoothstep(capLine - 0.03, capLine + 0.02, hn + 0.03 * sin(a3 * 2.0));
-            col = mix(col, vec3(0.9, 0.97, 1.0), crest * (0.35 + 0.25 * clamp(u_sea - 1.0, 0.0, 1.0)));
+            float capLine = 0.31 - 0.05 * clamp(u_sea - 1.0, 0.0, 1.5);
+            float crest = smoothstep(capLine - 0.02, capLine + 0.02, hn + 0.03 * sin(a3 * 2.0));
+            col = mix(col, mix(vec3(0.9, 0.97, 1.0), vec3(0.7, 0.76, 0.8), u_gloom), crest * 0.35);
 
             col += vec3(0.55, 0.6, 0.7) * u_flash;
 

@@ -955,7 +955,7 @@ rainEntities ctx time weather =
                             |> rotY windRad
                             |> (\m -> Mat4.mul m (shear lean))
                         )
-                        (vec3 0.78 0.84 0.92)
+                        (vec3 0.88 0.92 0.98)
                         rainMesh
                 )
                 [ 0, 1 ]
@@ -1003,7 +1003,7 @@ rainHeight =
 
 
 {-| Rain streaks scattered through a 70 x 30 x 70 m box around the origin,
-at fixed pseudo-random places.
+at fixed pseudo-random places, none right at the camera.
 -}
 rainMesh : WebGL.Mesh PropVertex
 rainMesh =
@@ -1019,12 +1019,21 @@ rainMesh =
                 y =
                     (pick i 2 - 0.5) * rainHeight
 
-                z =
+                z0 =
                     (pick i 3 - 0.5) * 70
+
+                -- Keep the streaks out of the few metres around the camera,
+                -- where one would cross the screen like a pole.
+                z =
+                    if abs x < 9 && abs z0 < 9 then
+                        z0 + 18
+
+                    else
+                        z0
             in
-            box ( x - 0.025, y, z - 0.025 ) ( x + 0.025, y + 1.1, z + 0.025 ) white
+            box ( x - 0.012, y, z - 0.012 ) ( x + 0.012, y + 0.8, z + 0.012 ) white
     in
-    WebGL.triangles (List.concatMap streak (List.range 0 599))
+    WebGL.triangles (List.concatMap streak (List.range 0 449))
 
 
 {-| A jagged bolt from the cloud base to the sea, 80 m tall.
