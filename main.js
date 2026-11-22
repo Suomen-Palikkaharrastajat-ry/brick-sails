@@ -1,6 +1,7 @@
 import './main.css'
 import { initBricksRuntime } from './vendor/packages/brick-frame-viewport/runtime/initBricksRuntime.js'
 import { createAudioEngine } from './audio.js'
+import { setupTilt } from './tilt.js'
 import { createMultiplayerManager } from './vendor/packages/brick-frame-game/runtime/multiplayer.js'
 import { createQrCameraScanner } from './vendor/packages/brick-frame-game/runtime/qr-camera-scanner.js'
 import {
@@ -67,5 +68,6 @@ setupGameRuntime(ports, {
   multiplayer,
   qrScanner,
   playerPrefix: 'Sailor ',
-  tiltFormat: 'normalized',
 })
+
+setupTilt(ports)
