@@ -1,0 +1,26 @@
+{
+  "name": "brick-sails",
+  "version": "1.0.0",
+  "description": "3D LEGO sailing simulator and game built with Elm, WebGL, and Brick Frame",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --configLoader native --host 0.0.0.0 --port 5177",
+    "build": "vite build --configLoader native",
+    "preview": "vite preview --configLoader native --host 0.0.0.0 --port 4177",
+    "test": "elm-test",
+    "format": "elm-format --yes src/ tests/",
+    "check": "elm-format --validate src/ tests/",
+    "review": "elm-review"
+  },
+  "keywords": [
+    "lego",
+    "ldraw",
+    "brick-frame",
+    "elm",
+    "webgl",
+    "sailing",
+    "ship"
+  ],
+  "author": "Suomen Palikkaharrastajat ry",
+  "license": "MIT"
+}

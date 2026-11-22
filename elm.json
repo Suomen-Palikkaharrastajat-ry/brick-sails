@@ -1,0 +1,51 @@
+{
+    "type": "application",
+    "source-directories": [
+        ".elm-tailwind",
+        "vendor/packages/brick-frame-studio/src",
+        "vendor/packages/brick-frame-simulator/src",
+        "vendor/packages/brick-frame-viewport/src",
+        "vendor/packages/brick-frame-simulation/src",
+        "vendor/packages/brick-frame-data/src",
+        "vendor/packages/brick-frame-ui/src",
+        "vendor/packages/brick-frame-game/src",
+        "src",
+        "tests",
+        "packages/design-tokens/src",
+        "packages/ui-components/src"
+    ],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {
+            "danfishgold/base64-bytes": "1.1.0",
+            "elm/browser": "1.0.2",
+            "elm/bytes": "1.0.8",
+            "elm/core": "1.0.5",
+            "elm/html": "1.0.0",
+            "elm/http": "2.0.0",
+            "elm/json": "1.1.3",
+            "elm/random": "1.0.0",
+            "elm/svg": "1.0.1",
+            "elm/time": "1.0.0",
+            "elm/url": "1.0.0",
+            "elm-explorations/linear-algebra": "1.0.3",
+            "elm-explorations/webgl": "1.1.3",
+            "feathericons/elm-feather": "1.5.0",
+            "folkertdev/elm-flate": "2.0.6",
+            "pablohirafuji/elm-qrcode": "4.0.3"
+        },
+        "indirect": {
+            "avh4/elm-color": "1.0.0",
+            "elm/file": "1.0.5",
+            "elm/regex": "1.0.0",
+            "elm/virtual-dom": "1.0.3",
+            "justgook/elm-image": "5.0.0"
+        }
+    },
+    "test-dependencies": {
+        "direct": {
+            "elm-explorations/test": "2.2.0"
+        },
+        "indirect": {}
+    }
+}

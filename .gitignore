@@ -1,0 +1,30 @@
+# --- Environment / local ---
+.env
+.devcontainer.json
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+.direnv
+COMMIT*.txt
+
+# --- Dependencies / symlinks ---
+node_modules
+node_modules/
+packages
+vendor/packages
+vendor/master-builder
+review/src/LlmAgent
+
+# --- Elm / frontend build artifacts ---
+elm-stuff/
+.elm-tailwind/
+.vite/
+build/
+
+# --- Editor & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
