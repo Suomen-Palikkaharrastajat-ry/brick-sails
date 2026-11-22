@@ -4,57 +4,28 @@
  * rigging creak, buoy bells, and cannonball impact / broadside sounds.
  */
 
-import { BaseAudioEngine } from './vendor/packages/brick-frame-game/runtime/audio-engine.js'
+import {
+  BaseAudioEngine,
+  createNoiseLoop,
+  createOscillatorLoop,
+} from './vendor/packages/brick-frame-game/runtime/audio-engine.js'
 
 export function createAudioEngine(initialMuted = false) {
   const engine = new BaseAudioEngine(initialMuted)
 
-  let windGainNode = null
-  let windFilter = null
-  let washGainNode = null
-  let washFilter = null
-  let creakGainNode = null
-  let creakOsc = null
+  let wind = null
+  let wash = null
+  let creak = null
 
   engine.initContinuousLoops = function (ctx, noiseBuffer, masterGain) {
     // 1. Wind bandpass loop
-    const windSrc = ctx.createBufferSource()
-    windSrc.buffer = noiseBuffer
-    windSrc.loop = true
-    windFilter = ctx.createBiquadFilter()
-    windFilter.type = 'bandpass'
-    windFilter.frequency.value = 350
-    windFilter.Q.value = 1.2
-    windGainNode = ctx.createGain()
-    windGainNode.gain.value = 0
-    windSrc.connect(windFilter)
-    windFilter.connect(windGainNode)
-    windGainNode.connect(masterGain)
-    windSrc.start()
+    wind = createNoiseLoop(ctx, noiseBuffer, masterGain, { type: 'bandpass', frequency: 350, Q: 1.2 })
 
     // 2. Water wash / wave lap lowpass loop
-    const washSrc = ctx.createBufferSource()
-    washSrc.buffer = noiseBuffer
-    washSrc.loop = true
-    washFilter = ctx.createBiquadFilter()
-    washFilter.type = 'lowpass'
-    washFilter.frequency.value = 180
-    washGainNode = ctx.createGain()
-    washGainNode.gain.value = 0
-    washSrc.connect(washFilter)
-    washFilter.connect(washGainNode)
-    washGainNode.connect(masterGain)
-    washSrc.start()
+    wash = createNoiseLoop(ctx, noiseBuffer, masterGain, { type: 'lowpass', frequency: 180 })
 
     // 3. Subtle hull / rigging creak oscillation
-    creakOsc = ctx.createOscillator()
-    creakOsc.type = 'triangle'
-    creakOsc.frequency.value = 55
-    creakGainNode = ctx.createGain()
-    creakGainNode.gain.value = 0
-    creakOsc.connect(creakGainNode)
-    creakGainNode.connect(masterGain)
-    creakOsc.start()
+    creak = createOscillatorLoop(ctx, masterGain, { type: 'triangle', frequency: 55 })
   }
 
   engine.updateContinuous = function (telemetry) {
@@ -62,24 +33,24 @@ export function createAudioEngine(initialMuted = false) {
     const now = engine.ctx.currentTime
 
     if (!telemetry.active || engine.muted) {
-      windGainNode?.gain.setTargetAtTime(0, now, 0.05)
-      washGainNode?.gain.setTargetAtTime(0, now, 0.05)
-      creakGainNode?.gain.setTargetAtTime(0, now, 0.05)
+      wind?.level.gain.setTargetAtTime(0, now, 0.05)
+      wash?.level.gain.setTargetAtTime(0, now, 0.05)
+      creak?.level.gain.setTargetAtTime(0, now, 0.05)
       return
     }
 
     const wg = Math.max(0, Math.min(1.0, telemetry.windGain ?? 0))
     const wf = Math.max(100, Math.min(2400, telemetry.windHz ?? 350))
-    windGainNode?.gain.setTargetAtTime(wg, now, 0.05)
-    windFilter?.frequency.setTargetAtTime(wf, now, 0.05)
+    wind?.level.gain.setTargetAtTime(wg, now, 0.05)
+    wind?.filter.frequency.setTargetAtTime(wf, now, 0.05)
 
     const wg2 = Math.max(0, Math.min(1.0, telemetry.washGain ?? 0))
     const wf2 = Math.max(60, Math.min(900, telemetry.washHz ?? 180))
-    washGainNode?.gain.setTargetAtTime(wg2, now, 0.05)
-    washFilter?.frequency.setTargetAtTime(wf2, now, 0.05)
+    wash?.level.gain.setTargetAtTime(wg2, now, 0.05)
+    wash?.filter.frequency.setTargetAtTime(wf2, now, 0.05)
 
     const cg = Math.max(0, Math.min(0.3, telemetry.hullGain ?? 0))
-    creakGainNode?.gain.setTargetAtTime(cg, now, 0.05)
+    creak?.level.gain.setTargetAtTime(cg, now, 0.05)
   }
 
   engine.playSfx = function (event) {

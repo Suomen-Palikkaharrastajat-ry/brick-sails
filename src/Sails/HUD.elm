@@ -170,7 +170,7 @@ viewTopButtons :
 viewTopButtons { audioMuted, tilt, actions } =
     div [ Attr.class "flex flex-wrap justify-end gap-1.5 pointer-events-auto shrink-0 max-w-[100px] sm:max-w-none" ]
         [ if tilt.available then
-            -- Handled in tilt.js so the permission prompt runs inside the tap.
+            -- Handled in tilt-steer.js so the permission prompt runs inside the tap.
             button
                 [ Attr.attribute "data-tilt-toggle" ""
                 , Attr.title
