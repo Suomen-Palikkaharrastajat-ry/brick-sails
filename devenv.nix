@@ -55,7 +55,7 @@ let
         echo ""
         echo "  make dev      — start Vite dev server"
         echo "  make build    — production build"
-        echo "  make test     — run check + elm-test"
+        echo "  make test     — run check, elm-test and js-test"
         echo ""
       '';
     };

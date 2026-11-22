@@ -1,5 +1,10 @@
 module SailsTest exposing (suite)
 
+{-| Unit tests of Brick Sails: loading and analysing builds, the built-in
+boats, handling, water, sailing, buoys and scoring, cannons and the follow
+camera.
+-}
+
 import Dict
 import Expect
 import LDraw.Document as Document
