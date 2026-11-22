@@ -412,7 +412,7 @@ stepPhysics dt simTime wind spec state =
     , sailSheet = state.sailSheet
     , apparentWindSpeed = appSpeed
     , apparentWindAngle = relWindDeg
-    , waterSpeed = waterSpeedKnots
+    , waterSpeed = max 0.0 (newVForward * 1.94384)
     , driftAngle = atan2 newVLateral (max 0.1 (abs newVForward)) * (180.0 / pi)
     }
 

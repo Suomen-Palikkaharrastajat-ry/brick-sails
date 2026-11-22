@@ -137,6 +137,6 @@ suite =
                             Physics.stepPhysics 0.1 0.1 wind spec movingState
                     in
                     -- Rudder should generate angular turning velocity
-                    Expect.notEqual 0.0 stepped.angularVelocity
+                    Expect.greaterThan 0.0 (abs stepped.angularVelocity)
             ]
         ]
