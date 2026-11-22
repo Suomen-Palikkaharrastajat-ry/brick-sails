@@ -14,7 +14,6 @@ import Html exposing (Html, div)
 import Html.Attributes as Attr
 import Json.Decode as Decode
 import LDraw.Document as Document exposing (Document)
-import LDraw.Parser as Parser
 import Math.Vector3 as Vec3 exposing (vec3)
 import Pages.Results as Results
 import Pages.Sail as Sail
@@ -139,7 +138,7 @@ init flags =
         initialModel =
             { currentHash = activeHash
             , spec = spec
-            , scene = Scene.empty
+            , scene = Scene.buildScene { triangles = [], lines = [], conditionalLines = [] } False
             , report = report
             , course = Physics.defaultCourse
             , viewMode = ViewShipyard
@@ -336,12 +335,7 @@ update msg model =
                     ( model, Cmd.none )
 
         FileContentReceived fileText ->
-            case Parser.parse fileText of
-                Ok doc ->
-                    applyDocument doc model.currentHash model
-
-                Err _ ->
-                    ( model, Cmd.none )
+            applyDocument (Document.parse fileText) model.currentHash model
 
         ViewportResized dims ->
             let
