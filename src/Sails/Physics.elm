@@ -6,10 +6,16 @@ module Sails.Physics exposing
     , checkShipHits
     , checkTargetHits
     , defaultCourse
+    , defaultSailLevel
     , finalTime
     , fireCannons
     , initProgress
     , initSailingState
+    , overpower
+    , sailDrive
+    , sailLevel
+    , sailLevels
+    , sailLoad
     , seaElevation
     , starRating
     , stepBoat
@@ -25,9 +31,12 @@ module Sails.Physics exposing
 
 {-| Simple, forgiving arcade sailing for a small toy boat.
 
-The boat always keeps moving. The wind only changes how fast it goes: sailing
-straight into the wind is slower, a reach across the wind is fastest. There is
-no stall, no sail trimming and no capsizing.
+The boat always keeps moving. The wind changes how fast it goes: sailing
+straight into the wind is slower, a reach across the wind is fastest. The
+player sets how much sail is up (`sailLevels`): more sail is faster and heels
+more, less sail is slower and steers more easily. In a strong wind too much
+sail overpowers the boat (`overpower`), so reefing pays. There is no stall
+and no capsizing.
 
 -}
 
@@ -116,6 +125,7 @@ initSailingState course =
     , heel = 0
     , pitch = 0
     , bumped = False
+    , sail = 1
     }
 
 
@@ -256,6 +266,8 @@ windFactor wind heading =
   - `steer`: -1 (left) .. 1 (right).
   - `throttle`: 1 while racing, 0 while held at the start line.
   - `sea`: sea state (see `seaElevation`), 1 in normal weather.
+  - `sail`: the sail area the player has set (see `sailLevels`), 1 for
+    full sail.
 
 -}
 type alias StepInput =
@@ -264,7 +276,89 @@ type alias StepInput =
     , steer : Float
     , throttle : Float
     , sea : Float
+    , sail : Float
     }
+
+
+
+-- SAILS
+
+
+{-| The sail settings the player steps through, from lowered to every sail
+up, with the share of full sail each sets. "Full" is the game's tuned
+sailing and the level a race starts at.
+-}
+sailLevels : List ( String, Float )
+sailLevels =
+    [ ( "Down", 0 )
+    , ( "Storm", 0.35 )
+    , ( "Reefed", 0.65 )
+    , ( "Full", 1.0 )
+    , ( "Press", 1.2 )
+    ]
+
+
+{-| Index of "Full" in `sailLevels`.
+-}
+defaultSailLevel : Int
+defaultSailLevel =
+    3
+
+
+{-| Name and area of a sail level, clamped to the levels there are.
+-}
+sailLevel : Int -> ( String, Float )
+sailLevel i =
+    List.drop (clamp 0 (List.length sailLevels - 1) i) sailLevels
+        |> List.head
+        |> Maybe.withDefault ( "Full", 1.0 )
+
+
+{-| The wind speed the boats are tuned for: the course wind.
+-}
+referenceWind : Float
+referenceWind =
+    7.0
+
+
+{-| How hard the wind presses on the sail set: 1 for full sail in the
+course wind. It grows with the sail area and the square of the wind speed.
+-}
+sailLoad : Float -> Wind -> Float
+sailLoad area wind =
+    (max 0 area ^ 1.5) * ((wind.speed / referenceWind) ^ 2)
+
+
+{-| How far the sail is overpowered: 0 until the load passes 1.25 (full
+sail stays clean in the course wind and in light gusts). An overpowered
+boat heels hard, loses speed, turns sluggishly and rounds up into the wind.
+Reefing brings it back.
+-}
+overpower : Float -> Wind -> Float
+overpower area wind =
+    max 0 (sailLoad area wind - 1.25)
+
+
+{-| Drive of the sail set, as a share of full sail in the course wind:
+more sail and more wind drive harder, an overpowered sail spills it.
+Bare poles still drift along at 15 %.
+-}
+sailDrive : Float -> Wind -> Float
+sailDrive area wind =
+    (0.15 + 0.85 * (max 0 area ^ 0.7))
+        * sqrt (clamp 0.3 2.5 (wind.speed / referenceWind))
+        / (1 + 0.35 * overpower area wind)
+
+
+{-| Helm response of the sail set: less sail steers more easily (up to 50 %
+quicker with the sails down), pressing on with extra sail and an
+overpowered rig turn wider.
+-}
+sailHelm : Float -> Wind -> Float
+sailHelm area wind =
+    (1 + 0.5 * (1 - clamp 0 1 area))
+        * (1 - 0.6 * max 0 (area - 1))
+        / (1 + 0.3 * overpower area wind)
 
 
 {-| Speed lost sailing into the swell, as a share of the speed: none in
@@ -295,9 +389,29 @@ stepBoat input wind boat islands state =
         speedRatio =
             clamp 0 1 (state.speed / boat.topSpeed)
 
+        -- Hoisting or lowering takes a second or two.
+        sail =
+            state.sail + (clamp 0 1.2 input.sail - state.sail) * min 1 (dt * 1.6)
+
+        over =
+            overpower sail wind
+
+        -- An overpowered boat rounds up: the helm is pulled towards the wind.
+        roundUp =
+            5 * over * sin (degrees (angleDiff (wind.direction + 180) state.heading))
+
         -- Steering right lowers the heading (screen right in the follow camera).
         heading =
-            normalize (state.heading - boat.turnRate * steer * (0.55 + 0.45 * speedRatio) * dt)
+            normalize
+                (state.heading
+                    - boat.turnRate
+                    * sailHelm sail wind
+                    * steer
+                    * (0.55 + 0.45 * speedRatio)
+                    * dt
+                    + roundUp
+                    * dt
+                )
 
         power =
             windFactor wind heading
@@ -312,8 +426,10 @@ stepBoat input wind boat islands state =
             input.throttle
                 * boat.topSpeed
                 * power
+                * sailDrive sail wind
                 * (1 - 0.12 * abs steer)
                 * (1 - headSeaLoss waves heading)
+                |> min (1.3 * boat.topSpeed)
 
         speed =
             state.speed + (targetSpeed - state.speed) * min 1 (dt * boat.acceleration)
@@ -372,8 +488,24 @@ stepBoat input wind boat islands state =
             else
                 -(20 + 50 * smoothstep 30 170 (abs windSide))
 
+        -- Sail pressed past its load heels the boat away from the wind.
+        windHeel =
+            let
+                h =
+                    max 0 (sailLoad sail wind - 1)
+            in
+            (if windSide > 0 then
+                -1
+
+             else
+                1
+            )
+                * 28
+                * h
+                / (1 + h)
+
         heelTarget =
-            steer * 14 * speedRatio + waveRoll
+            steer * 14 * speedRatio + waveRoll + windHeel
     in
     { position = vec3 bx y bz
     , heading = heading
@@ -384,6 +516,7 @@ stepBoat input wind boat islands state =
     , heel = state.heel + (heelTarget - state.heel) * min 1 (dt * 5)
     , pitch = 2.5 * sin (input.time * 2.1) * (0.4 + 0.6 * speedRatio) + wavePitch
     , bumped = bumped
+    , sail = sail
     }
 
 

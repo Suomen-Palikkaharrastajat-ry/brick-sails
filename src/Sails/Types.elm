@@ -186,6 +186,8 @@ type alias CombatImpact =
   - `sailPower`: 0..1, how well the wind fills the sail on this heading.
   - `sailAngle`: visual boom angle in degrees.
   - `heel`, `pitch`: visual tilt in degrees.
+  - `sail`: sail area set, as a share of the boat's full sail (see
+    `Sails.Physics.sailLevels`); eases towards the level the player picks.
 
 -}
 type alias SailingState =
@@ -198,6 +200,7 @@ type alias SailingState =
     , heel : Float
     , pitch : Float
     , bumped : Bool
+    , sail : Float
     }
 
 

@@ -170,10 +170,10 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
 
         controlsHint =
             if tilt.enabled then
-                "Tilt the phone to steer. Tap FIRE near targets."
+                "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE near targets."
 
             else
-                "Hold ◀ ▶ (or arrow keys) to steer. FIRE (Space) near targets."
+                "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) near targets."
     in
     div
         [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:pt-[68px] landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"

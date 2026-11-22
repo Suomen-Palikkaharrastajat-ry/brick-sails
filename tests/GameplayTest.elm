@@ -7,7 +7,7 @@ import Expect
 import Math.Vector3 as Vec3
 import Sails.Boats as Boats
 import Sails.Physics as Physics
-import Sails.Types exposing (SailingState)
+import Sails.Types exposing (SailingState, Wind)
 import Test exposing (Test, describe, test)
 
 
@@ -34,6 +34,14 @@ peakWave sea =
 -}
 holdCourse : Float -> Float -> Float -> SailingState
 holdCourse sea heading seconds =
+    sailWith { sea = sea, sail = 1, wind = course.wind, steer = Nothing } heading seconds
+
+
+{-| Sail from the start on a heading for `seconds` with a sail area, sea
+and wind; `steer` holds the helm over instead of keeping the heading.
+-}
+sailWith : { sea : Float, sail : Float, wind : Wind, steer : Maybe Float } -> Float -> Float -> SailingState
+sailWith cfg heading seconds =
     let
         start =
             Physics.initSailingState course
@@ -41,14 +49,56 @@ holdCourse sea heading seconds =
     List.foldl
         (\i s ->
             Physics.stepBoat
-                { dt = 0.02, time = toFloat i * 0.02, steer = clamp -1 1 (-(Physics.angleDiff heading s.heading) / 10), throttle = 1, sea = sea }
-                course.wind
+                { dt = 0.02
+                , time = toFloat i * 0.02
+                , steer = Maybe.withDefault (clamp -1 1 (-(Physics.angleDiff heading s.heading) / 10)) cfg.steer
+                , throttle = 1
+                , sea = cfg.sea
+                , sail = cfg.sail
+                }
+                cfg.wind
                 Boats.default
                 []
                 s
         )
-        { start | heading = heading }
+        { start | heading = heading, sail = cfg.sail }
         (List.range 1 (round (seconds / 0.02)))
+
+
+{-| A storm wind: twice the course wind.
+-}
+gale : Wind
+gale =
+    { speed = 14, direction = course.wind.direction }
+
+
+{-| Heading across the course wind (the fastest point of sail).
+-}
+reach : Float
+reach =
+    course.wind.direction + 180 + 90
+
+
+speedWith : Float -> Wind -> Float
+speedWith area wind =
+    (sailWith { sea = 1, sail = area, wind = wind, steer = Nothing } reach 10).speed
+
+
+{-| Degrees turned in two seconds hard over.
+-}
+turnedWith : Float -> Wind -> Float
+turnedWith area wind =
+    let
+        moving =
+            sailWith { sea = 1, sail = area, wind = wind, steer = Nothing } reach 8
+
+        after =
+            List.foldl
+                (\i s -> Physics.stepBoat { dt = 0.02, time = 8 + toFloat i * 0.02, steer = 1, throttle = 1, sea = 1, sail = area } wind Boats.default [] s)
+                moving
+                (List.range 1 100)
+    in
+    abs (Physics.angleDiff after.heading moving.heading)
 
 
 suite : Test
@@ -124,5 +174,65 @@ suite =
                             Vec3.toRecord s.position
                     in
                     Expect.within (Expect.Absolute 0.001) (Physics.seaElevation 2.4 p.x p.z 7) p.y
+            ]
+        , describe "Sails"
+            [ test "full sail in the course wind is the tuned sailing" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 1 (Physics.sailDrive 1 course.wind)
+                        , \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (Physics.overpower 1 course.wind)
+                        , \_ -> Expect.equal ( "Full", 1.0 ) (Physics.sailLevel Physics.defaultSailLevel)
+                        ]
+                        ()
+            , test "raising the sail is faster, lowering it slower" <|
+                \_ ->
+                    let
+                        speeds =
+                            List.map (\( _, area ) -> speedWith area course.wind) Physics.sailLevels
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal (List.sort speeds) speeds
+                        , \_ -> Expect.greaterThan (speedWith 1 course.wind * 1.05) (speedWith 1.2 course.wind)
+                        , \_ -> Expect.lessThan (speedWith 1 course.wind * 0.85) (speedWith 0.65 course.wind)
+                        , \_ -> Expect.greaterThan 0.5 (speedWith 0 course.wind)
+                        ]
+                        ()
+            , test "less sail steers more easily, extra sail turns wider" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.greaterThan (turnedWith 1 course.wind) (turnedWith 0.35 course.wind)
+                        , \_ -> Expect.lessThan (turnedWith 1 course.wind) (turnedWith 1.2 course.wind)
+                        ]
+                        ()
+            , test "in a gale full sail is overpowered: it heels hard and reefing is faster" <|
+                \_ ->
+                    let
+                        heelWith area =
+                            abs (sailWith { sea = 1, sail = area, wind = gale, steer = Nothing } reach 10).heel
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan 1 (Physics.overpower 1 gale)
+                        , \_ -> Expect.greaterThan (speedWith 1 gale) (speedWith 0.65 gale)
+                        , \_ -> Expect.greaterThan (heelWith 0.65 + 3) (heelWith 1)
+                        , \_ -> Expect.greaterThan (turnedWith 1 gale) (turnedWith 0.65 gale)
+                        ]
+                        ()
+            , test "the sail eases to a new setting over a second or two" <|
+                \_ ->
+                    let
+                        start =
+                            Physics.initSailingState course
+
+                        stepped n =
+                            List.foldl
+                                (\i s -> Physics.stepBoat { dt = 0.02, time = toFloat i * 0.02, steer = 0, throttle = 1, sea = 1, sail = 0.35 } course.wind Boats.default [] s)
+                                start
+                                (List.range 1 n)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan 0.6 (stepped 10).sail
+                        , \_ -> Expect.within (Expect.Absolute 0.05) 0.35 (stepped 200).sail
+                        ]
+                        ()
             ]
         ]

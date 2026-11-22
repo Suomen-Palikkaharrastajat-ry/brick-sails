@@ -7,7 +7,8 @@ module Sails.HUD exposing
 {-| Touch-first race HUD.
 
 Top left: timer, buoy progress and wind. Top right: small icon buttons.
-Bottom left: big left/right steering buttons. Bottom right: a big FIRE
+Bottom left: big left/right steering buttons. Bottom right: the sail
+control (raise / lower, with the sail set shown between) and a big FIRE
 button. The middle of the screen stays clear for the boat in both portrait
 and landscape. Steering buttons react to pointer down/up so they can be held.
 
@@ -20,7 +21,7 @@ import Html.Attributes as Attr
 import Html.Events as Events
 import Json.Decode as Decode
 import Sails.Physics as Physics
-import Sails.Types exposing (Course, CourseProgress, SailingState)
+import Sails.Types exposing (Course, CourseProgress, SailingState, Wind)
 
 
 type Side
@@ -31,6 +32,8 @@ type Side
 type alias HudActions msg =
     { onSteer : Side -> Bool -> msg
     , onFire : msg
+    , onRaiseSail : msg
+    , onLowerSail : msg
     , onToggleMute : msg
     , onRestart : msg
     , onExit : msg
@@ -48,6 +51,8 @@ viewHud :
     , tilt : { available : Bool, enabled : Bool }
     , countdown : Maybe Int
     , toast : Maybe String
+    , sailLevel : Int
+    , wind : Wind
     , actions : HudActions msg
     }
     -> Html msg
@@ -67,8 +72,10 @@ viewHud cfg =
                 [ steerButton cfg.actions Left
                 , steerButton cfg.actions Right
                 ]
-            , div [ Attr.class "absolute bottom-0 right-0 pointer-events-auto" ]
-                [ fireButton cfg ]
+            , div [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto" ]
+                [ sailControl cfg
+                , fireButton cfg
+                ]
             ]
         ]
 
@@ -329,3 +336,92 @@ viewCountdown countdown =
 
         Nothing ->
             text ""
+
+
+{-| Raise and lower the sails one level per tap (W / S on a keyboard). The
+level shows as a row of pips with its name; an overpowered sail flashes a
+warning to reef.
+-}
+sailControl : { a | sailLevel : Int, state : SailingState, wind : Wind, actions : HudActions msg } -> Html msg
+sailControl { sailLevel, state, wind, actions } =
+    let
+        levels =
+            List.length Physics.sailLevels
+
+        ( name, _ ) =
+            Physics.sailLevel sailLevel
+
+        overpowered =
+            Physics.overpower state.sail wind > 0.4
+
+        tap label key icon msg enabled =
+            button
+                [ Attr.title (label ++ " (" ++ key ++ ")")
+                , Attr.attribute "aria-label" label
+                , Attr.attribute "data-sail" key
+                , Attr.disabled (not enabled)
+                , Attr.style "touch-action" "none"
+                , Events.preventDefaultOn "pointerdown" (Decode.succeed ( msg, True ))
+                , Attr.class
+                    ("w-[60px] h-11 flex items-center justify-center rounded-xl border-2 backdrop-blur-md shadow-lg "
+                        ++ (if enabled then
+                                "bg-slate-900/75 border-white/20 active:bg-sky-600 active:border-sky-300 text-white"
+
+                            else
+                                "bg-slate-900/40 border-white/5 text-slate-600"
+                           )
+                    )
+                ]
+                [ icon |> FeatherIcons.withSize 24 |> FeatherIcons.toHtml [] ]
+
+        pip i =
+            span
+                [ Attr.class
+                    ("inline-block w-1.5 h-2.5 rounded-sm "
+                        ++ (if i <= sailLevel && sailLevel > 0 then
+                                if overpowered then
+                                    "bg-rose-400"
+
+                                else
+                                    "bg-sky-300"
+
+                            else
+                                "bg-slate-600"
+                           )
+                    )
+                ]
+                []
+    in
+    div [ Attr.class "flex flex-col items-center gap-1", Attr.attribute "data-testid" "sail-control" ]
+        [ tap "Raise sail" "W" FeatherIcons.chevronsUp actions.onRaiseSail (sailLevel < levels - 1)
+        , div
+            [ Attr.class
+                ("w-[60px] px-1 py-1 rounded-lg flex flex-col items-center gap-0.5 border "
+                    ++ (if overpowered then
+                            "bg-rose-600/80 border-rose-300 animate-pulse"
+
+                        else
+                            "bg-slate-900/80 border-white/10"
+                       )
+                )
+            , Attr.title
+                (if overpowered then
+                    "Overpowered: lower the sail"
+
+                 else
+                    "Sail: " ++ name
+                )
+            ]
+            [ span [ Attr.class "flex gap-0.5 items-end" ] (List.map pip (List.range 1 (levels - 1)))
+            , span [ Attr.class "text-[10px] font-black uppercase tracking-wide leading-none" ]
+                [ text
+                    (if overpowered then
+                        "Reef!"
+
+                     else
+                        name
+                    )
+                ]
+            ]
+        , tap "Lower sail" "S" FeatherIcons.chevronsDown actions.onLowerSail (sailLevel > 0)
+        ]

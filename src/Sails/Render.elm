@@ -22,6 +22,7 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 as Vec4 exposing (Vec4, vec4)
 import Render.EdgeShader as EdgeShader
 import Render.Mesh exposing (Vertex)
+import Render.Scene exposing (Scene)
 import Render.Shader as Shader
 import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
 import Sails.Physics as Physics
@@ -148,6 +149,7 @@ renderShipyard mesh time width height =
             , heel = 0
             , pitch = 2 * sin (time * 1.7)
             , bumped = False
+            , sail = 1
             }
     in
     canvas width
@@ -181,8 +183,8 @@ white =
     vec3 1 1 1
 
 
-{-| Draw one brick boat: the plastic surface pass, then the brick edges while
-the boat is near enough for them to read as edges rather than a dark smear.
+{-| Draw one brick boat: the hull and rig, and the sails hoisted as far as
+the boat's sail setting.
 -}
 boatEntities : Ctx -> Int -> Int -> RenderBoat -> List WebGL.Entity
 boatEntities ctx width height rb =
@@ -218,55 +220,77 @@ boatEntities ctx width height rb =
                 distance =
                     Vec3.distance ctx.eye s.position
 
-                surface =
-                    WebGL.entityWith [ DepthTest.default ]
-                        brickVertexShader
-                        Shader.fragmentShader
-                        mesh.scene.triangleMesh
-                        { modelMatrix = model
-                        , viewMatrix = ctx.view
-                        , projectionMatrix = ctx.perspective
-                        , viewPosition = ctx.eye
-                        , lightDirection = Ocean.sunDirection
-                        , instanceColor = tint
-                        , ambientStrength = 0.62
-                        , lightStrength = 0.5
-                        , specularStrength = 0.18
-                        , specularPower = 24
-                        , rimStrength = 0.1
-                        , rimPower = 2.5
-                        , vibrance = 0.2
-                        , metallic = 0
-                        , u_ghostMode = 0
-                        , u_ghostAlpha = 1
-                        }
+                -- Lowered sails fold down onto their foot (the boom).
+                hoist =
+                    0.12 + 0.88 * clamp 0 1 s.sail
 
-                edgeWidth =
-                    clamp 0 1.2 (1.2 * (26 - distance) / 10)
-
-                edges =
-                    if edgeWidth > 0.3 then
-                        [ WebGL.entityWith
-                            [ DepthTest.lessOrEqual { write = False, near = 0, far = 1 }
-                            , Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha
-                            ]
-                            EdgeShader.vertexShader
-                            EdgeShader.fragmentShader
-                            mesh.scene.lineMesh
-                            { modelMatrix = model
-                            , viewMatrix = ctx.view
-                            , projectionMatrix = ctx.perspective
-                            , edgeColor = vec3 0.12 0.13 0.16
-                            , viewportWidth = toFloat width
-                            , viewportHeight = toFloat height
-                            , lineWidth = edgeWidth
-                            }
-                        ]
-
-                    else
-                        []
+                sailModel =
+                    Mat4.mul model
+                        (Mat4.makeTranslate3 0 mesh.sailFoot 0
+                            |> Mat4.scale3 1 hoist 1
+                            |> Mat4.translate3 0 -mesh.sailFoot 0
+                        )
             in
-            surface :: edges
+            brickPasses ctx width height distance tint model mesh.scene
+                ++ brickPasses ctx width height distance tint sailModel mesh.sails
+
+
+{-| Draw one brick scene: the plastic surface pass, then the brick edges
+while it is near enough for them to read as edges rather than a dark smear.
+Storm gloom dims the light and lightning flashes it.
+-}
+brickPasses : Ctx -> Int -> Int -> Float -> Vec4 -> Mat4 -> Scene -> List WebGL.Entity
+brickPasses ctx width height distance tint model scene =
+    let
+        surface =
+            WebGL.entityWith [ DepthTest.default ]
+                brickVertexShader
+                Shader.fragmentShader
+                scene.triangleMesh
+                { modelMatrix = model
+                , viewMatrix = ctx.view
+                , projectionMatrix = ctx.perspective
+                , viewPosition = ctx.eye
+                , lightDirection = Ocean.sunDirection
+                , instanceColor = tint
+                , ambientStrength = 0.62 - 0.22 * ctx.gloom + 0.5 * ctx.flash
+                , lightStrength = 0.5 * (1 - 0.6 * ctx.gloom)
+                , specularStrength = 0.18 * (1 - ctx.gloom)
+                , specularPower = 24
+                , rimStrength = 0.1
+                , rimPower = 2.5
+                , vibrance = 0.2
+                , metallic = 0
+                , u_ghostMode = 0
+                , u_ghostAlpha = 1
+                }
+
+        edgeWidth =
+            clamp 0 1.2 (1.2 * (26 - distance) / 10)
+
+        edges =
+            if edgeWidth > 0.3 then
+                [ WebGL.entityWith
+                    [ DepthTest.lessOrEqual { write = False, near = 0, far = 1 }
+                    , Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha
+                    ]
+                    EdgeShader.vertexShader
+                    EdgeShader.fragmentShader
+                    scene.lineMesh
+                    { modelMatrix = model
+                    , viewMatrix = ctx.view
+                    , projectionMatrix = ctx.perspective
+                    , edgeColor = vec3 0.12 0.13 0.16
+                    , viewportWidth = toFloat width
+                    , viewportHeight = toFloat height
+                    , lineWidth = edgeWidth
+                    }
+                ]
+
+            else
+                []
+    in
+    surface :: edges
 
 
 {-| The brick pipeline's vertex shader, with one change: vertices flagged in

@@ -70,6 +70,7 @@ type alias SailModel =
     , touchLeft : Bool
     , touchRight : Bool
     , tiltSteer : Float
+    , sailLevel : Int
     , tilt : { available : Bool, enabled : Bool }
     , toast : Maybe ( String, Float )
     , viewportWidth : Int
@@ -85,6 +86,8 @@ type SailMsg
     | TiltSteer Float
     | ReleaseControls
     | FireCannons
+    | RaiseSail
+    | LowerSail
     | ToggleMute
     | ReturnToShipyard
     | RestartCourse
@@ -156,6 +159,7 @@ initSail boat course audioMuted pb maybeMulti tilt width height =
     , touchLeft = False
     , touchRight = False
     , tiltSteer = 0
+    , sailLevel = Physics.defaultSailLevel
     , tilt = tilt
     , toast = Nothing
     , viewportWidth = width
@@ -279,6 +283,12 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        RaiseSail ->
+            ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
+
+        LowerSail ->
+            ( { model | sailLevel = max 0 (model.sailLevel - 1) }, Cmd.none )
+
         ToggleMute ->
             ( { model | audioMuted = not model.audioMuted }, GamePorts.setAudioMuted (not model.audioMuted) )
 
@@ -304,6 +314,18 @@ update msg model =
 
                 "ArrowUp" ->
                     update FireCannons model
+
+                "KeyW" ->
+                    update RaiseSail model
+
+                "KeyS" ->
+                    update LowerSail model
+
+                "PageUp" ->
+                    update RaiseSail model
+
+                "PageDown" ->
+                    update LowerSail model
 
                 "KeyM" ->
                     update ToggleMute model
@@ -424,6 +446,7 @@ tick dt model =
                     else
                         0
                 , sea = 1
+                , sail = Tuple.second (Physics.sailLevel model.sailLevel)
                 }
                 model.course.wind
                 model.boat
@@ -642,6 +665,7 @@ remoteBoat remoteShip p =
         , heel = rot.z
         , pitch = rot.x
         , bumped = False
+        , sail = 1
         }
     , sailTint = Just (slotTint p.slot)
     }
@@ -805,9 +829,13 @@ viewRace model callbacks maybeRoom =
                 , tilt = model.tilt
                 , countdown = countdown
                 , toast = Maybe.map Tuple.first model.toast
+                , sailLevel = model.sailLevel
+                , wind = model.course.wind
                 , actions =
                     { onSteer = Steer
                     , onFire = FireCannons
+                    , onRaiseSail = RaiseSail
+                    , onLowerSail = LowerSail
                     , onToggleMute = ToggleMute
                     , onRestart = callbacks.onRestartCourse
                     , onExit = callbacks.onReturnToShipyard

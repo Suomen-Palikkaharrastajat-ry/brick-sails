@@ -76,7 +76,7 @@ sail boat steer seconds state0 =
     in
     List.foldl
         (\i s ->
-            Physics.stepBoat { dt = 0.02, time = toFloat i * 0.02, steer = steer, throttle = 1, sea = 1 } course.wind boat course.islands s
+            Physics.stepBoat { dt = 0.02, time = toFloat i * 0.02, steer = steer, throttle = 1, sea = 1, sail = 1 } course.wind boat course.islands s
         )
         state0
         (List.range 1 frames)
@@ -110,7 +110,7 @@ autopilot boat limit =
                         clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
 
                     next =
-                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = 1, sea = 1 } course.wind boat course.islands state
+                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = 1, sea = 1, sail = 1 } course.wind boat course.islands state
 
                     ( nextProgress, _ ) =
                         Physics.stepProgress 0.02 next course.waypoints progress
@@ -284,12 +284,12 @@ suite =
                             ShipMesh.build (ShipMesh.sailByColour 15) doc cache
 
                         ys =
-                            mesh.scene.surface
+                            (mesh.scene.surface ++ mesh.sails.surface)
                                 |> List.concatMap (\( a, b, c ) -> [ a, b, c ])
                                 |> List.map (\v -> Vec3.getY (Mat4.transform mesh.toBoat v.position))
 
                         sailVertices =
-                            mesh.scene.surface |> List.filter (\( a, _, _ ) -> a.inherit > 0.5) |> List.length
+                            mesh.sails.surface |> List.filter (\( a, _, _ ) -> a.inherit > 0.5) |> List.length
                     in
                     Expect.all
                         [ \_ -> Expect.atMost 4.6 mesh.lengthMeters

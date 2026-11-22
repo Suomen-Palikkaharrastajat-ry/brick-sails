@@ -16,9 +16,9 @@ flattens the model into triangles and edges, and `Render.Scene.buildScene`
 uploads them once. `Main` keeps the result per boat, so nothing is parsed or
 flattened again while the game runs.
 
-Sail bricks are marked in the vertex `inherit` channel (unused by baked
-geometry otherwise) so `Sails.Render` can paint them in a player colour
-without a second copy of the mesh.
+Sail bricks are kept in a scene of their own, so the sails can be lowered
+and raised, and are marked in the vertex `inherit` channel (unused by baked
+geometry otherwise) so `Sails.Render` can paint them in a player colour.
 
 -}
 
@@ -36,7 +36,11 @@ import Render.Scene as Scene exposing (Scene)
 
 {-| A boat's geometry, ready to draw.
 
-  - `scene`: triangles and edges in Y-up LDraw units, bow towards +Z.
+  - `scene`: triangles and edges of the hull, rig and everything but the
+    sails, in Y-up LDraw units, bow towards +Z.
+  - `sails`: the sail bricks, in the same units, drawn separately so they
+    can be lowered (squashed down to `sailFoot`, their lowest point) and
+    take a player colour.
   - `toBoat`: maps the scene into boat space in metres: centred on the hull,
     bow along +Z, waterline at y = 0.
   - `lengthMeters`, `heightMeters`: size on the water, for cameras.
@@ -44,6 +48,8 @@ import Render.Scene as Scene exposing (Scene)
 -}
 type alias ShipMesh =
     { scene : Scene
+    , sails : Scene
+    , sailFoot : Float
     , toBoat : Mat4
     , triangleCount : Int
     , lengthMeters : Float
@@ -128,8 +134,11 @@ build isSail doc rawCache =
         markSail ( a, b, c ) =
             ( { a | inherit = 1 }, { b | inherit = 1 }, { c | inherit = 1 } )
 
+        sailTriangles =
+            List.map markSail sailGeom.triangles
+
         triangles =
-            bodyGeom.triangles ++ List.map markSail sailGeom.triangles
+            bodyGeom.triangles ++ sailTriangles
 
         bounds =
             boundsOf triangles
@@ -176,11 +185,19 @@ build isSail doc rawCache =
     in
     { scene =
         Scene.buildScene
-            { triangles = triangles
-            , lines = bodyGeom.lines ++ sailGeom.lines
+            { triangles = bodyGeom.triangles
+            , lines = bodyGeom.lines
             , conditionalLines = []
             }
             False
+    , sails =
+        Scene.buildScene
+            { triangles = sailTriangles
+            , lines = sailGeom.lines
+            , conditionalLines = []
+            }
+            False
+    , sailFoot = Vec3.getY (boundsOf sailTriangles).min
     , toBoat = toBoat
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
