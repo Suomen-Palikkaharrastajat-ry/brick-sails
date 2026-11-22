@@ -59,14 +59,14 @@ viewHudOverlay :
     -> Html msg
 viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, cannonCooldown, hitsScored, actions } =
     div
-        [ Attr.class "absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-20 select-none overflow-hidden"
+        [ Attr.class "absolute inset-0 pointer-events-none flex flex-col justify-between p-2 sm:p-4 z-20 select-none overflow-hidden"
         ]
         [ -- Top Bar: Header, Course & Waypoint Split, Controls
-          div [ Attr.class "flex justify-between items-start w-full pointer-events-auto" ]
+          div [ Attr.class "flex justify-between items-start w-full pointer-events-auto gap-2 sm:gap-0" ]
             [ -- Left Top: Compass & Wind Rose
               viewWindRose state course
             , -- Center Top: Waypoint & Race Timer & Combat Score
-              div [ Attr.class "flex flex-col items-center gap-1.5" ]
+              div [ Attr.class "flex flex-col items-center gap-1.5 min-w-0" ]
                 [ viewTimerSplit progress course
                 , if hitsScored > 0 then
                     div [ Attr.class "flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/85 border border-rose-500/40 text-rose-300 text-xs font-bold shadow-lg" ]
@@ -78,7 +78,7 @@ viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, cannonCo
                     text ""
                 ]
             , -- Right Top: Controls (Camera, Audio Mute, Shipyard return)
-              div [ Attr.class "flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-2 rounded-2xl border border-white/10 shadow-lg text-white" ]
+              div [ Attr.class "flex flex-col sm:flex-row shrink-0 items-center gap-1 sm:gap-2 bg-slate-900/80 backdrop-blur-md p-1 sm:px-3 sm:py-2 rounded-2xl border border-white/10 shadow-lg text-white" ]
                 [ button
                     [ onClick actions.onToggleMute
                     , Attr.title (if audioMuted then "Unmute audio" else "Mute audio")
@@ -120,7 +120,7 @@ viewHudOverlay { state, spec, course, progress, audioMuted, cameraMode, cannonCo
                 ]
             ]
         , -- Bottom Area: Knotmeter, Heel Meter, Sail Sheet & Rudder Touch Controls
-          div [ Attr.class "flex justify-between items-end w-full pointer-events-auto gap-4" ]
+          div [ Attr.class "flex flex-wrap sm:flex-nowrap justify-between items-end w-full pointer-events-auto gap-2 sm:gap-4" ]
             [ -- Bottom Left: Knotmeter & Heel
               viewSpeedAndHeel state
             , -- Bottom Center/Right: Touch Controls (Fire Cannons, Tack, Trim Sheet, Rudder)
@@ -166,7 +166,7 @@ viewWindRose state course =
                 Running ->
                     "bg-amber-500/80 text-white"
     in
-    div [ Attr.class "flex flex-col gap-1 bg-slate-900/85 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-lg text-white min-w-[130px]" ]
+    div [ Attr.class "flex flex-col shrink-0 gap-1 bg-slate-900/85 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-white/10 shadow-lg text-white min-w-[120px] sm:min-w-[130px]" ]
         [ div [ Attr.class "flex justify-between items-center text-xs text-slate-400 font-semibold" ]
             [ span [] [ text "HEADING" ]
             , span [ Attr.class "text-sky-400 font-bold" ] [ text (String.fromInt (round shipHeading) ++ "° " ++ cardinal) ]
@@ -205,8 +205,8 @@ viewTimerSplit progress course =
         wpStr =
             "Buoy " ++ String.fromInt currentWp ++ " / " ++ String.fromInt progress.totalWaypoints
     in
-    div [ Attr.class "flex flex-col items-center bg-slate-900/85 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-lg text-white" ]
-        [ span [ Attr.class "font-mono text-2xl font-bold tracking-wider text-amber-400" ]
+    div [ Attr.class "flex flex-col items-center min-w-0 max-w-full bg-slate-900/85 backdrop-blur-md px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/10 shadow-lg text-white" ]
+        [ span [ Attr.class "font-mono text-xl sm:text-2xl font-bold tracking-wider text-amber-400" ]
             [ text timeStr ]
         , div [ Attr.class "flex items-center gap-2 text-xs text-slate-300 font-medium" ]
             [ span [ Attr.class "px-1.5 py-0.5 bg-slate-800 rounded-md text-sky-300 font-semibold" ]
@@ -264,17 +264,17 @@ viewSpeedAndHeel state =
 -}
 viewTouchControls : SailingState -> Float -> HudActions msg -> Html msg
 viewTouchControls state cannonCooldown actions =
-    div [ Attr.class "flex items-center gap-3" ]
+    div [ Attr.class "flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 ml-auto max-w-full" ]
         [ -- Cannon Broadside Fire button
           button
             [ onClick actions.onFireCannons
             , Attr.title "Fire broadside naval cannons [Space or KeyF]"
             , Attr.class
                 (if cannonCooldown <= 0.0 then
-                    "px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 active:scale-95 transition-all text-white font-black text-xs uppercase shadow-lg shadow-rose-600/30 tracking-wider flex items-center gap-1.5"
+                    "px-2.5 sm:px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 active:scale-95 transition-all text-white font-black text-xs uppercase shadow-lg shadow-rose-600/30 tracking-wider flex items-center gap-1.5"
 
                  else
-                    "px-3.5 py-2.5 rounded-2xl bg-slate-800 text-slate-400 font-bold text-xs uppercase cursor-not-allowed opacity-70"
+                    "px-2.5 sm:px-3.5 py-2.5 rounded-2xl bg-slate-800 text-slate-400 font-bold text-xs uppercase cursor-not-allowed opacity-70"
                 )
             ]
             [ FeatherIcons.target |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
@@ -290,7 +290,7 @@ viewTouchControls state cannonCooldown actions =
           button
             [ onClick actions.onTack
             , Attr.title "Tack / Gybe through the wind [KeyT]"
-            , Attr.class "px-3.5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-95 transition-all text-slate-950 font-black text-xs uppercase shadow-md tracking-wider"
+            , Attr.class "px-2.5 sm:px-3.5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-95 transition-all text-slate-950 font-black text-xs uppercase shadow-md tracking-wider"
             ]
             [ text "TACK" ]
         , -- Sail Sheet Trim buttons
@@ -298,13 +298,13 @@ viewTouchControls state cannonCooldown actions =
             [ button
                 [ onClick actions.onSheetIn
                 , Attr.title "Trim sail sheet in (tighter)"
-                , Attr.class "px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 transition-colors text-white text-xs font-bold"
+                , Attr.class "px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 transition-colors text-white text-xs font-bold"
                 ]
                 [ text "SHEET IN" ]
             , button
                 [ onClick actions.onSheetOut
                 , Attr.title "Ease sail sheet out (looser)"
-                , Attr.class "px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 transition-colors text-white text-xs font-bold"
+                , Attr.class "px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 transition-colors text-white text-xs font-bold"
                 ]
                 [ text "EASE OUT" ]
             ]
