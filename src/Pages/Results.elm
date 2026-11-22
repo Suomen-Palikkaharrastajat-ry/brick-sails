@@ -3,98 +3,134 @@ module Pages.Results exposing
     , viewResults
     )
 
-{-| Regatta Challenge finish & course leaderboard results screen.
+{-| Finish screen: star rating, time with the target bonus, personal best,
+and a big "Sail again" button.
 -}
 
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
-import Html exposing (Html, button, div, h1, h2, p, span, text)
+import Html exposing (Html, button, div, h1, p, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
-import Sails.Types
-    exposing
-        ( Course
-        , CourseProgress
-        , LeaderboardEntry
-        , ShipSpec
-        )
+import Sails.Physics as Physics
+import Sails.Types exposing (Course, CourseProgress, LeaderboardEntry)
 
 
 type alias ResultsActions msg =
     { onSailAgain : msg
     , onReturnToShipyard : msg
-    , onCopyShareUrl : msg
     }
 
 
 viewResults :
     { course : Course
     , progress : CourseProgress
-    , spec : ShipSpec
+    , boatName : String
     , personalBest : Maybe LeaderboardEntry
     , actions : ResultsActions msg
     }
     -> Html msg
-viewResults { course, progress, spec, personalBest, actions } =
+viewResults { course, progress, boatName, personalBest, actions } =
     let
-        finalTime =
-            Leaderboard.formatRaceTime progress.elapsedSeconds
+        score =
+            Physics.finalTime progress
+
+        stars =
+            Physics.starRating course.targetSeconds score
 
         isNewRecord =
             case personalBest of
                 Just pb ->
-                    progress.elapsedSeconds <= pb.timeSeconds
+                    score < pb.timeSeconds
 
                 Nothing ->
                     True
-    in
-    div [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg select-none font-sans" ]
-        [ div [ Attr.class "w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-6 shadow-2xl text-white flex flex-col items-center text-center gap-4 animate-in fade-in zoom-in-95 duration-200" ]
-            [ -- Trophy Icon
-              div [ Attr.class "w-16 h-16 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/20" ]
-                [ FeatherIcons.award |> FeatherIcons.toHtml [] ]
-            , -- Header
-              div []
-                [ h1 [ Attr.class "text-2xl font-black uppercase tracking-wider text-amber-400" ]
-                    [ text "Regatta Complete!" ]
-                , p [ Attr.class "text-sm text-slate-300 font-medium" ]
-                    [ text (course.title ++ " • " ++ spec.name) ]
+
+        star i =
+            span
+                [ Attr.class
+                    (if i <= stars then
+                        "text-amber-300 drop-shadow-[0_2px_6px_rgba(251,191,36,0.6)]"
+
+                     else
+                        "text-slate-700"
+                    )
                 ]
-            , -- Big Final Time Card
-              div [ Attr.class "w-full py-4 px-6 rounded-2xl bg-slate-950/60 border border-white/10 flex flex-col items-center" ]
-                [ span [ Attr.class "text-xs font-bold text-slate-400 uppercase tracking-widest" ] [ text "Final Race Time" ]
-                , span [ Attr.class "font-mono text-4xl font-black text-sky-400 tracking-wider my-1" ] [ text finalTime ]
-                , if isNewRecord then
-                    span [ Attr.class "px-3 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold uppercase border border-amber-500/30 tracking-wider" ]
-                        [ text "★ New Personal Best!" ]
+                [ FeatherIcons.star |> FeatherIcons.withSize 44 |> FeatherIcons.toHtml [ Attr.attribute "fill" "currentColor" ] ]
 
-                  else
-                    span [ Attr.class "text-xs text-slate-400 font-medium" ]
+        headline =
+            case stars of
+                3 ->
+                    "Ship-shape!"
+
+                2 ->
+                    "Nice sailing!"
+
+                _ ->
+                    "Made it!"
+
+        nextGoal =
+            if stars < 3 then
+                "3 stars at " ++ Leaderboard.formatRaceTime course.targetSeconds
+
+            else
+                ""
+    in
+    div [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm select-none overflow-y-auto" ]
+        [ div [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 shadow-2xl text-white flex flex-col landscape:flex-row items-center text-center gap-3 landscape:gap-5" ]
+            [ div [ Attr.class "flex flex-col items-center gap-1" ]
+                [ div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (String.fromInt stars ++ " stars") ] (List.map star [ 1, 2, 3 ])
+                , h1 [ Attr.class "text-2xl font-black uppercase tracking-wider text-amber-300 whitespace-nowrap" ] [ text headline ]
+                , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (course.title ++ " · " ++ boatName) ]
+                ]
+            , div [ Attr.class "w-full flex flex-col gap-3" ]
+                [ div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-slate-950/60 border border-white/10 flex flex-col items-center" ]
+                    [ span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider" ] [ text (Leaderboard.formatRaceTime score) ]
+                    , span [ Attr.class "text-xs text-slate-400" ]
                         [ text
-                            (case personalBest of
-                                Just pb ->
-                                    "Personal Best: " ++ Leaderboard.formatRaceTime pb.timeSeconds
+                            (Leaderboard.formatRaceTime progress.elapsedSeconds
+                                ++ " sailing − "
+                                ++ String.fromInt (round (Physics.bonusPerHit * toFloat progress.targetsHit))
+                                ++ " s for "
+                                ++ String.fromInt progress.targetsHit
+                                ++ " target"
+                                ++ (if progress.targetsHit == 1 then
+                                        ""
 
-                                Nothing ->
-                                    ""
+                                    else
+                                        "s"
+                                   )
                             )
                         ]
-                ]
-            , -- Action Buttons
-              div [ Attr.class "flex flex-col sm:flex-row gap-2.5 w-full mt-2" ]
-                [ button
-                    [ onClick actions.onSailAgain
-                    , Attr.class "flex-1 py-3 px-4 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-1.5"
+                    , if isNewRecord then
+                        span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase border border-amber-500/30" ]
+                            [ text "New personal best!" ]
+
+                      else
+                        span [ Attr.class "mt-1 text-xs text-slate-400" ]
+                            [ text ("Best: " ++ (personalBest |> Maybe.map (.timeSeconds >> Leaderboard.formatRaceTime) |> Maybe.withDefault "")) ]
+                    , if String.isEmpty nextGoal then
+                        text ""
+
+                      else
+                        span [ Attr.class "text-[11px] text-slate-500" ] [ text nextGoal ]
                     ]
-                    [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
-                    , text "Sail Again"
-                    ]
-                , button
-                    [ onClick actions.onReturnToShipyard
-                    , Attr.class "flex-1 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5"
-                    ]
-                    [ FeatherIcons.anchor |> FeatherIcons.toHtml []
-                    , text "Shipyard"
+                , div [ Attr.class "flex gap-2 w-full" ]
+                    [ button
+                        [ onClick actions.onSailAgain
+                        , Attr.attribute "data-retry" ""
+                        , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-sky-500 active:bg-sky-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2"
+                        ]
+                        [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
+                        , text "Sail again"
+                        ]
+                    , button
+                        [ onClick actions.onReturnToShipyard
+                        , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
+                        ]
+                        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                        , text "Boats"
+                        ]
                     ]
                 ]
             ]

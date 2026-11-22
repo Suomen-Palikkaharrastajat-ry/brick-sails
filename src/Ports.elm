@@ -1,5 +1,7 @@
 port module Ports exposing
     ( binaryHashDecoded
+    , calibrateTilt
+    , closeQrScanner
     , copyShareUrl
     , createMultiplayerRoom
     , decodeBinaryHash
@@ -13,20 +15,19 @@ port module Ports exposing
     , multiplayerError
     , multiplayerRoomStateChanged
     , openQrScanner
-    , closeQrScanner
     , playSfx
     , qrCodeScanned
     , qrScannerError
     , requestFileUpload
     , requestGeometryFlatten
-    , requestTiltPermission
     , saveLeaderboard
     , sendMultiplayerTelemetry
     , setAudioMuted
     , setUrlHash
     , startMultiplayerCountdown
     , storeLanguage
-    , tiltOrientationReceived
+    , tiltStatus
+    , tiltSteer
     , updateAudioState
     , viewportResized
     )
@@ -134,14 +135,22 @@ port storeLanguage : String -> Cmd msg
 port saveLeaderboard : String -> Cmd msg
 
 
-{-| Prompt iOS / mobile browser for device tilt permission.
+{-| Set the current phone tilt as the neutral (straight ahead) steering point.
+Sent when a race starts or restarts; handled in `tilt.js`.
 -}
-port requestTiltPermission : () -> Cmd msg
+port calibrateTilt : () -> Cmd msg
 
 
-{-| Normalized tilt steering value from device accelerometer [-1.0, 1.0].
+{-| Tilt steering from `tilt.js`, -1 (left) .. 1 (right), after calibration and
+dead zone. Only sent while tilt steering is switched on.
 -}
-port tiltOrientationReceived : (Float -> msg) -> Sub msg
+port tiltSteer : (Float -> msg) -> Sub msg
+
+
+{-| Whether tilt steering can be used on this device and whether it is on.
+`tilt.js` sends this at start-up and whenever the player toggles it.
+-}
+port tiltStatus : ({ available : Bool, enabled : Bool } -> msg) -> Sub msg
 
 
 {-| Create a new multiplayer regatta room as host/commentator.

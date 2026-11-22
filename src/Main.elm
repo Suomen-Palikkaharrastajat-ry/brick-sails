@@ -1,92 +1,58 @@
 module Main exposing (Flags, Model, Msg, main)
 
 {-| Top-level Elm Architecture entry point for Brick Sails (`brick-sails`).
-Deployed to https://ohoi.palikkaharrastajat.fi.
+Deployed to <https://ohoi.palikkaharrastajat.fi>.
+
+Two screens: the boat picker (`Pages.Shipyard`) and the race (`Pages.Sail`).
+
 -}
 
 import Browser
-import Browser.Dom as Dom
 import Browser.Events
-import Dict
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
-import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState)
+import Game.Multiplayer as Multiplayer
 import Html exposing (Html, div)
-import Html.Attributes as Attr
 import Json.Decode as Decode
-import LDraw.Document as Document exposing (Document)
-import Math.Vector3 as Vec3 exposing (vec3)
-import Pages.Results as Results
+import Json.Encode as Encode
 import Pages.Sail as Sail
 import Pages.Shipyard as Shipyard
 import Ports
-import Render.Camera as Camera exposing (Camera)
-import Render.Scene as Scene exposing (Scene)
-import Sails.Analyze as Analyze exposing (AnalysisReport)
-import Sails.CameraRig as CameraRig
-import Sails.Ingest as Ingest
+import Sails.Boats as Boats
 import Sails.Physics as Physics
-import Sails.Types
-    exposing
-        ( Course
-        , CourseId(..)
-        , CourseProgress
-        , LeaderboardEntry
-        , ShipSpec
-        , ViewMode(..)
-        )
-import Studio.HashPayload as HashPayload
-import Task
+import Sails.Types exposing (Boat, Course, ViewMode(..))
 
 
 type alias Flags =
-    { ldrawBase : String
-    , ldrawFallbackBase : String
-    , indicesBase : String
-    , initialHash : String
-    , predecodedInitialBytes : Maybe (List Int)
-    , coarsePointer : Bool
-    , language : String
-    , savedAudioMuted : Bool
+    { savedAudioMuted : Bool
     , savedLeaderboardJson : String
-    , baseUrl : String
     }
 
 
 type alias Model =
-    { currentHash : String
-    , spec : ShipSpec
-    , scene : Scene
-    , report : AnalysisReport
+    { boat : Boat
     , course : Course
     , viewMode : ViewMode
-    , shipyardCamera : Camera
     , sailModel : Maybe Sail.SailModel
     , audioMuted : Bool
     , leaderboard : Leaderboard
+    , tilt : { available : Bool, enabled : Bool }
+    , shipyardTime : Float
     , viewportWidth : Int
     , viewportHeight : Int
-    , baseUrl : String
     }
 
 
 type Msg
-    = SelectPreset String
-    | SelectCourse CourseId
+    = SelectBoat String
     | StartSailing
     | StartHostMultiplayer
     | JoinMultiplayer
     | MultiplayerRoomChanged Decode.Value
     | MultiplayerError String
     | ReturnToShipyard
-    | RestartCourse
     | ToggleMute
-    | CopyShareUrl
-    | OpenQrScanner
-    | QrCodeScanned String
-    | QrScannerError String
-    | HashChanged String
-    | BinaryHashDecoded (Maybe (List Int))
-    | FileContentReceived String
+    | TiltStatusChanged { available : Bool, enabled : Bool }
+    | ShipyardTick Float
     | ViewportResized { width : Int, height : Int }
     | SailMessage Sail.SailMsg
 
@@ -103,124 +69,65 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    let
-        activeHash =
-            if String.isEmpty flags.initialHash then
-                Ingest.defaultShipHash
-
-            else
-                flags.initialHash
-
-        spec =
-            Ingest.ingestFromPlacements "Micro Sloop"
-                [ ( "3660b.dat", vec3 40.0 -24.0 10.0 )
-                , ( "3660b.dat", vec3 40.0 -24.0 70.0 )
-                , ( "3003.dat", vec3 40.0 -24.0 40.0 )
-                , ( "3068b.dat", vec3 40.0 -32.0 0.0 )
-                , ( "3068b.dat", vec3 40.0 -32.0 80.0 )
-                , ( "2335.dat", vec3 40.0 -124.0 40.0 )
-                , ( "3957a.dat", vec3 40.0 -40.0 40.0 )
-                , ( "87580.dat", vec3 40.0 -32.0 40.0 )
-                ]
-
-        report =
-            Analyze.analyzeShip spec
-
-        shipyardCam =
-            Camera.init
-                |> Camera.setSceneRadius 15.0
-                |> CameraRig.lookAt (vec3 4.5 3.2 5.5) (vec3 0.0 0.2 0.0)
-
-        board =
+    ( { boat = Boats.default
+      , course = Physics.defaultCourse
+      , viewMode = ViewShipyard
+      , sailModel = Nothing
+      , audioMuted = flags.savedAudioMuted
+      , leaderboard =
             Decode.decodeString Leaderboard.decodeLeaderboard flags.savedLeaderboardJson
                 |> Result.withDefault Leaderboard.empty
-
-        initialModel =
-            { currentHash = activeHash
-            , spec = spec
-            , scene = Scene.buildScene { triangles = [], lines = [], conditionalLines = [] } False
-            , report = report
-            , course = Physics.defaultCourse
-            , viewMode = ViewShipyard
-            , shipyardCamera = shipyardCam
-            , sailModel = Nothing
-            , audioMuted = flags.savedAudioMuted
-            , leaderboard = board
-            , viewportWidth = 1024
-            , viewportHeight = 768
-            , baseUrl = flags.baseUrl
-            }
-
-        -- Decode predecoded initial bytes if provided
-        initialCmd =
-            case flags.predecodedInitialBytes of
-                Just bytes ->
-                    case HashPayload.decode (HashPayload.listToBytes bytes) of
-                        Just payload ->
-                            let
-                                ( newModel, _ ) =
-                                    applyDocument payload.document activeHash initialModel
-                            in
-                            Task.perform (\_ -> ViewportResized { width = 1024, height = 768 }) (Task.succeed ())
-
-                        Nothing ->
-                            Cmd.none
-
-                Nothing ->
-                    Ports.decodeBinaryHash activeHash
-    in
-    ( initialModel, initialCmd )
-
-
-applyDocument : Document -> String -> Model -> ( Model, Cmd Msg )
-applyDocument doc hash model =
-    let
-        spec =
-            Ingest.ingestDocument "Custom Sloop" doc
-
-        report =
-            Analyze.analyzeShip spec
-    in
-    ( { model
-        | currentHash = hash
-        , spec = spec
-        , report = report
+      , tilt = { available = False, enabled = False }
+      , shipyardTime = 0
+      , viewportWidth = 1024
+      , viewportHeight = 768
       }
-    , Ports.setUrlHash hash
+    , Cmd.none
     )
+
+
+personalBest : Model -> Maybe Sails.Types.LeaderboardEntry
+personalBest model =
+    Leaderboard.bestForCourse model.course.id model.leaderboard
+
+
+newSail : Maybe Multiplayer.RoomState -> Model -> Sail.SailModel
+newSail room model =
+    Sail.initSail model.boat model.course model.audioMuted (personalBest model) room model.tilt model.viewportWidth model.viewportHeight
+
+
+silenceAudio : Cmd msg
+silenceAudio =
+    Ports.updateAudioState
+        { active = False
+        , windGain = 0
+        , windHz = 350
+        , washGain = 0
+        , washHz = 180
+        , hullGain = 0
+        , toneHz = 0
+        , toneGain = 0
+        }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SelectPreset hash ->
-            ( model, Ports.decodeBinaryHash hash )
-
-        SelectCourse cid ->
-            ( model, Cmd.none )
+        SelectBoat name ->
+            ( { model | boat = Boats.byName name }, Cmd.none )
 
         StartSailing ->
-            let
-                pb =
-                    Leaderboard.bestForCourse (Sails.Types.courseIdToString model.course.id) model.leaderboard
-
-                sail =
-                    Sail.initSail model.spec model.scene model.course model.audioMuted pb Nothing model.viewportWidth model.viewportHeight
-            in
-            ( { model
-                | viewMode = ViewSailing
-                , sailModel = Just sail
-              }
-            , Ports.requestTiltPermission ()
+            ( { model | viewMode = ViewSailing, sailModel = Just (newSail Nothing model) }
+            , Ports.calibrateTilt ()
             )
 
         StartHostMultiplayer ->
             ( model
             , Ports.createMultiplayerRoom
                 { roomId = ""
-                , courseId = Sails.Types.courseIdToString model.course.id
-                , name = "Host Commentator"
-                , vehicleHash = model.currentHash
+                , courseId = model.course.id
+                , name = "Host"
+                , vehicleHash = model.boat.name
                 }
             )
 
@@ -229,7 +136,7 @@ update msg model =
             , Ports.joinMultiplayerRoom
                 { roomId = ""
                 , name = "Sailor"
-                , vehicleHash = model.currentHash
+                , vehicleHash = model.boat.name
                 }
             )
 
@@ -242,25 +149,13 @@ update msg model =
                                 ( nextSail, sCmd ) =
                                     Sail.update (Sail.UpdateMultiplayerRoom room) sModel
                             in
-                            ( { model | sailModel = Just nextSail }
-                            , Cmd.map SailMessage sCmd
-                            )
+                            ( { model | sailModel = Just nextSail }, Cmd.map SailMessage sCmd )
 
                         Nothing ->
-                            let
-                                pb =
-                                    Leaderboard.bestForCourse (Sails.Types.courseIdToString model.course.id) model.leaderboard
-
-                                newSail =
-                                    Sail.initSail model.spec model.scene model.course model.audioMuted pb (Just room) model.viewportWidth model.viewportHeight
-                            in
-                            ( { model
-                                | viewMode = ViewSailing
-                                , sailModel = Just newSail
-                              }
+                            ( { model | viewMode = ViewSailing, sailModel = Just (newSail (Just room) model) }
                             , Cmd.batch
                                 [ Ports.setUrlHash ("#room=" ++ room.roomId)
-                                , Ports.requestTiltPermission ()
+                                , Ports.calibrateTilt ()
                                 ]
                             )
 
@@ -271,164 +166,138 @@ update msg model =
             ( model, Cmd.none )
 
         ReturnToShipyard ->
-            ( { model
-                | viewMode = ViewShipyard
-                , sailModel = Nothing
-              }
-            , Cmd.batch
-                [ Ports.leaveMultiplayerRoom ()
-                , Ports.updateAudioState
-                    { active = False
-                    , windGain = 0.0
-                    , windHz = 350.0
-                    , washGain = 0.0
-                    , washHz = 180.0
-                    , hullGain = 0.0
-                    , toneHz = 0.0
-                    , toneGain = 0.0
-                    }
-                ]
+            ( { model | viewMode = ViewShipyard, sailModel = Nothing }
+            , Cmd.batch [ Ports.leaveMultiplayerRoom (), silenceAudio ]
             )
-
-        RestartCourse ->
-            update StartSailing model
 
         ToggleMute ->
-            let
-                nextMuted =
-                    not model.audioMuted
-
-                updatedSail =
-                    model.sailModel
-                        |> Maybe.map (\s -> { s | audioMuted = nextMuted })
-            in
-            ( { model | audioMuted = nextMuted, sailModel = updatedSail }
-            , Ports.setAudioMuted nextMuted
+            ( { model
+                | audioMuted = not model.audioMuted
+                , sailModel = model.sailModel |> Maybe.map (\s -> { s | audioMuted = not model.audioMuted })
+              }
+            , Ports.setAudioMuted (not model.audioMuted)
             )
 
-        CopyShareUrl ->
-            ( model, Ports.copyShareUrl model.currentHash )
-
-        OpenQrScanner ->
-            ( model, Ports.openQrScanner () )
-
-        QrCodeScanned scannedHash ->
-            ( { model | currentHash = scannedHash }, Ports.decodeBinaryHash scannedHash )
-
-        QrScannerError _ ->
-            ( model, Cmd.none )
-
-        HashChanged newHash ->
-            ( { model | currentHash = newHash }, Ports.decodeBinaryHash newHash )
-
-        BinaryHashDecoded maybeBytes ->
-            case maybeBytes of
-                Just bytes ->
-                    case HashPayload.decode (HashPayload.listToBytes bytes) of
-                        Just payload ->
-                            applyDocument payload.document model.currentHash model
-
-                        Nothing ->
-                            ( model, Cmd.none )
-
-                Nothing ->
-                    ( model, Cmd.none )
-
-        FileContentReceived fileText ->
-            applyDocument (Document.parse fileText) model.currentHash model
-
-        ViewportResized dims ->
-            let
-                updatedSail =
-                    model.sailModel
-                        |> Maybe.map (\s -> { s | viewportWidth = dims.width, viewportHeight = dims.height })
-            in
+        TiltStatusChanged status ->
             ( { model
-                | viewportWidth = dims.width
-                , viewportHeight = dims.height
-                , sailModel = updatedSail
+                | tilt = status
+                , sailModel = model.sailModel |> Maybe.map (\s -> { s | tilt = status, tiltSteer = 0 })
               }
             , Cmd.none
             )
 
+        ShipyardTick dt ->
+            ( { model | shipyardTime = model.shipyardTime + min 0.05 (dt / 1000) }, Cmd.none )
+
+        ViewportResized dims ->
+            ( { model
+                | viewportWidth = dims.width
+                , viewportHeight = dims.height
+                , sailModel = model.sailModel |> Maybe.map (\s -> { s | viewportWidth = dims.width, viewportHeight = dims.height })
+              }
+            , Cmd.none
+            )
+
+        SailMessage Sail.ReturnToShipyard ->
+            update ReturnToShipyard model
+
+        SailMessage Sail.ToggleMute ->
+            update ToggleMute model
+
+        SailMessage Sail.RestartCourse ->
+            case model.sailModel of
+                Just sModel ->
+                    let
+                        ( nextSail, sCmd ) =
+                            Sail.update Sail.RestartCourse { sModel | personalBest = personalBest model }
+                    in
+                    ( { model | sailModel = Just nextSail }, Cmd.map SailMessage sCmd )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
         SailMessage sMsg ->
-            case sMsg of
-                Sail.ReturnToShipyard ->
-                    update ReturnToShipyard model
+            case model.sailModel of
+                Just sModel ->
+                    let
+                        ( nextSail, sCmd ) =
+                            Sail.update sMsg sModel
 
-                _ ->
-                    case model.sailModel of
-                        Just sModel ->
-                            let
-                                ( nextSail, sCmd ) =
-                                    Sail.update sMsg sModel
-                            in
-                            ( { model | sailModel = Just nextSail }
-                            , Cmd.map SailMessage sCmd
-                            )
+                        justFinished =
+                            nextSail.progress.finished && not sModel.progress.finished
+                    in
+                    if justFinished then
+                        recordFinish nextSail { model | sailModel = Just nextSail } (Cmd.map SailMessage sCmd)
 
-                        Nothing ->
-                            ( model, Cmd.none )
+                    else
+                        ( { model | sailModel = Just nextSail }, Cmd.map SailMessage sCmd )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+
+{-| Save the finished run to the local leaderboard.
+-}
+recordFinish : Sail.SailModel -> Model -> Cmd Msg -> ( Model, Cmd Msg )
+recordFinish sail model cmd =
+    let
+        board =
+            Leaderboard.recordRun
+                { courseId = model.course.id
+                , player = "You"
+                , timeSeconds = Physics.finalTime sail.progress
+                , isoDate = ""
+                , vehicleName = sail.boat.name
+                }
+                model.leaderboard
+    in
+    ( { model | leaderboard = board }
+    , Cmd.batch [ cmd, Ports.saveLeaderboard (Encode.encode 0 (Leaderboard.encodeLeaderboard board)) ]
+    )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ Ports.hashChanged HashChanged
-        , Ports.binaryHashDecoded BinaryHashDecoded
-        , Ports.fileContentReceived FileContentReceived
-        , Ports.viewportResized ViewportResized
+        [ Ports.viewportResized ViewportResized
         , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
         , Ports.multiplayerError MultiplayerError
-        , Ports.qrCodeScanned QrCodeScanned
-        , Ports.qrScannerError QrScannerError
+        , Ports.tiltStatus TiltStatusChanged
         , case ( model.viewMode, model.sailModel ) of
             ( ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)
 
             _ ->
-                Sub.none
+                Browser.Events.onAnimationFrameDelta ShipyardTick
         ]
 
 
 view : Model -> Html Msg
 view model =
-    case model.viewMode of
-        ViewShipyard ->
+    case ( model.viewMode, model.sailModel ) of
+        ( ViewSailing, Just sModel ) ->
+            Html.map SailMessage
+                (Sail.viewSail sModel
+                    { onReturnToShipyard = Sail.ReturnToShipyard
+                    , onRestartCourse = Sail.RestartCourse
+                    }
+                )
+
+        _ ->
             Shipyard.viewShipyard
-                { spec = model.spec
-                , scene = model.scene
-                , camera = model.shipyardCamera
-                , report = model.report
-                , selectedCourse = model.course.id
+                { boat = model.boat
+                , course = model.course
+                , personalBest = personalBest model
+                , time = model.shipyardTime
                 , audioMuted = model.audioMuted
-                , currentHash = model.currentHash
+                , tilt = model.tilt
                 , viewportWidth = model.viewportWidth
                 , viewportHeight = model.viewportHeight
                 , actions =
-                    { onSelectPreset = SelectPreset
-                    , onSelectCourse = SelectCourse
+                    { onSelectBoat = SelectBoat
                     , onStartSailing = StartSailing
                     , onStartHostMultiplayer = StartHostMultiplayer
                     , onJoinMultiplayer = JoinMultiplayer
-                    , onCopyShareUrl = CopyShareUrl
-                    , onOpenQrScanner = OpenQrScanner
                     , onToggleMute = ToggleMute
                     }
                 }
-
-        ViewSailing ->
-            case model.sailModel of
-                Just sModel ->
-                    Html.map SailMessage
-                        (Sail.viewSail sModel
-                            { onReturnToShipyard = Sail.ReturnToShipyard
-                            , onRestartCourse = Sail.RestartCourse
-                            }
-                        )
-
-                Nothing ->
-                    div [] []
-
-        ViewResults ->
-            div [] []

@@ -7,17 +7,15 @@ module Pages.Sail exposing
     , viewSail
     )
 
-{-| Active 3D sailing simulation gameplay page:
-60 FPS physics tick, waypoint progression, procedural Web Audio telemetry,
-interactive camera controllers, and HUD overlay.
+{-| The race: a 3-2-1 start, then sail through the buoys in order while a
+follow camera keeps the boat and the next buoy on screen. Cannons lob a ball
+at the nearest floating target in range; each hit takes 2 s off the time.
 -}
 
 import Browser.Events
 import FeatherIcons
 import Game.Audio as GameAudio
-import Game.Camera as GameCamera
-import Game.Leaderboard as Leaderboard
-import Game.Multiplayer as Multiplayer exposing (RemotePlayer, Role(..), RoomState, RoomStatus(..))
+import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
 import Game.MultiplayerUI as MultiplayerUI
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
@@ -26,47 +24,52 @@ import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
-import Render.Camera as Camera exposing (Camera)
-import Render.Scene exposing (Scene)
-import Sails.CameraRig as CameraRig
-import Sails.HUD as HUD
+import Sails.CameraRig as CameraRig exposing (Follow)
+import Sails.HUD as HUD exposing (Side(..))
 import Sails.Physics as Physics
-import Sails.Render as Render
+import Sails.Render as Render exposing (RenderBoat)
 import Sails.Types
     exposing
-        ( CameraMode(..)
+        ( Boat
         , Cannonball
         , CombatImpact
         , Course
         , CourseProgress
         , LeaderboardEntry
         , SailingState
-        , SfxEvent(..)
-        , ShipSpec
+        , Target
         )
 
 
+type Phase
+    = Countdown Float
+    | Racing
+    | WaitingForRoom
+
+
 type alias SailModel =
-    { spec : ShipSpec
-    , scene : Scene
+    { boat : Boat
     , course : Course
     , state : SailingState
     , progress : CourseProgress
-    , camera : Camera
-    , cameraMode : CameraMode
-    , orbitYaw : Float
-    , orbitPitch : Float
-    , orbitDistance : Float
+    , phase : Phase
+    , follow : Follow
     , simTime : Float
     , audioMuted : Bool
     , personalBest : Maybe LeaderboardEntry
     , multiplayer : Maybe RoomState
+    , targets : List Target
     , cannonballs : List Cannonball
     , impacts : List CombatImpact
     , cannonCooldown : Float
-    , hitsScored : Int
-    , hitsTaken : Int
     , nextCannonId : Int
+    , keyLeft : Bool
+    , keyRight : Bool
+    , touchLeft : Bool
+    , touchRight : Bool
+    , tiltSteer : Float
+    , tilt : { available : Bool, enabled : Bool }
+    , toast : Maybe ( String, Float )
     , viewportWidth : Int
     , viewportHeight : Int
     }
@@ -76,14 +79,10 @@ type SailMsg
     = Tick Float
     | KeyDown String
     | KeyUp String
-    | TiltOrientation Float
-    | SteerLeft
-    | SteerRight
-    | SheetIn
-    | SheetOut
-    | Tack
+    | Steer Side Bool
+    | TiltSteer Float
+    | ReleaseControls
     | FireCannons
-    | CycleCamera
     | ToggleMute
     | ReturnToShipyard
     | RestartCourse
@@ -92,396 +91,208 @@ type SailMsg
     | UpdateMultiplayerRoom RoomState
 
 
-initSail : ShipSpec -> Scene -> Course -> Bool -> Maybe LeaderboardEntry -> Maybe RoomState -> Int -> Int -> SailModel
-initSail spec scene course audioMuted pb maybeMulti width height =
+countdownSeconds : Float
+countdownSeconds =
+    3.0
+
+
+cannonReload : Float
+cannonReload =
+    0.8
+
+
+initSail :
+    Boat
+    -> Course
+    -> Bool
+    -> Maybe LeaderboardEntry
+    -> Maybe RoomState
+    -> { available : Bool, enabled : Bool }
+    -> Int
+    -> Int
+    -> SailModel
+initSail boat course audioMuted pb maybeMulti tilt width height =
     let
-        initState =
+        state =
             Physics.initSailingState course
+
+        heldByRoom =
+            case maybeMulti of
+                Just room ->
+                    case room.status of
+                        Multiplayer.Countdown _ ->
+                            True
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
     in
-    { spec = spec
-    , scene = scene
+    { boat = boat
     , course = course
-    , state = initState
-    , progress =
-        { currentWaypointIndex = 0
-        , totalWaypoints = List.length course.waypoints
-        , elapsedSeconds = 0.0
-        , splits = []
-        , finished = False
-        }
-    , camera =
-        Camera.init
-            |> Camera.setSceneRadius 600.0
-            |> CameraRig.lookAt (vec3 0.0 5.0 -12.0) (vec3 0.0 0.5 0.0)
-    , cameraMode = Chase
-    , orbitYaw = 0.0
-    , orbitPitch = 0.25
-    , orbitDistance = 14.0
-    , simTime = 0.0
+    , state = state
+    , progress = Physics.initProgress course
+    , phase =
+        if heldByRoom then
+            WaitingForRoom
+
+        else
+            Countdown countdownSeconds
+    , follow = CameraRig.initFollow state.position state.heading
+    , simTime = 0
     , audioMuted = audioMuted
     , personalBest = pb
     , multiplayer = maybeMulti
+    , targets = course.targets
     , cannonballs = []
     , impacts = []
-    , cannonCooldown = 0.0
-    , hitsScored = 0
-    , hitsTaken = 0
+    , cannonCooldown = 0
     , nextCannonId = 1
+    , keyLeft = False
+    , keyRight = False
+    , touchLeft = False
+    , touchRight = False
+    , tiltSteer = 0
+    , tilt = tilt
+    , toast = Nothing
     , viewportWidth = width
     , viewportHeight = height
     }
+
+
+sfx : GameAudio.OneShotSound -> Cmd msg
+sfx sound =
+    Ports.playSfx (GameAudio.encodeOneShot sound)
+
+
+mySlot : SailModel -> Int
+mySlot model =
+    model.multiplayer |> Maybe.map .mySlot |> Maybe.withDefault 1
+
+
+steerInput : SailModel -> Float
+steerInput model =
+    let
+        held a b =
+            if a || b then
+                1
+
+            else
+                0
+
+        tilt =
+            if model.tilt.enabled then
+                model.tiltSteer
+
+            else
+                0
+    in
+    clamp -1 1 (held model.keyRight model.touchRight - held model.keyLeft model.touchLeft + tilt)
+
+
+nextBuoy : SailModel -> Maybe Vec3
+nextBuoy model =
+    if model.progress.finished then
+        Nothing
+
+    else
+        List.drop model.progress.currentWaypointIndex model.course.waypoints
+            |> List.head
+            |> Maybe.map .position
+
+
+aimPoints : SailModel -> List Vec3
+aimPoints model =
+    let
+        targets =
+            model.targets |> List.filter (not << .sunk) |> List.map .position
+
+        ships =
+            remotePlayers model |> List.map .position
+    in
+    targets ++ ships
+
+
+remotePlayers : SailModel -> List Multiplayer.RemotePlayer
+remotePlayers model =
+    case model.multiplayer of
+        Just r ->
+            List.filter (\p -> p.slot /= r.mySlot) r.players
+
+        Nothing ->
+            []
+
+
+targetInRange : SailModel -> Bool
+targetInRange model =
+    aimPoints model
+        |> List.any (\p -> horizontal model.state.position p <= Physics.cannonRange)
+
+
+horizontal : Vec3 -> Vec3 -> Float
+horizontal a b =
+    let
+        pa =
+            Vec3.toRecord a
+
+        pb =
+            Vec3.toRecord b
+    in
+    sqrt ((pa.x - pb.x) ^ 2 + (pa.z - pb.z) ^ 2)
 
 
 update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
 update msg model =
     case msg of
         Tick dtMs ->
-            let
-                dt =
-                    clamp 0.001 0.05 (dtMs / 1000.0)
+            tick (clamp 0.001 0.05 (dtMs / 1000)) model
 
-                newSimTime =
-                    model.simTime + dt
+        Steer Left down ->
+            ( { model | touchLeft = down }, Cmd.none )
 
-                newCooldown =
-                    max 0.0 (model.cannonCooldown - dt)
+        Steer Right down ->
+            ( { model | touchRight = down }, Cmd.none )
 
-                -- Step physics
-                steppedState =
-                    if model.progress.finished then
-                        model.state
+        TiltSteer v ->
+            ( { model | tiltSteer = clamp -1 1 v }, Cmd.none )
 
-                    else
-                        Physics.stepPhysics dt newSimTime model.course.wind model.spec model.state
-
-                -- Ballistic cannonball projectile flight and water surface impacts
-                ( steppedBalls, waterSplashes ) =
-                    Physics.stepCombatProjectiles dt newSimTime model.cannonballs
-
-                mySlotNum =
-                    case model.multiplayer of
-                        Just r ->
-                            r.mySlot
-
-                        Nothing ->
-                            1
-
-                localShipTarget =
-                    { slot = mySlotNum
-                    , position = steppedState.position
-                    , radius = max 1.2 (model.spec.lengthMeters * 0.4)
-                    }
-
-                remoteShipTargets =
-                    case model.multiplayer of
-                        Just r ->
-                            List.filter (\p -> p.slot /= r.mySlot) r.players
-                                |> List.map
-                                    (\p ->
-                                        { slot = p.slot
-                                        , position = p.position
-                                        , radius = max 1.2 (model.spec.lengthMeters * 0.4)
-                                        }
-                                    )
-
-                        Nothing ->
-                            []
-
-                allTargets =
-                    localShipTarget :: remoteShipTargets
-
-                ( survBalls, shipHitImpacts, hitSlots ) =
-                    Physics.checkCombatShipHits steppedBalls allTargets
-
-                allNewImpacts =
-                    waterSplashes ++ shipHitImpacts
-
-                steppedImpacts =
-                    Physics.stepCombatImpacts dt (model.impacts ++ allNewImpacts)
-
-                localWasHit =
-                    List.member mySlotNum hitSlots
-
-                scoredCount =
-                    List.filter (\s -> s /= mySlotNum) hitSlots |> List.length
-
-                newState =
-                    if localWasHit then
-                        { steppedState
-                            | heelAngle = steppedState.heelAngle + 5.0
-                            , pitchAngle = steppedState.pitchAngle - 2.5
-                        }
-
-                    else
-                        steppedState
-
-                combatSfxCmd =
-                    if not (List.isEmpty shipHitImpacts) then
-                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Impact 1.0))
-
-                    else if not (List.isEmpty waterSplashes) then
-                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Splash 0.5))
-
-                    else
-                        Cmd.none
-
-                -- Check waypoint completion
-                ( newProgress, sfxCmd ) =
-                    if model.progress.finished then
-                        ( model.progress, Cmd.none )
-
-                    else
-                        checkWaypoints dt newState model.course model.progress
-
-                -- Update camera target and eye
-                shipPos =
-                    newState.position
-
-                headingRad =
-                    newState.heading * pi / 180.0
-
-                forwardVec =
-                    vec3 (sin headingRad) 0.0 (cos headingRad)
-
-                ( targetEye, targetLookAt ) =
-                    case model.cameraMode of
-                        Chase ->
-                            let
-                                chaseEye =
-                                    GameCamera.chasePosition shipPos forwardVec 12.0 4.2
-                            in
-                            ( chaseEye, shipPos )
-
-                        Orbit ->
-                            let
-                                orbitEye =
-                                    GameCamera.orbitPosition shipPos
-                                        { yaw = model.orbitYaw
-                                        , pitch = model.orbitPitch
-                                        , distance = model.orbitDistance
-                                        }
-                            in
-                            ( orbitEye, shipPos )
-
-                        Helm ->
-                            let
-                                helmEye =
-                                    GameCamera.helmPosition shipPos forwardVec 1.2
-                            in
-                            ( helmEye, Vec3.add shipPos (Vec3.scale 10.0 forwardVec) )
-
-                oldCam =
-                    model.camera
-
-                newEye =
-                    GameCamera.dampVec3 6.0 (Camera.position oldCam) targetEye dt
-
-                newLookAt =
-                    GameCamera.dampVec3 6.0 oldCam.target targetLookAt dt
-
-                newCam =
-                    CameraRig.lookAt newEye newLookAt oldCam
-
-                -- Send audio telemetry
-                audioCmd =
-                    if model.audioMuted then
-                        Cmd.none
-
-                    else
-                        let
-                            wSpeed =
-                                newState.apparentWindSpeed
-
-                            boatSpeed =
-                                newState.waterSpeed
-                        in
-                        Ports.updateAudioState
-                            { active = not model.progress.finished
-                            , windGain = clamp 0.0 0.85 (wSpeed / 16.0)
-                            , windHz = 280.0 + wSpeed * 70.0
-                            , washGain = clamp 0.0 0.75 (boatSpeed / 10.0)
-                            , washHz = 140.0 + boatSpeed * 25.0
-                            , hullGain = clamp 0.0 0.25 (abs newState.heelAngle / 40.0)
-                            , toneHz = 0.0
-                            , toneGain = 0.0
-                            }
-
-                -- Send multiplayer telemetry if in a room
-                telemetryCmd =
-                    case model.multiplayer of
-                        Just room ->
-                            let
-                                sPos =
-                                    Vec3.toRecord newState.position
-
-                                progRatio =
-                                    toFloat newProgress.currentWaypointIndex / toFloat (max 1 newProgress.totalWaypoints)
-                            in
-                            Ports.sendMultiplayerTelemetry
-                                { pos = [ sPos.x, sPos.y, sPos.z ]
-                                , rot = [ newState.pitchAngle, newState.heading, newState.heelAngle ]
-                                , speed = newState.waterSpeed
-                                , progress = progRatio
-                                , finished = newProgress.finished
-                                }
-
-                        Nothing ->
-                            Cmd.none
-            in
-            ( { model
-                | state = newState
-                , progress = newProgress
-                , camera = newCam
-                , simTime = newSimTime
-                , cannonballs = survBalls
-                , impacts = steppedImpacts
-                , cannonCooldown = newCooldown
-                , hitsScored = model.hitsScored + scoredCount
-                , hitsTaken = model.hitsTaken + (if localWasHit then 1 else 0)
-              }
-            , Cmd.batch [ audioCmd, sfxCmd, combatSfxCmd, telemetryCmd ]
-            )
-
-        SteerLeft ->
-            let
-                s =
-                    model.state
-
-                newRudder =
-                    clamp -35.0 35.0 (s.rudderAngle - 10.0)
-            in
-            ( { model | state = { s | rudderAngle = newRudder } }, Cmd.none )
-
-        SteerRight ->
-            let
-                s =
-                    model.state
-
-                newRudder =
-                    clamp -35.0 35.0 (s.rudderAngle + 10.0)
-            in
-            ( { model | state = { s | rudderAngle = newRudder } }, Cmd.none )
-
-        SheetIn ->
-            let
-                s =
-                    model.state
-
-                newSheet =
-                    clamp 0.0 1.0 (s.sailSheet - 0.15)
-            in
-            ( { model | state = { s | sailSheet = newSheet } }, Cmd.none )
-
-        SheetOut ->
-            let
-                s =
-                    model.state
-
-                newSheet =
-                    clamp 0.0 1.0 (s.sailSheet + 0.15)
-            in
-            ( { model | state = { s | sailSheet = newSheet } }, Cmd.none )
-
-        Tack ->
-            let
-                s =
-                    model.state
-
-                -- Tack maneuver: flip rudder to swing bow through wind
-                newHeading =
-                    modBy 360 (round (s.heading + (if s.apparentWindAngle > 0 then -70 else 70) + 360))
-                        |> toFloat
-            in
-            ( { model | state = { s | heading = newHeading } }
-            , Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Splash 0.5))
-            )
+        ReleaseControls ->
+            ( { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False }, Cmd.none )
 
         FireCannons ->
-            if model.cannonCooldown <= 0.0 then
+            if model.cannonCooldown <= 0 && model.phase == Racing then
                 let
-                    mySlotNum =
-                        case model.multiplayer of
-                            Just r ->
-                                r.mySlot
-
-                            Nothing ->
-                                1
-
-                    ( newBalls, recoilState ) =
-                        Physics.fireCannons mySlotNum model.spec model.state model.nextCannonId
-
-                    fireSfx =
-                        Ports.playSfx (GameAudio.encodeOneShot (GameAudio.Impact 0.8))
+                    balls =
+                        Physics.fireCannons (mySlot model) model.state (aimPoints model) model.nextCannonId
                 in
                 ( { model
-                    | cannonballs = model.cannonballs ++ newBalls
-                    , cannonCooldown = 1.2
-                    , nextCannonId = model.nextCannonId + List.length newBalls
-                    , state = recoilState
+                    | cannonballs = model.cannonballs ++ balls
+                    , cannonCooldown = cannonReload
+                    , nextCannonId = model.nextCannonId + List.length balls
                   }
-                , fireSfx
+                , sfx (GameAudio.Impact 0.8)
                 )
 
             else
                 ( model, Cmd.none )
 
-        TiltOrientation tiltNorm ->
-            let
-                s =
-                    model.state
-
-                targetRudder =
-                    clamp -35.0 35.0 (tiltNorm * 35.0)
-            in
-            ( { model | state = { s | rudderAngle = targetRudder } }, Cmd.none )
-
-        CycleCamera ->
-            let
-                nextMode =
-                    case model.cameraMode of
-                        Chase ->
-                            Orbit
-
-                        Orbit ->
-                            Helm
-
-                        Helm ->
-                            Chase
-            in
-            ( { model | cameraMode = nextMode }, Cmd.none )
-
         ToggleMute ->
-            let
-                nextMuted =
-                    not model.audioMuted
-            in
-            ( { model | audioMuted = nextMuted }, Ports.setAudioMuted nextMuted )
+            ( { model | audioMuted = not model.audioMuted }, Ports.setAudioMuted (not model.audioMuted) )
 
         KeyDown key ->
             case key of
                 "ArrowLeft" ->
-                    update SteerLeft model
+                    ( { model | keyLeft = True }, Cmd.none )
 
                 "KeyA" ->
-                    update SteerLeft model
+                    ( { model | keyLeft = True }, Cmd.none )
 
                 "ArrowRight" ->
-                    update SteerRight model
+                    ( { model | keyRight = True }, Cmd.none )
 
                 "KeyD" ->
-                    update SteerRight model
-
-                "ArrowUp" ->
-                    update SheetIn model
-
-                "KeyW" ->
-                    update SheetIn model
-
-                "ArrowDown" ->
-                    update SheetOut model
-
-                "KeyS" ->
-                    update SheetOut model
+                    ( { model | keyRight = True }, Cmd.none )
 
                 "Space" ->
                     update FireCannons model
@@ -489,17 +300,21 @@ update msg model =
                 "KeyF" ->
                     update FireCannons model
 
-                "KeyT" ->
-                    update Tack model
-
-                "KeyX" ->
-                    update Tack model
-
-                "KeyC" ->
-                    update CycleCamera model
+                "ArrowUp" ->
+                    update FireCannons model
 
                 "KeyM" ->
                     update ToggleMute model
+
+                "KeyR" ->
+                    update RestartCourse model
+
+                "Enter" ->
+                    if model.progress.finished then
+                        update RestartCourse model
+
+                    else
+                        ( model, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
@@ -507,136 +322,316 @@ update msg model =
         KeyUp key ->
             case key of
                 "ArrowLeft" ->
-                    let
-                        s =
-                            model.state
-                    in
-                    ( { model | state = { s | rudderAngle = 0.0 } }, Cmd.none )
-
-                "ArrowRight" ->
-                    let
-                        s =
-                            model.state
-                    in
-                    ( { model | state = { s | rudderAngle = 0.0 } }, Cmd.none )
+                    ( { model | keyLeft = False }, Cmd.none )
 
                 "KeyA" ->
-                    let
-                        s =
-                            model.state
-                    in
-                    ( { model | state = { s | rudderAngle = 0.0 } }, Cmd.none )
+                    ( { model | keyLeft = False }, Cmd.none )
+
+                "ArrowRight" ->
+                    ( { model | keyRight = False }, Cmd.none )
 
                 "KeyD" ->
-                    let
-                        s =
-                            model.state
-                    in
-                    ( { model | state = { s | rudderAngle = 0.0 } }, Cmd.none )
+                    ( { model | keyRight = False }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
 
         RestartCourse ->
-            ( initSail model.spec model.scene model.course model.audioMuted model.personalBest model.multiplayer model.viewportWidth model.viewportHeight
-            , Cmd.none
-            )
+            let
+                fresh =
+                    initSail model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
+            in
+            ( { fresh | multiplayer = model.multiplayer }, Ports.calibrateTilt () )
 
         CopyShareUrl ->
-            let
-                roomArg =
-                    case model.multiplayer of
-                        Just r ->
-                            "#room=" ++ r.roomId
-
-                        Nothing ->
-                            ""
-            in
-            ( model, Ports.copyShareUrl roomArg )
+            ( model
+            , Ports.copyShareUrl
+                (model.multiplayer |> Maybe.map (\r -> "#room=" ++ r.roomId) |> Maybe.withDefault "")
+            )
 
         StartMultiplayerCountdown ->
             ( model, Ports.startMultiplayerCountdown () )
 
         UpdateMultiplayerRoom room ->
-            ( { model | multiplayer = Just room }, Cmd.none )
+            let
+                wasCounting =
+                    case model.multiplayer |> Maybe.map .status of
+                        Just (Multiplayer.Countdown _) ->
+                            True
+
+                        _ ->
+                            False
+            in
+            case ( room.status, room.role ) of
+                ( Multiplayer.Countdown _, JoinedPlayer ) ->
+                    if wasCounting then
+                        ( { model | multiplayer = Just room }, Cmd.none )
+
+                    else
+                        -- The host started the race: everyone back to the start line.
+                        let
+                            fresh =
+                                initSail model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
+                        in
+                        ( { fresh | phase = WaitingForRoom }, Ports.calibrateTilt () )
+
+                ( InRace, _ ) ->
+                    if model.phase == WaitingForRoom then
+                        ( { model | multiplayer = Just room, phase = Racing, toast = Just ( "GO!", 0.8 ) }, sfx GameAudio.Horn )
+
+                    else
+                        ( { model | multiplayer = Just room }, Cmd.none )
+
+                _ ->
+                    ( { model | multiplayer = Just room }, Cmd.none )
 
         ReturnToShipyard ->
             ( model, Cmd.none )
 
 
-checkWaypoints : Float -> SailingState -> Course -> CourseProgress -> ( CourseProgress, Cmd SailMsg )
-checkWaypoints dt state course progress =
+tick : Float -> SailModel -> ( SailModel, Cmd SailMsg )
+tick dt model =
     let
-        newElapsed =
-            progress.elapsedSeconds + dt
+        time =
+            model.simTime + dt
 
-        currentWpMaybe =
-            List.drop progress.currentWaypointIndex course.waypoints
-                |> List.head
-    in
-    case currentWpMaybe of
-        Just wp ->
-            let
-                sPos =
-                    Vec3.toRecord state.position
+        ( phase, phaseCmd, goToast ) =
+            case model.phase of
+                Countdown t ->
+                    if t - dt <= 0 then
+                        ( Racing, sfx GameAudio.Horn, Just ( "GO!", 0.8 ) )
 
-                wPos =
-                    Vec3.toRecord wp.position
+                    else
+                        ( Countdown (t - dt), Cmd.none, Nothing )
 
-                dx =
-                    sPos.x - wPos.x
+                other ->
+                    ( other, Cmd.none, Nothing )
 
-                dz =
-                    sPos.z - wPos.z
+        racing =
+            phase == Racing && not model.progress.finished
 
-                distSq =
-                    dx * dx + dz * dz
+        state =
+            Physics.stepBoat
+                { dt = dt
+                , time = time
+                , steer = steerInput model
+                , throttle =
+                    if racing then
+                        1
 
-                hitRadius =
-                    wp.radius
-            in
-            if distSq <= (hitRadius * hitRadius) then
-                let
-                    nextIdx =
-                        progress.currentWaypointIndex + 1
+                    else
+                        0
+                }
+                model.course.wind
+                model.boat
+                model.course.islands
+                model.state
 
-                    isLast =
-                        nextIdx >= progress.totalWaypoints
-
-                    newSplits =
-                        progress.splits ++ [ newElapsed ]
-
-                    sfx =
-                        if isLast then
-                            Ports.playSfx (GameAudio.encodeOneShot GameAudio.Finish)
-
-                        else
-                            Ports.playSfx (GameAudio.encodeOneShot GameAudio.Bell)
-                in
-                ( { progress
-                    | currentWaypointIndex = nextIdx
-                    , elapsedSeconds = newElapsed
-                    , splits = newSplits
-                    , finished = isLast
-                  }
-                , sfx
-                )
+        ( progressAfterBuoys, passed ) =
+            if racing then
+                Physics.stepProgress dt state model.course.waypoints model.progress
 
             else
-                ( { progress | elapsedSeconds = newElapsed }, Cmd.none )
+                ( model.progress, Nothing )
 
-        Nothing ->
-            ( { progress | elapsedSeconds = newElapsed, finished = True }, Cmd.none )
+        ( flying, splashes ) =
+            Physics.stepProjectiles dt time model.cannonballs
+
+        ( afterTargets, hitFlashes, ( targets, hits ) ) =
+            Physics.checkTargetHits flying model.targets
+
+        ( afterShips, shipFlashes, _ ) =
+            Physics.checkShipHits afterTargets
+                (remotePlayers model |> List.map (\p -> { slot = p.slot, position = p.position }))
+
+        countedHits =
+            if model.progress.finished then
+                0
+
+            else
+                hits
+
+        progress =
+            { progressAfterBuoys | targetsHit = progressAfterBuoys.targetsHit + countedHits }
+
+        passToast =
+            case passed of
+                Just i ->
+                    if progress.finished then
+                        Just ( "FINISH!", 1.5 )
+
+                    else
+                        Just ( "Buoy " ++ String.fromInt (i + 1) ++ "/" ++ String.fromInt progress.totalWaypoints, 1.0 )
+
+                Nothing ->
+                    Nothing
+
+        hitToast =
+            if countedHits > 0 then
+                Just ( "Hit! −" ++ String.fromInt (round (Physics.bonusPerHit * toFloat countedHits)) ++ " s", 1.0 )
+
+            else
+                Nothing
+
+        toast =
+            case List.filterMap identity [ goToast, passToast, hitToast ] of
+                t :: _ ->
+                    Just t
+
+                [] ->
+                    model.toast
+                        |> Maybe.andThen
+                            (\( s, left ) ->
+                                if left - dt > 0 then
+                                    Just ( s, left - dt )
+
+                                else
+                                    Nothing
+                            )
+
+        sfxCmds =
+            [ case passed of
+                Just _ ->
+                    if progress.finished then
+                        sfx GameAudio.Finish
+
+                    else
+                        sfx GameAudio.Bell
+
+                Nothing ->
+                    Cmd.none
+            , if not (List.isEmpty hitFlashes && List.isEmpty shipFlashes) then
+                sfx (GameAudio.Impact 1.0)
+
+              else if not (List.isEmpty splashes) then
+                sfx (GameAudio.Splash 0.5)
+
+              else
+                Cmd.none
+            , if state.bumped && not model.state.bumped then
+                sfx (GameAudio.Splash 0.8)
+
+              else
+                Cmd.none
+            ]
+
+        next =
+            Maybe.map .position (List.head (List.drop progress.currentWaypointIndex model.course.waypoints))
+                |> (\n ->
+                        if progress.finished then
+                            Nothing
+
+                        else
+                            n
+                   )
+
+        aspect =
+            toFloat (max 1 model.viewportWidth) / toFloat (max 1 model.viewportHeight)
+
+        follow =
+            CameraRig.stepFollow dt aspect state.position state.heading next model.follow
+
+        audioCmd =
+            if model.audioMuted then
+                Cmd.none
+
+            else
+                Ports.updateAudioState
+                    { active = not progress.finished
+                    , windGain = 0.15 + 0.35 * state.sailPower
+                    , windHz = 300 + 200 * state.sailPower
+                    , washGain = clamp 0 0.6 (state.speed / 14)
+                    , washHz = 140 + state.speed * 20
+                    , hullGain = clamp 0 0.2 (abs state.heel / 40)
+                    , toneHz = 0
+                    , toneGain = 0
+                    }
+
+        telemetryCmd =
+            case model.multiplayer of
+                Just _ ->
+                    let
+                        p =
+                            Vec3.toRecord state.position
+                    in
+                    Ports.sendMultiplayerTelemetry
+                        { pos = [ p.x, p.y, p.z ]
+                        , rot = [ state.pitch, state.heading, state.heel ]
+                        , speed = state.speed
+                        , progress = toFloat progress.currentWaypointIndex / toFloat (max 1 progress.totalWaypoints)
+                        , finished = progress.finished
+                        }
+
+                Nothing ->
+                    Cmd.none
+    in
+    ( { model
+        | state = state
+        , progress = progress
+        , phase = phase
+        , follow = follow
+        , simTime = time
+        , targets = Physics.stepTargets dt time targets
+        , cannonballs = afterShips
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes)
+        , cannonCooldown = max 0 (model.cannonCooldown - dt)
+        , toast = toast
+      }
+    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
+    )
 
 
 subscriptions : SailModel -> Sub SailMsg
-subscriptions model =
+subscriptions _ =
     Sub.batch
         [ Browser.Events.onAnimationFrameDelta Tick
         , Browser.Events.onKeyDown (Decode.map KeyDown (Decode.field "code" Decode.string))
         , Browser.Events.onKeyUp (Decode.map KeyUp (Decode.field "code" Decode.string))
-        , Ports.tiltOrientationReceived TiltOrientation
+        , Browser.Events.onVisibilityChange (\_ -> ReleaseControls)
+        , Ports.tiltSteer TiltSteer
         ]
+
+
+
+-- VIEW
+
+
+slotTint : Int -> Vec3
+slotTint slot =
+    case slot of
+        1 ->
+            vec3 0.2 0.45 0.95
+
+        2 ->
+            vec3 0.92 0.2 0.18
+
+        3 ->
+            vec3 0.98 0.82 0.15
+
+        _ ->
+            vec3 0.2 0.75 0.3
+
+
+remoteBoat : Boat -> Multiplayer.RemotePlayer -> RenderBoat
+remoteBoat boat p =
+    let
+        rot =
+            Vec3.toRecord p.rotation
+    in
+    { boat = boat
+    , state =
+        { position = p.position
+        , heading = rot.y
+        , speed = p.speed
+        , steer = 0
+        , sailPower = 1
+        , sailAngle = 30
+        , heel = rot.z
+        , pitch = rot.x
+        , bumped = False
+        }
+    , sailTint = Just (slotTint p.slot)
+    }
 
 
 viewSail :
@@ -651,24 +646,17 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostCommentatorSplitScreen model callbacks room
+                    viewHostSplitScreen model room
 
                 JoinedPlayer ->
-                    viewSinglePlayerSail model callbacks (Just room)
+                    viewRace model callbacks (Just room)
 
         Nothing ->
-            viewSinglePlayerSail model callbacks Nothing
+            viewRace model callbacks Nothing
 
 
-viewHostCommentatorSplitScreen :
-    SailModel
-    ->
-        { onReturnToShipyard : SailMsg
-        , onRestartCourse : SailMsg
-        }
-    -> RoomState
-    -> Html SailMsg
-viewHostCommentatorSplitScreen model callbacks room =
+viewHostSplitScreen : SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -676,67 +664,33 @@ viewHostCommentatorSplitScreen model callbacks room =
         qH =
             max 120 (model.viewportHeight // 2)
 
-        allShips =
-            List.map
-                (\p ->
-                    let
-                        remState =
-                            { position = p.position
-                            , heading = (Vec3.toRecord p.rotation).y
-                            , heelAngle = (Vec3.toRecord p.rotation).z
-                            , pitchAngle = (Vec3.toRecord p.rotation).x
-                            , rudderAngle = 0.0
-                            , sailSheet = 0.5
-                            , waterSpeed = p.speed
-                            , apparentWindSpeed = 12.0
-                            , apparentWindAngle = 45.0
-                            , velocity = vec3 0.0 0.0 0.0
-                            , angularVelocity = 0.0
-                            , heave = 0.0
-                            , driftAngle = 0.0
-                            }
-                    in
-                    { spec = model.spec
-                    , scene = model.scene
-                    , state = remState
-                    , slot = p.slot
-                    }
-                )
-                room.players
+        boats =
+            List.map (remoteBoat model.boat) room.players
 
-        renderQuadrant slot =
-            let
-                playerMaybe =
-                    List.filter (\p -> p.slot == slot) room.players
-                        |> List.head
-            in
-            case playerMaybe of
+        quadrant slot =
+            case List.filter (\p -> p.slot == slot) room.players |> List.head of
                 Just p ->
                     let
-                        remHeading =
-                            (Vec3.toRecord p.rotation).y
-
-                        headingRad =
-                            remHeading * pi / 180.0
-
-                        fwd =
-                            vec3 (sin headingRad) 0.0 (cos headingRad)
-
-                        camEye =
-                            GameCamera.chasePosition p.position fwd 14.0 4.8
-
                         cam =
-                            Camera.init
-                                |> Camera.setViewportHeight (toFloat (max 1 qH))
-                                |> Camera.setSceneRadius 600.0
-                                |> CameraRig.lookAt camEye p.position
+                            CameraRig.followView { yaw = (Vec3.toRecord p.rotation).y, distance = 34, focus = p.position }
                     in
                     div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
-                        [ Render.renderSailingViewportMulti cam allShips model.cannonballs model.impacts model.course model.simTime qW qH
+                        [ Render.renderWorld cam
+                            { course = model.course
+                            , nextIndex = -1
+                            , boats = boats
+                            , guide = Nothing
+                            , targets = model.targets
+                            , balls = []
+                            , impacts = []
+                            , time = model.simTime
+                            }
+                            qW
+                            qH
                         , MultiplayerUI.viewPlayerBadge
                             { slot = slot
                             , name = p.name
-                            , speedLabel = String.fromFloat (toFloat (round (p.speed * 10)) / 10.0) ++ " kn"
+                            , speedLabel = String.fromInt (round (p.speed * 1.94)) ++ " kn"
                             , finished = p.finished
                             }
                         ]
@@ -745,23 +699,16 @@ viewHostCommentatorSplitScreen model callbacks room =
                     MultiplayerUI.viewWaitingSlotCard slot room.roomId "sailor"
     in
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
-        [ -- 2x2 Grid Viewports
-          div [ Attr.class "grid grid-cols-2 grid-rows-2 w-full h-full" ]
-            [ renderQuadrant 1
-            , renderQuadrant 2
-            , renderQuadrant 3
-            , renderQuadrant 4
-            ]
-        , -- Top Commentator Bar
-          MultiplayerUI.viewCommentatorHeader
+        [ div [ Attr.class "grid grid-cols-2 grid-rows-2 w-full h-full" ]
+            [ quadrant 1, quadrant 2, quadrant 3, quadrant 4 ]
+        , MultiplayerUI.viewCommentatorHeader
             { room = room
-            , startLabel = "START REGATTA"
+            , startLabel = "START RACE"
             , onCopyShareLink = CopyShareUrl
             , onStartCountdown = StartMultiplayerCountdown
             }
-        , -- Synchronized Countdown Overlay
-          case room.status of
-            Countdown n ->
+        , case room.status of
+            Multiplayer.Countdown n ->
                 MultiplayerUI.viewCountdownOverlay { secondsRemaining = n }
 
             _ ->
@@ -769,146 +716,104 @@ viewHostCommentatorSplitScreen model callbacks room =
         ]
 
 
-viewSinglePlayerSail :
+viewRace :
     SailModel
-    ->
-        { onReturnToShipyard : SailMsg
-        , onRestartCourse : SailMsg
-        }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg }
     -> Maybe RoomState
     -> Html SailMsg
-viewSinglePlayerSail model callbacks maybeRoom =
+viewRace model callbacks maybeRoom =
     let
-        mySlotNum =
-            case maybeRoom of
-                Just r ->
-                    r.mySlot
+        boats =
+            { boat = model.boat, state = model.state, sailTint = Nothing }
+                :: List.map (remoteBoat model.boat) (remotePlayers model)
 
-                Nothing ->
-                    1
+        countdown =
+            case model.phase of
+                Countdown t ->
+                    Just (ceiling t)
 
-        localShip =
-            { spec = model.spec
-            , scene = model.scene
-            , state = model.state
-            , slot = mySlotNum
-            }
+                WaitingForRoom ->
+                    case maybeRoom |> Maybe.map .status of
+                        Just (Multiplayer.Countdown n) ->
+                            Just n
 
-        remoteShips =
-            case maybeRoom of
-                Just r ->
-                    List.filter (\p -> p.slot /= r.mySlot) r.players
-                        |> List.map
-                            (\p ->
-                                { spec = model.spec
-                                , scene = model.scene
-                                , state =
-                                    { position = p.position
-                                    , heading = (Vec3.toRecord p.rotation).y
-                                    , heelAngle = (Vec3.toRecord p.rotation).z
-                                    , pitchAngle = (Vec3.toRecord p.rotation).x
-                                    , rudderAngle = 0.0
-                                    , sailSheet = 0.5
-                                    , waterSpeed = p.speed
-                                    , apparentWindSpeed = 12.0
-                                    , apparentWindAngle = 45.0
-                                    , velocity = vec3 0.0 0.0 0.0
-                                    , angularVelocity = 0.0
-                                    , heave = 0.0
-                                    , driftAngle = 0.0
-                                    }
-                                , slot = p.slot
-                                }
-                            )
+                        _ ->
+                            Nothing
 
-                Nothing ->
-                    []
-
-        allShips =
-            localShip :: remoteShips
+                Racing ->
+                    Nothing
     in
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
-        [ -- 1. Fullscreen WebGL 3D Sailing Viewport with Local and Remote Ships
-          div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderSailingViewportMulti
-                model.camera
-                allShips
-                model.cannonballs
-                model.impacts
-                model.course
-                model.simTime
+        [ div [ Attr.class "absolute inset-0 z-0" ]
+            [ Render.renderWorld (CameraRig.followView model.follow)
+                { course = model.course
+                , nextIndex =
+                    if model.progress.finished then
+                        model.progress.totalWaypoints
+
+                    else
+                        model.progress.currentWaypointIndex
+                , boats = boats
+                , guide = nextBuoy model |> Maybe.map (\n -> { from = model.state.position, to = n })
+                , targets = model.targets
+                , balls = model.cannonballs
+                , impacts = model.impacts
+                , time = model.simTime
+                }
                 model.viewportWidth
                 model.viewportHeight
             ]
-        , -- 2. Multiplayer Room Indicator Banner
-          case maybeRoom of
+        , if model.progress.finished then
+            text ""
+
+          else
+            HUD.viewHud
+                { progress = model.progress
+                , course = model.course
+                , state = model.state
+                , cameraYaw = model.follow.yaw
+                , cannonReady = model.cannonCooldown <= 0
+                , targetInRange = targetInRange model
+                , audioMuted = model.audioMuted
+                , tilt = model.tilt
+                , countdown = countdown
+                , toast = Maybe.map Tuple.first model.toast
+                , actions =
+                    { onSteer = Steer
+                    , onFire = FireCannons
+                    , onToggleMute = ToggleMute
+                    , onRestart = callbacks.onRestartCourse
+                    , onExit = callbacks.onReturnToShipyard
+                    }
+                }
+        , case maybeRoom of
             Just room ->
-                div [ Attr.class "absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-white/10 shadow-lg pointer-events-auto" ]
+                div [ Attr.class "absolute bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
                     [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
                         [ text ("P" ++ String.fromInt room.mySlot) ]
-                    , span [ Attr.class "text-xs font-mono font-bold text-sky-400" ] [ text ("Room: " ++ room.roomId) ]
+                    , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
                     , button
                         [ onClick CopyShareUrl
                         , Attr.title "Copy room link"
-                        , Attr.class "p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                        , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg bg-slate-800 text-slate-300"
                         ]
-                        [ FeatherIcons.share2 |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [] ]
+                        [ FeatherIcons.share2 |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
                     ]
 
             Nothing ->
                 text ""
-        , -- 3. HUD Overlay
-          HUD.viewHudOverlay
-            { state = model.state
-            , spec = model.spec
-            , course = model.course
-            , progress = model.progress
-            , audioMuted = model.audioMuted
-            , cameraMode = model.cameraMode
-            , cannonCooldown = model.cannonCooldown
-            , hitsScored = model.hitsScored
-            , actions =
-                { onToggleMute = ToggleMute
-                , onCycleCamera = CycleCamera
-                , onReturnToShipyard = callbacks.onReturnToShipyard
-                , onRestartCourse = callbacks.onRestartCourse
-                , onSteerLeft = SteerLeft
-                , onSteerRight = SteerRight
-                , onSheetIn = SheetIn
-                , onSheetOut = SheetOut
-                , onTack = Tack
-                , onFireCannons = FireCannons
-                }
-            }
-        , -- 4. Synchronized Countdown Overlay
-          case maybeRoom of
-            Just room ->
-                case room.status of
-                    Countdown n ->
-                        div [ Attr.class "absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 pointer-events-none select-none backdrop-blur-sm" ]
-                            [ div [ Attr.class "text-9xl font-black text-amber-400 animate-pulse drop-shadow-2xl font-mono" ]
-                                [ text (if n > 0 then String.fromInt n else "GO!") ]
-                            ]
-
-                    _ ->
-                        text ""
-
-            Nothing ->
-                text ""
-        , -- 5. Finished Regatta Results Modal
-          if model.progress.finished then
+        , if model.progress.finished then
             Results.viewResults
                 { course = model.course
                 , progress = model.progress
-                , spec = model.spec
+                , boatName = model.boat.name
                 , personalBest = model.personalBest
                 , actions =
                     { onSailAgain = callbacks.onRestartCourse
                     , onReturnToShipyard = callbacks.onReturnToShipyard
-                    , onCopyShareUrl = CopyShareUrl
                     }
                 }
 
           else
-            div [] []
+            text ""
         ]

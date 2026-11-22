@@ -3,238 +3,218 @@ module Pages.Shipyard exposing
     , viewShipyard
     )
 
-{-| Harbor Shipyard Inspector view:
-3D inspection plinth, ship seaworthiness analysis, preset selector,
-course challenge picker, external Brick Play link, and "Set Sail" launcher.
+{-| Start screen: pick one of four toy boats, see it bob on the water, and
+set sail. Online play (host a split-screen room or join one) sits below.
 -}
 
 import FeatherIcons
-import Html exposing (Html, a, button, div, h1, h2, h3, p, span, text)
+import Game.Leaderboard as Leaderboard
+import Html exposing (Html, button, div, h1, p, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
-import Math.Vector3 as Vec3
-import Render.Camera exposing (Camera)
-import Render.Scene exposing (Scene)
-import Sails.Analyze as Analyze exposing (AnalysisReport, Seaworthiness(..), StabilityRating(..))
-import Sails.Ingest as Ingest
+import Sails.Boats as Boats
+import Sails.Physics as Physics
 import Sails.Render as Render
-import Sails.Types
-    exposing
-        ( Course
-        , CourseId(..)
-        , ShipSpec
-        )
+import Sails.Types exposing (Boat, Course, LeaderboardEntry)
 
 
 type alias ShipyardActions msg =
-    { onSelectPreset : String -> msg
-    , onSelectCourse : CourseId -> msg
+    { onSelectBoat : String -> msg
     , onStartSailing : msg
     , onStartHostMultiplayer : msg
     , onJoinMultiplayer : msg
-    , onCopyShareUrl : msg
-    , onOpenQrScanner : msg
     , onToggleMute : msg
     }
 
 
 viewShipyard :
-    { spec : ShipSpec
-    , scene : Scene
-    , camera : Camera
-    , report : AnalysisReport
-    , selectedCourse : CourseId
+    { boat : Boat
+    , course : Course
+    , personalBest : Maybe LeaderboardEntry
+    , time : Float
     , audioMuted : Bool
-    , currentHash : String
+    , tilt : { available : Bool, enabled : Bool }
     , viewportWidth : Int
     , viewportHeight : Int
     , actions : ShipyardActions msg
     }
     -> Html msg
-viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentHash, viewportWidth, viewportHeight, actions } =
-    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 font-sans" ]
-        [ -- 1. Fullscreen WebGL 3D Ship Inspection Plinth
-          div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderShipyardViewport camera spec scene viewportWidth viewportHeight
-            ]
-        , -- 2. Top Header Bar
-          div [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-center p-4 bg-gradient-to-b from-slate-950/80 to-transparent pointer-events-none" ]
-            [ div [ Attr.class "flex items-center gap-3 pointer-events-auto" ]
-                [ div [ Attr.class "w-10 h-10 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-lg shadow-sky-500/30" ]
-                    [ FeatherIcons.compass |> FeatherIcons.toHtml [] ]
-                , div []
-                    [ h1 [ Attr.class "text-lg font-black tracking-wider text-white uppercase flex items-center gap-2" ]
-                        [ text "Brick Sails"
-                        , span [ Attr.class "text-xs font-normal px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30" ]
-                            [ text "Palikkapurjehdus" ]
-                        ]
-                    , p [ Attr.class "text-xs text-slate-300" ] [ text "3D Brick Sailing Simulator & Regatta" ]
-                    ]
-                ]
-            , div [ Attr.class "flex items-center gap-2 pointer-events-auto" ]
-                [ button
-                    [ onClick actions.onOpenQrScanner
-                    , Attr.title "Scan Brick Play QR code with camera"
-                    , Attr.class "flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-all shadow-md shadow-sky-600/30"
-                    ]
-                    [ FeatherIcons.camera |> FeatherIcons.toHtml []
-                    , span [ Attr.class "hidden sm:inline" ] [ text "Scan QR" ]
-                    ]
-                , button
-                    [ onClick actions.onToggleMute
-                    , Attr.title (if audioMuted then "Unmute audio" else "Mute audio")
-                    , Attr.class "p-2.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-white/10 backdrop-blur-md transition-all shadow-md"
-                    ]
-                    [ if audioMuted then
-                        FeatherIcons.volumeX |> FeatherIcons.toHtml []
+viewShipyard cfg =
+    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 font-sans select-none" ]
+        [ div [ Attr.class "absolute inset-0 z-0" ]
+            [ Render.renderShipyard cfg.boat cfg.time cfg.viewportWidth cfg.viewportHeight ]
+        , viewHeader cfg
+        , viewPanel cfg
+        ]
 
-                      else
-                        FeatherIcons.volume2 |> FeatherIcons.toHtml []
-                    ]
-                , button
-                    [ onClick actions.onCopyShareUrl
-                    , Attr.title "Copy share link"
-                    , Attr.class "flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/10 backdrop-blur-md text-xs font-bold transition-all shadow-md"
-                    ]
-                    [ FeatherIcons.share2 |> FeatherIcons.toHtml []
-                    , span [ Attr.class "hidden sm:inline" ] [ text "Share Ship" ]
-                    ]
+
+viewHeader : { a | audioMuted : Bool, tilt : { available : Bool, enabled : Bool }, actions : ShipyardActions msg } -> Html msg
+viewHeader { audioMuted, tilt, actions } =
+    div
+        [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-slate-950/70 to-transparent pointer-events-none"
+        , Attr.style "padding-top" "max(12px, env(safe-area-inset-top))"
+        ]
+        [ div [ Attr.class "flex items-center gap-2.5" ]
+            [ div [ Attr.class "w-10 h-10 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-lg" ]
+                [ FeatherIcons.navigation |> FeatherIcons.toHtml [] ]
+            , div []
+                [ h1 [ Attr.class "text-lg font-black tracking-wider text-white uppercase leading-tight" ] [ text "Brick Sails" ]
+                , p [ Attr.class "text-xs text-sky-200" ] [ text "Toy boat buoy race" ]
                 ]
             ]
-        , -- 3. Bottom Shipyard Controls & Analysis Panel
-          div [ Attr.class "absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent flex flex-col md:flex-row justify-between items-end gap-4 pointer-events-none" ]
-            [ -- Left Card: Ship Specifications & Seaworthiness Report
-              div [ Attr.class "w-full md:max-w-md bg-slate-900/90 backdrop-blur-md p-4 rounded-3xl border border-white/10 shadow-2xl text-white pointer-events-auto flex flex-col gap-3" ]
-                [ div [ Attr.class "flex justify-between items-center" ]
-                    [ div []
-                        [ h2 [ Attr.class "text-base font-black tracking-wide" ] [ text spec.name ]
-                        , p [ Attr.class "text-xs text-slate-400" ]
-                            [ text (String.fromInt spec.totalPartCount ++ " parts (" ++ String.fromInt spec.hullPartCount ++ " hull, " ++ String.fromInt spec.sailPartCount ++ " sail)") ]
-                        ]
-                    , viewSeaworthinessBadge report.seaworthiness
-                    ]
-                , -- Specs Grid
-                  div [ Attr.class "grid grid-cols-5 gap-1.5 text-center text-xs" ]
-                    [ div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
-                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Length" ]
-                        , span [ Attr.class "font-bold text-sky-400" ] [ text (String.fromFloat (toFloat (round (spec.lengthMeters * 10.0)) / 10.0) ++ "m") ]
-                        ]
-                    , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
-                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Beam" ]
-                        , span [ Attr.class "font-bold text-sky-400" ] [ text (String.fromFloat (toFloat (round (spec.beamMeters * 10.0)) / 10.0) ++ "m") ]
-                        ]
-                    , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
-                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Sail Area" ]
-                        , span [ Attr.class "font-bold text-amber-400" ] [ text (String.fromInt (round spec.sailAreaSqMeters) ++ " m²") ]
-                        ]
-                    , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
-                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Stability" ]
-                        , span [ Attr.class "font-bold text-emerald-400" ] [ text ("GM " ++ String.fromFloat (toFloat (round (spec.metacentricHeight * 10.0)) / 10.0)) ]
-                        ]
-                    , div [ Attr.class "p-2 rounded-xl bg-slate-800/60" ]
-                        [ span [ Attr.class "block text-slate-400 text-[10px] uppercase font-bold" ] [ text "Cannons" ]
-                        , span [ Attr.class "font-bold text-rose-400" ] [ text (String.fromInt spec.cannonCount) ]
-                        ]
-                    ]
-                , -- Advisory Notes
-                  div [ Attr.class "flex flex-col gap-1 text-[11px] text-slate-300 bg-slate-950/40 p-2.5 rounded-xl border border-white/5" ]
-                    (List.map (\note -> div [ Attr.class "flex items-start gap-1.5" ] [ span [ Attr.class "text-sky-400 mt-0.5" ] [ text "•" ], text note ]) report.notes)
-                , -- External Ecosystem Links
-                  div [ Attr.class "flex items-center gap-2 pt-1 border-t border-slate-800 text-xs" ]
-                    [ button
-                        [ onClick actions.onOpenQrScanner
-                        , Attr.title "Scan Brick Play QR code with camera"
-                        , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-sky-600/80 hover:bg-sky-500 text-center font-bold text-white transition-colors flex items-center justify-center gap-1.5"
-                        ]
-                        [ FeatherIcons.camera |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
-                        , text "Scan QR"
-                        ]
-                    , a
-                        [ Attr.href ("https://rakenna.palikkaharrastajat.fi/" ++ currentHash)
-                        , Attr.target "_blank"
-                        , Attr.rel "noopener noreferrer"
-                        , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-center font-semibold text-slate-300 transition-colors"
-                        ]
-                        [ text "Brick Play" ]
-                    ]
-                ]
-            , -- Right Card: Preset Switcher, Course Selector & "SET SAIL"
-              div [ Attr.class "w-full md:max-w-xs bg-slate-900/90 backdrop-blur-md p-4 rounded-3xl border border-white/10 shadow-2xl text-white pointer-events-auto flex flex-col gap-3" ]
-                [ -- Presets
-                  div []
-                    [ span [ Attr.class "block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5" ] [ text "Choose Vessel" ]
-                    , div [ Attr.class "grid grid-cols-2 gap-1.5" ]
-                        (List.map
-                            (\p ->
-                                button
-                                    [ onClick (actions.onSelectPreset p.hash)
-                                    , Attr.class
-                                        ("px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all text-left truncate "
-                                            ++ (if p.name == spec.name then
-                                                    "bg-sky-500 text-white shadow-md shadow-sky-500/25"
+        , div [ Attr.class "flex gap-1.5 pointer-events-auto" ]
+            [ if tilt.available then
+                button
+                    [ Attr.attribute "data-tilt-toggle" ""
+                    , Attr.title "Switch between tilt and button steering"
+                    , Attr.class
+                        ("h-11 px-3 flex items-center gap-1.5 rounded-xl border border-white/10 text-xs font-bold "
+                            ++ (if tilt.enabled then
+                                    "bg-sky-500 text-slate-950"
 
-                                                else
-                                                    "bg-slate-800 hover:bg-slate-700 text-slate-300"
-                                               )
-                                        )
-                                    ]
-                                    [ text p.name ]
-                            )
-                            Ingest.presets
+                                else
+                                    "bg-slate-900/80 text-white"
+                               )
                         )
                     ]
-                , -- Multiplayer Section
-                  div [ Attr.class "flex flex-col gap-1.5 pt-1 border-t border-slate-800" ]
-                    [ span [ Attr.class "block text-[10px] font-bold text-sky-400 uppercase tracking-wider" ] [ text "Online Multiplayer" ]
-                    , div [ Attr.class "flex gap-1.5" ]
-                        [ button
-                            [ onClick actions.onStartHostMultiplayer
-                            , Attr.title "Create 4-player room with commentator split-screen view"
-                            , Attr.class "flex-1 py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-sky-500/20 shadow-sm"
-                            ]
-                            [ FeatherIcons.tv |> FeatherIcons.toHtml []
-                            , text "Host (4-Split)"
-                            ]
-                        , button
-                            [ onClick actions.onJoinMultiplayer
-                            , Attr.title "Join existing regatta room with single mobile view"
-                            , Attr.class "flex-1 py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-white/5"
-                            ]
-                            [ FeatherIcons.users |> FeatherIcons.toHtml []
-                            , text "Join Regatta"
-                            ]
-                        ]
+                    [ FeatherIcons.smartphone |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                    , text
+                        (if tilt.enabled then
+                            "Tilt"
+
+                         else
+                            "Buttons"
+                        )
                     ]
-                , -- Launch "SET SAIL" Button
-                  button
-                    [ onClick actions.onStartSailing
-                    , Attr.class "w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-sky-500 via-sky-400 to-teal-400 hover:brightness-110 active:scale-[0.98] transition-all text-slate-950 font-black text-sm uppercase tracking-widest shadow-xl shadow-sky-500/30 flex items-center justify-center gap-2"
+
+              else
+                text ""
+            , button
+                [ onClick actions.onToggleMute
+                , Attr.title
+                    (if audioMuted then
+                        "Unmute"
+
+                     else
+                        "Mute"
+                    )
+                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900/80 border border-white/10 text-white"
+                ]
+                [ (if audioMuted then
+                    FeatherIcons.volumeX
+
+                   else
+                    FeatherIcons.volume2
+                  )
+                    |> FeatherIcons.toHtml []
+                ]
+            ]
+        ]
+
+
+viewPanel :
+    { a
+        | boat : Boat
+        , course : Course
+        , personalBest : Maybe LeaderboardEntry
+        , tilt : { available : Bool, enabled : Bool }
+        , actions : ShipyardActions msg
+    }
+    -> Html msg
+viewPanel { boat, course, personalBest, tilt, actions } =
+    let
+        bestLine =
+            case personalBest of
+                Just pb ->
+                    "Best " ++ Leaderboard.formatRaceTime pb.timeSeconds ++ " · " ++ stars (Physics.starRating course.targetSeconds pb.timeSeconds)
+
+                Nothing ->
+                    "3 stars under " ++ Leaderboard.formatRaceTime course.targetSeconds
+
+        stars n =
+            String.repeat n "★" ++ String.repeat (3 - n) "☆"
+
+        controlsHint =
+            if tilt.enabled then
+                "Tilt the phone to steer. Tap FIRE near targets."
+
+            else
+                "Hold ◀ ▶ (or arrow keys) to steer. FIRE (Space) near targets."
+    in
+    div
+        [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"
+        , Attr.style "padding-bottom" "max(12px, env(safe-area-inset-bottom))"
+        ]
+        [ div [ Attr.class "w-full max-w-md mx-auto bg-slate-900/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
+            [ div [ Attr.class "flex justify-between items-baseline gap-2" ]
+                [ span [ Attr.class "text-sm font-black" ] [ text course.title ]
+                , span [ Attr.class "text-xs text-amber-300 font-bold" ] [ text bestLine ]
+                ]
+            , div [ Attr.class "grid grid-cols-4 gap-1.5" ] (List.map (boatChip boat actions) Boats.all)
+            , div [ Attr.class "flex items-center gap-3 text-[11px]" ]
+                [ span [ Attr.class "text-slate-300 flex-1 min-w-0" ] [ text boat.description ]
+                , statBar "Speed" ((boat.topSpeed - 7) / 3.2)
+                , statBar "Turn" ((boat.turnRate - 50) / 80)
+                ]
+            , button
+                [ onClick actions.onStartSailing
+                , Attr.attribute "data-tilt-start" ""
+                , Attr.class "w-full min-h-[52px] px-4 rounded-2xl bg-gradient-to-r from-sky-500 to-teal-400 active:brightness-110 text-slate-950 font-black text-base uppercase tracking-widest shadow-xl shadow-sky-500/30 flex items-center justify-center gap-2"
+                ]
+                [ FeatherIcons.play |> FeatherIcons.toHtml []
+                , text "Set sail"
+                ]
+            , p [ Attr.class "text-[11px] text-slate-400 text-center" ] [ text controlsHint ]
+            , div [ Attr.class "flex gap-1.5 pt-1 border-t border-slate-800" ]
+                [ button
+                    [ onClick actions.onStartHostMultiplayer
+                    , Attr.title "Host a 4-player room on this screen"
+                    , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs flex items-center justify-center gap-1.5"
                     ]
-                    [ FeatherIcons.navigation |> FeatherIcons.toHtml []
-                    , text "SET SAIL (Solo)"
+                    [ FeatherIcons.tv |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                    , text "Host race"
+                    ]
+                , button
+                    [ onClick actions.onJoinMultiplayer
+                    , Attr.title "Join a hosted race"
+                    , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5"
+                    ]
+                    [ FeatherIcons.users |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                    , text "Join race"
                     ]
                 ]
             ]
         ]
 
 
-viewSeaworthinessBadge : Seaworthiness -> Html msg
-viewSeaworthinessBadge status =
-    case status of
-        Seaworthy ->
-            span [ Attr.class "px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-black tracking-wider uppercase flex items-center gap-1" ]
-                [ FeatherIcons.checkCircle |> FeatherIcons.toHtml []
-                , text "Seaworthy"
-                ]
+boatChip : Boat -> ShipyardActions msg -> Boat -> Html msg
+boatChip selected actions b =
+    button
+        [ onClick (actions.onSelectBoat b.name)
+        , Attr.attribute "aria-pressed"
+            (if b.name == selected.name then
+                "true"
 
-        MinorAdvisory msg ->
-            span [ Attr.class "px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold tracking-wider uppercase flex items-center gap-1" ]
-                [ FeatherIcons.alertTriangle |> FeatherIcons.toHtml []
-                , text "Advisory"
-                ]
+             else
+                "false"
+            )
+        , Attr.class
+            ("min-h-[44px] px-1 rounded-xl text-xs font-bold truncate "
+                ++ (if b.name == selected.name then
+                        "bg-sky-500 text-slate-950"
 
-        Unseaworthy msg ->
-            span [ Attr.class "px-2.5 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold tracking-wider uppercase flex items-center gap-1" ]
-                [ FeatherIcons.xCircle |> FeatherIcons.toHtml []
-                , text "Unseaworthy"
-                ]
+                    else
+                        "bg-slate-800 active:bg-slate-700 text-slate-200"
+                   )
+            )
+        ]
+        [ text b.name ]
+
+
+statBar : String -> Float -> Html msg
+statBar label v =
+    div [ Attr.class "flex flex-col gap-0.5 w-14 shrink-0" ]
+        [ span [ Attr.class "text-slate-400 font-bold uppercase text-[10px]" ] [ text label ]
+        , div [ Attr.class "h-1.5 rounded-full bg-slate-700 overflow-hidden" ]
+            [ div [ Attr.class "h-full bg-sky-400 rounded-full", Attr.style "width" (String.fromInt (round (clamp 0 1 v * 100)) ++ "%") ] [] ]
+        ]
