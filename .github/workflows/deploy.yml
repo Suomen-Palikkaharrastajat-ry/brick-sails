@@ -19,6 +19,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VITE_SIGNALING_URL: ${{ vars.VITE_SIGNALING_URL || secrets.VITE_SIGNALING_URL }}
     steps:
       - name: Configure Git for HTTPS
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -63,18 +65,18 @@ jobs:
           grep -qx "ohoi.palikkaharrastajat.fi" build/CNAME || { echo "Unexpected build/CNAME content"; cat build/CNAME; exit 1; }
 
       - name: Configure GitHub Pages
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages Artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: build
 
   deploy:
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

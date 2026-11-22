@@ -120,7 +120,7 @@ oceanEntity camera simTime width height =
             Camera.viewMatrix camera
 
         perspective =
-            Camera.perspectiveMatrix aspect camera
+            Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
             camera.eye
@@ -158,7 +158,7 @@ skyEntity camera width height =
             Camera.viewMatrix camera
 
         perspective =
-            Camera.perspectiveMatrix aspect camera
+            Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
             camera.eye
@@ -328,7 +328,7 @@ buoyEntity camera waypoints width height =
             Camera.viewMatrix camera
 
         perspective =
-            Camera.perspectiveMatrix aspect camera
+            Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
             camera.eye
@@ -489,7 +489,7 @@ combatEntity camera balls impacts width height =
             Camera.viewMatrix camera
 
         perspective =
-            Camera.perspectiveMatrix aspect camera
+            Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
             camera.eye
@@ -596,7 +596,7 @@ islandEntity camera width height =
             Camera.viewMatrix camera
 
         perspective =
-            Camera.perspectiveMatrix aspect camera
+            Camera.projectionMatrix aspect (Camera.nearPlane camera) (Camera.farPlane camera)
 
         eyePos =
             camera.eye
