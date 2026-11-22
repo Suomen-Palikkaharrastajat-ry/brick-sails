@@ -1,0 +1,62 @@
+0 FILE wide-sturdy.ldr
+0 Wide Sturdy Hull
+0 Name: Wide Sturdy Hull
+0 Author: Brick Family starter bases
+0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
+0 // Description: Beamy 6 x 14 stud hull, three courses deep, blunt bow and a short keel.
+0 // Parts: 39 (all inside the grouped submodel wide-sturdy-base.ldr)
+0 // Hull only: no mast or sail (add them in the editor)
+0 // Bounds LDU: x -60..60, y -20..72, z -140..140 (size 120 x 92 x 280)
+0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 wide-sturdy-base.ldr
+0 NOFILE
+0 FILE wide-sturdy-base.ldr
+0 Wide Sturdy Hull (grouped)
+0 Name: wide-sturdy-base.ldr
+0 Author: Brick Family starter bases
+0 // Upper hull course (y 0..24): 6 studs wide, three staggered columns
+1 4 -40 0 -60 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 -40 0 20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 -40 0 100 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 0 0 -80 1 0 0 0 1 0 0 0 1 3003.dat
+1 4 0 0 -20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 0 0 60 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 0 0 120 1 0 0 0 1 0 0 0 1 3003.dat
+1 4 40 0 -60 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 40 0 20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 40 0 100 0 0 1 0 1 0 -1 0 0 3001.dat
+0 // Blunt bow: three inverted 2x2 slopes
+1 4 -40 0 -110 1 0 0 0 1 0 0 0 1 3660b.dat
+1 4 0 0 -110 1 0 0 0 1 0 0 0 1 3660b.dat
+1 4 40 0 -110 1 0 0 0 1 0 0 0 1 3660b.dat
+0 // Lower hull course (y 24..48): 4 wide, inverted slopes at bow and stern
+1 4 -20 24 -40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 -20 24 40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 -20 24 90 1 0 0 0 1 0 0 0 1 3004.dat
+1 4 20 24 -60 1 0 0 0 1 0 0 0 1 3003.dat
+1 4 20 24 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 4 20 24 70 0 0 1 0 1 0 -1 0 0 3002.dat
+1 4 -20 24 -90 1 0 0 0 1 0 0 0 1 3660b.dat
+1 4 -20 24 110 -1 0 0 0 1 0 0 0 -1 3660b.dat
+1 4 20 24 -90 1 0 0 0 1 0 0 0 1 3660b.dat
+1 4 20 24 110 -1 0 0 0 1 0 0 0 -1 3660b.dat
+0 // Keel (y 48..72): 2 wide with inverted slopes
+1 0 0 48 -20 0 0 1 0 1 0 -1 0 0 3001.dat
+1 0 0 48 50 0 0 1 0 1 0 -1 0 0 3002.dat
+1 0 0 48 -70 1 0 0 0 1 0 0 0 1 3660b.dat
+1 0 0 48 90 -1 0 0 0 1 0 0 0 -1 3660b.dat
+0 // Flat deck (y -8..0): one 6x12 plate and a 2x6 over the bow
+1 15 0 -8 20 0 0 1 0 1 0 -1 0 0 3028.dat
+1 15 0 -8 -120 1 0 0 0 1 0 0 0 1 3795.dat
+0 // Gunwales (y -16..-8): 1-wide plates all round
+1 0 -50 -16 -100 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 -50 -16 -20 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 -50 -16 60 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 -50 -16 120 0 0 1 0 1 0 -1 0 0 3023b.dat
+1 0 50 -16 -100 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 50 -16 -20 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 50 -16 60 0 0 1 0 1 0 -1 0 0 3710.dat
+1 0 50 -16 120 0 0 1 0 1 0 -1 0 0 3023b.dat
+1 0 0 -16 -130 1 0 0 0 1 0 0 0 1 3710.dat
+1 0 0 -16 130 1 0 0 0 1 0 0 0 1 3710.dat
+0 NOFILE
