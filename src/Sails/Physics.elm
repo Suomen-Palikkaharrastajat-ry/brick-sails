@@ -6,15 +6,23 @@ module Sails.Physics exposing
     , cannonRange
     , checkShipHits
     , checkTargetHits
+    , courseCurrent
+    , courseFreeRange
+    , courseRoute
     , defaultCourse
     , defaultSailLevel
+    , driftWith
     , finalTime
     , fireCannons
     , grassHeight
+    , helmCurve
     , initProgress
     , initSailingState
+    , nearestCoursePoint
     , overpower
     , reachedTreasure
+    , rockImpact
+    , roughSeaStrain
     , sailDrive
     , sailLevel
     , sailLevels
@@ -22,6 +30,7 @@ module Sails.Physics exposing
     , seaElevation
     , shorePoint
     , starRating
+    , steerResponse
     , stepBoat
     , stepImpacts
     , stepProgress
@@ -453,7 +462,7 @@ stepBoat input wind boat islands state =
             clamp 0.001 0.05 input.dt
 
         steer =
-            state.steer + (clamp -1 1 input.steer - state.steer) * min 1 (dt * 9)
+            easeHelm dt (clamp -1 1 input.steer) state.steer
 
         speedRatio =
             clamp 0 1 (state.speed / boat.topSpeed)
@@ -467,16 +476,15 @@ stepBoat input wind boat islands state =
 
         -- An overpowered boat rounds up: the helm is pulled towards the wind.
         roundUp =
-            5 * over * sin (degrees (angleDiff (wind.direction + 180) state.heading))
+            roundUpRate * over * sin (degrees (angleDiff (wind.direction + 180) state.heading))
 
         -- Steering right lowers the heading (screen right in the follow camera).
         heading =
             normalize
                 (state.heading
-                    - boat.turnRate
+                    - turnRateAt boat speedRatio
                     * sailHelm sail wind
-                    * steer
-                    * (0.55 + 0.45 * speedRatio)
+                    * helmCurve steer
                     * dt
                     + roundUp
                     * dt
@@ -501,7 +509,7 @@ stepBoat input wind boat islands state =
                 |> min (1.3 * boat.topSpeed)
 
         speed =
-            state.speed + (targetSpeed - state.speed) * min 1 (dt * boat.acceleration)
+            state.speed + (targetSpeed - state.speed) * min 1 (dt * accelerationAt boat speedRatio)
 
         rad =
             degrees heading
@@ -589,6 +597,95 @@ stepBoat input wind boat islands state =
     }
 
 
+
+-- CONTROL RESPONSE
+
+
+{-| How fast the helm follows the player's input, per second, while
+putting it over (`helmAttack`) and while easing it back or reversing it
+(`helmRelease`). The helm goes over gently and comes back quickly, so a
+turn stops when the player lets go instead of carrying on past the course
+they wanted (no overshoot on a tack).
+-}
+helmAttack : Float
+helmAttack =
+    5.0
+
+
+helmRelease : Float
+helmRelease =
+    10.0
+
+
+{-| Move the helm one step towards the input (see `helmAttack`).
+-}
+easeHelm : Float -> Float -> Float -> Float
+easeHelm dt input current =
+    let
+        rate =
+            if abs input < abs current || input * current < 0 then
+                helmRelease
+
+            else
+                helmAttack
+    in
+    current + (input - current) * min 1 (dt * rate)
+
+
+{-| Turn response to the helm: soft near the middle, so small tilts and
+taps make small corrections, full at full helm. Odd: steering left and
+right are mirror images.
+-}
+helmCurve : Float -> Float
+helmCurve s =
+    let
+        a =
+            clamp 0 1 (abs s)
+    in
+    (if s < 0 then
+        -1
+
+     else
+        1
+    )
+        * (0.4 * a + 0.6 * a * a)
+
+
+{-| Share of a boat's `turnRate` used at full helm. The built-in boats'
+rates (60 to 130 degrees per second) are their relative agility; at full
+rate the boat spun round faster than a player can follow on a phone.
+-}
+helmGain : Float
+helmGain =
+    0.7
+
+
+{-| Degrees per second the boat turns at full helm at a share of its top
+speed: it keeps two thirds of its steering from a standstill, so it can be
+pointed at the first buoy right after the start.
+-}
+turnRateAt : Boat -> Float -> Float
+turnRateAt boat speedRatio =
+    boat.turnRate * helmGain * (0.65 + 0.35 * clamp 0 1 speedRatio)
+
+
+{-| Rate (1/s) the speed closes on its target: twice the boat's
+`acceleration` from a standstill, easing to its own value at top speed,
+so the boat gets going quickly off the line and after a bump.
+-}
+accelerationAt : Boat -> Float -> Float
+accelerationAt boat speedRatio =
+    boat.acceleration * (2 - clamp 0 1 speedRatio)
+
+
+{-| Degrees per second an overpowered boat rounds up, per unit of
+`overpower`: a gust slews the bow gently, it does not spin the boat.
+-}
+roundUpRate : Float
+roundUpRate =
+    2.5
+
+
 {-| Half the hull length and beam, where the water is sampled for pitch and
 roll.
 -}
@@ -654,6 +751,216 @@ keepInArena ( x, z, bumped ) =
 
     else
         ( x, z, bumped )
+
+
+
+-- COURSE RECOVERY
+
+
+{-| The route the course follows: the start, then every buoy in order.
+-}
+courseRoute : Course -> List Vec3
+courseRoute course =
+    course.startPosition :: List.map .position course.waypoints
+
+
+{-| Distance in metres from the route the boat may wander freely, before
+the current starts carrying it back: far enough for a wide rounding or the
+detour to the treasure.
+-}
+courseFreeRange : Float
+courseFreeRange =
+    45.0
+
+
+{-| The nearest point on the route (any leg, and the leg back from the
+finish to the start) to a position, and how far away it is.
+-}
+nearestCoursePoint : List Vec3 -> Vec3 -> Maybe { point : Vec3, distance : Float }
+nearestCoursePoint route position =
+    let
+        p =
+            Vec3.toRecord position
+
+        legs =
+            case route of
+                first :: rest ->
+                    List.map2 Tuple.pair route (rest ++ [ first ])
+
+                [] ->
+                    []
+
+        onLeg ( a, b ) =
+            let
+                ra =
+                    Vec3.toRecord a
+
+                rb =
+                    Vec3.toRecord b
+
+                ex =
+                    rb.x - ra.x
+
+                ez =
+                    rb.z - ra.z
+
+                len2 =
+                    ex * ex + ez * ez
+
+                t =
+                    if len2 < 1.0e-6 then
+                        0
+
+                    else
+                        clamp 0 1 (((p.x - ra.x) * ex + (p.z - ra.z) * ez) / len2)
+
+                cx =
+                    ra.x + ex * t
+
+                cz =
+                    ra.z + ez * t
+            in
+            { point = vec3 cx 0 cz, distance = sqrt ((p.x - cx) ^ 2 + (p.z - cz) ^ 2) }
+    in
+    (case legs of
+        [] ->
+            List.map (\a -> onLeg ( a, a )) route
+
+        _ ->
+            List.map onLeg legs
+    )
+        |> List.sortBy .distance
+        |> List.head
+
+
+{-| The current that carries a boat that strayed from the route back to
+it, as a velocity (x, z) in m/s: none within `courseFreeRange`, then
+0.5 m/s growing over the next 40 m to 3 m/s, a third of a boat's top
+speed. It
+only moves the boat; the player still steers and sails, and can sail
+against it.
+-}
+courseCurrent : List Vec3 -> Vec3 -> ( Float, Float )
+courseCurrent route position =
+    case nearestCoursePoint route position of
+        Just near ->
+            let
+                excess =
+                    near.distance - courseFreeRange
+            in
+            if excess <= 0 || near.distance < 0.001 then
+                ( 0, 0 )
+
+            else
+                let
+                    strength =
+                        0.5 + 2.5 * clamp 0 1 (excess / 40)
+
+                    p =
+                        Vec3.toRecord position
+
+                    c =
+                        Vec3.toRecord near.point
+                in
+                ( (c.x - p.x) / near.distance * strength, (c.z - p.z) / near.distance * strength )
+
+        Nothing ->
+            ( 0, 0 )
+
+
+{-| Move the boat with a current (x, z, in m/s) for a step, keeping it
+on the water's surface height it already has.
+-}
+driftWith : Float -> ( Float, Float ) -> SailingState -> SailingState
+driftWith dt ( vx, vz ) state =
+    if vx == 0 && vz == 0 then
+        state
+
+    else
+        let
+            p =
+                Vec3.toRecord state.position
+        in
+        { state | position = vec3 (p.x + vx * dt) p.y (p.z + vz * dt) }
+
+
+
+-- HAZARDS
+
+
+{-| How hard the boat struck rock this step, in m/s: its speed into the
+island's shore (the part of the speed towards the island's centre), when it
+has just touched an island it was not touching the step before. Scraping
+along a shore after the first knock counts as nothing.
+-}
+rockImpact : List Island -> SailingState -> SailingState -> Maybe Float
+rockImpact islands before after =
+    let
+        touching state island =
+            let
+                p =
+                    Vec3.toRecord state.position
+            in
+            sqrt ((p.x - island.x) ^ 2 + (p.z - island.z) ^ 2) <= island.radius + boatRadius + 0.05
+
+        struck =
+            List.filter (\i -> touching after i && not (before.bumped && touching before i)) islands
+                |> List.head
+    in
+    case struck of
+        Just island ->
+            let
+                p =
+                    Vec3.toRecord before.position
+
+                dx =
+                    island.x - p.x
+
+                dz =
+                    island.z - p.z
+
+                d =
+                    max 0.001 (sqrt (dx * dx + dz * dz))
+
+                rad =
+                    degrees before.heading
+
+                closing =
+                    (sin rad * dx + cos rad * dz) / d
+            in
+            Just (before.speed * clamp 0 1 closing)
+
+        Nothing ->
+            Nothing
+
+
+{-| How hard a rough sea is pounding the hull, 0 and up: nothing until the
+waves are two and a half times the normal swell (a strong squall or a
+thunderstorm), then more for bigger waves, for sailing into them rather than
+across or away, and for sailing fast.
+-}
+roughSeaStrain : Float -> Float -> Boat -> SailingState -> Float
+roughSeaStrain sea time boat state =
+    let
+        p =
+            Vec3.toRecord state.position
+
+        waves =
+            waveScale sea p.x p.z time
+
+        headOn =
+            max 0 -(cos (degrees (state.heading - swellHeading)))
+    in
+    max 0 (waves - 2.5) * headOn * clamp 0 1 (state.speed / max 0.1 boat.topSpeed)
+
+
+{-| Degrees per second the boat turns for a helm input held long enough to
+settle, at a share of its top speed, with full sail in the course wind:
+the control response the player feels.
+-}
+steerResponse : Boat -> Float -> Float -> Float
+steerResponse boat speedRatio input =
+    turnRateAt boat speedRatio * helmCurve input
 
 
 

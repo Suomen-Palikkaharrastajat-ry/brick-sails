@@ -30,9 +30,11 @@ import Sails.Analyze as Analyze
 import Sails.Types exposing (ShipSpec)
 
 
-{-| How a boat handles: `topSpeed` in m/s, `turnRate` in degrees per second
-at full helm, `acceleration` as the rate (1/s) the speed closes on its
-target.
+{-| How a boat handles: `topSpeed` in m/s, `turnRate` its agility in
+degrees per second, `acceleration` as the rate (1/s) the speed closes on its
+target. The race physics turns at 70 % of `turnRate` at full helm and full
+speed, with a soft helm and quicker acceleration from a standstill (see
+`Sails.Physics.steerResponse`), so every boat is easy to point.
 -}
 type alias Handling =
     { topSpeed : Float
