@@ -18,6 +18,7 @@ import Game.Audio as GameAudio
 import Game.Camera as GameCamera
 import Game.Leaderboard as Leaderboard
 import Game.Multiplayer as Multiplayer exposing (RemotePlayer, Role(..), RoomState, RoomStatus(..))
+import Game.MultiplayerUI as MultiplayerUI
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
@@ -736,27 +737,16 @@ viewHostCommentatorSplitScreen model callbacks room =
                     in
                     div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
                         [ Render.renderSailingViewportMulti cam allShips model.cannonballs model.impacts model.course model.simTime qW qH
-                        , div [ Attr.class "absolute top-2 left-2 z-10 flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg" ]
-                            [ span [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black uppercase " ++ Multiplayer.slotBadgeClass slot) ]
-                                [ text ("P" ++ String.fromInt slot) ]
-                            , span [ Attr.class "text-xs font-bold text-white truncate max-w-[100px]" ] [ text p.name ]
-                            , span [ Attr.class "text-xs font-mono font-bold text-sky-400" ]
-                                [ text (String.fromFloat (toFloat (round (p.speed * 10)) / 10.0) ++ " kn") ]
-                            , if p.finished then
-                                span [ Attr.class "text-xs font-black text-emerald-400" ] [ text "FINISHED" ]
-
-                              else
-                                text ""
-                            ]
+                        , MultiplayerUI.viewPlayerBadge
+                            { slot = slot
+                            , name = p.name
+                            , speedLabel = String.fromFloat (toFloat (round (p.speed * 10)) / 10.0) ++ " kn"
+                            , finished = p.finished
+                            }
                         ]
 
                 Nothing ->
-                    div [ Attr.class "relative w-full h-full flex flex-col items-center justify-center border border-dashed border-slate-800 bg-slate-950/60 p-4 text-center" ]
-                        [ span [ Attr.class ("px-2 py-0.5 rounded-full text-xs font-black uppercase tracking-wider mb-2 " ++ Multiplayer.slotBadgeClass slot) ]
-                            [ text ("Slot " ++ String.fromInt slot) ]
-                        , span [ Attr.class "text-xs font-semibold text-slate-400" ] [ text "Waiting for sailor to join..." ]
-                        , span [ Attr.class "text-[11px] font-mono text-slate-500 mt-1" ] [ text ("Invite: #room=" ++ room.roomId) ]
-                        ]
+                    MultiplayerUI.viewWaitingSlotCard slot room.roomId "sailor"
     in
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
         [ -- 2x2 Grid Viewports
@@ -767,41 +757,16 @@ viewHostCommentatorSplitScreen model callbacks room =
             , renderQuadrant 4
             ]
         , -- Top Commentator Bar
-          div [ Attr.class "absolute top-3 inset-x-0 mx-auto w-fit z-30 flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto" ]
-            [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30" ]
-                [ text ("ROOM: " ++ room.roomId) ]
-            , button
-                [ onClick CopyShareUrl
-                , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors flex items-center gap-1.5"
-                ]
-                [ FeatherIcons.share2 |> FeatherIcons.toHtml []
-                , text "Copy Link"
-                ]
-            , if room.status == Lobby then
-                button
-                    [ onClick StartMultiplayerCountdown
-                    , Attr.class "text-xs font-black px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 active:scale-95 text-slate-950 shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-1.5"
-                    ]
-                    [ FeatherIcons.play |> FeatherIcons.toHtml []
-                    , text "START REGATTA"
-                    ]
-
-              else
-                span [ Attr.class "text-xs font-extrabold text-amber-400 uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20" ]
-                    [ text (Multiplayer.statusToString room.status) ]
-            , button
-                [ onClick callbacks.onReturnToShipyard
-                , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                ]
-                [ text "Exit" ]
-            ]
+          MultiplayerUI.viewCommentatorHeader
+            { room = room
+            , startLabel = "START REGATTA"
+            , onCopyShareLink = CopyShareUrl
+            , onStartCountdown = StartMultiplayerCountdown
+            }
         , -- Synchronized Countdown Overlay
           case room.status of
             Countdown n ->
-                div [ Attr.class "absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 pointer-events-none select-none backdrop-blur-sm" ]
-                    [ div [ Attr.class "text-9xl font-black text-amber-400 animate-pulse drop-shadow-2xl font-mono" ]
-                        [ text (if n > 0 then String.fromInt n else "SAIL!") ]
-                    ]
+                MultiplayerUI.viewCountdownOverlay { secondsRemaining = n }
 
             _ ->
                 text ""
