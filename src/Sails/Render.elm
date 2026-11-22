@@ -56,6 +56,7 @@ import Sails.Types
         , Waypoint
         )
 import Sails.Weather exposing (Conditions)
+import Sails.Wreck as Wreck
 import WebGL
 import WebGL.Settings.Blend as Blend
 import WebGL.Settings.DepthTest as DepthTest
@@ -119,6 +120,7 @@ renderWorld :
         , scenery : String -> Maybe ShipMesh
         , treasureFound : List Int
         , props : Props
+        , debris : List Wreck.Piece
         }
     -> Int
     -> Int
@@ -165,6 +167,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height) scene.boats
+                ++ List.concatMap (debrisEntities draw) scene.debris
                 ++ guideEntities ctx scene.guide
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
@@ -173,6 +176,28 @@ renderWorld cam scene width height =
                 ++ rainEntities ctx scene.time scene.weather
     in
     canvas width height entities
+
+
+{-| One loose brick of a wrecked boat (see `Sails.Wreck`), in its colour,
+at about the scale of the boats' own bricks.
+-}
+debrisEntities : Draw -> Wreck.Piece -> List WebGL.Entity
+debrisEntities draw piece =
+    let
+        p =
+            Vec3.toRecord piece.position
+
+        u =
+            0.035
+    in
+    draw.prop piece.part
+        (Mat4.makeTranslate3 p.x p.y p.z
+            |> rotY piece.yaw
+            |> rotX piece.tumble
+            |> Mat4.translate3 0 (12 * u) 0
+            |> Mat4.scale3 u u u
+        )
+        (tint3 (BrickLook.colour piece.colour))
 
 
 {-| Shipyard preview: one boat on the water, seen from the side, slowly

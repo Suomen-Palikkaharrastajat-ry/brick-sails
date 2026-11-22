@@ -28,6 +28,7 @@ import Pages.Results as Results
 import Ports
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.HUD as HUD exposing (Side(..))
+import Sails.Hull as Hull exposing (Hull)
 import Sails.Physics as Physics
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.ShipMesh exposing (ShipMesh)
@@ -43,6 +44,7 @@ import Sails.Types
         , Target
         )
 import Sails.Weather as Weather exposing (Weather)
+import Sails.Wreck as Wreck
 
 
 type Phase
@@ -79,6 +81,8 @@ type alias SailModel =
     , toast : Maybe ( String, Float )
     , viewportWidth : Int
     , viewportHeight : Int
+    , hull : Hull
+    , debris : List Wreck.Piece
     }
 
 
@@ -170,6 +174,8 @@ initSail boat course audioMuted pb maybeMulti tilt width height =
     , toast = Nothing
     , viewportWidth = width
     , viewportHeight = height
+    , hull = Hull.fresh
+    , debris = []
     }
 
 
@@ -255,6 +261,29 @@ targetInRange model =
         |> List.any (\p -> horizontal model.state.position p <= Physics.cannonRange)
 
 
+{-| Compass bearing back to the course while the boat is off it (see
+`Physics.courseFreeRange`), for the HUD's arrow.
+-}
+backToCourse : SailModel -> Maybe Float
+backToCourse model =
+    Physics.nearestCoursePoint (Physics.courseRoute model.course) model.state.position
+        |> Maybe.andThen
+            (\near ->
+                if near.distance > Physics.courseFreeRange then
+                    let
+                        p =
+                            Vec3.toRecord model.state.position
+
+                        c =
+                            Vec3.toRecord near.point
+                    in
+                    Just (atan2 (c.x - p.x) (c.z - p.z) * 180 / pi)
+
+                else
+                    Nothing
+            )
+
+
 horizontal : Vec3 -> Vec3 -> Float
 horizontal a b =
     let
@@ -286,7 +315,7 @@ update msg model =
             ( { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False }, Cmd.none )
 
         FireCannons ->
-            if model.cannonCooldown <= 0 && model.phase == Racing then
+            if model.cannonCooldown <= 0 && model.phase == Racing && not (Hull.wrecked model.hull) then
                 let
                     balls =
                         Physics.fireCannons (mySlot model) model.state (aimPoints model) model.nextCannonId
@@ -353,7 +382,7 @@ update msg model =
                     update RestartCourse model
 
                 "Enter" ->
-                    if model.progress.finished then
+                    if model.progress.finished || Hull.wrecked model.hull then
                         update RestartCourse model
 
                     else
@@ -457,8 +486,11 @@ tick dt model =
                 other ->
                     ( other, Cmd.none, Nothing )
 
+        wreckedBefore =
+            Hull.wrecked model.hull
+
         racing =
-            phase == Racing && not model.progress.finished
+            phase == Racing && not model.progress.finished && not wreckedBefore
 
         ( weather, boltStruck ) =
             Weather.step dt model.weather
@@ -466,7 +498,7 @@ tick dt model =
         conditions =
             Weather.conditions model.course.wind weather
 
-        state =
+        sailed =
             Physics.stepBoat
                 { dt = dt
                 , time = time
@@ -484,6 +516,36 @@ tick dt model =
                 model.boat
                 model.course.islands
                 model.state
+
+        -- Far off the course a current carries the boat back towards it.
+        state =
+            if racing then
+                Physics.driftWith dt (Physics.courseCurrent (Physics.courseRoute model.course) sailed.position) sailed
+
+            else
+                sailed
+
+        hull =
+            Hull.step dt
+                racing
+                { rock = Physics.rockImpact model.course.islands model.state state
+                , cannonHits = 0
+                , roughSea = Physics.roughSeaStrain conditions.sea time model.boat state
+                }
+                model.hull
+
+        justWrecked =
+            Hull.wrecked hull && not wreckedBefore
+
+        knocked =
+            hull.health < model.hull.health - 3
+
+        debris =
+            if justWrecked then
+                Wreck.breakUp state
+
+            else
+                Wreck.step dt conditions.sea time model.debris
 
         ( progressAfterBuoys, passed ) =
             if racing then
@@ -552,8 +614,18 @@ tick dt model =
             else
                 Nothing
 
+        hullToast =
+            if justWrecked then
+                Just ( "Shipwrecked!", 2.0 )
+
+            else if knocked then
+                Just ( "Hull damaged: " ++ String.fromInt (Hull.percent hull) ++ "%", 1.2 )
+
+            else
+                Nothing
+
         toast =
-            case List.filterMap identity [ goToast, passToast, treasureToast, hitToast ] of
+            case List.filterMap identity [ hullToast, goToast, passToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -599,6 +671,14 @@ tick dt model =
                 Cmd.none
             , if state.bumped && not model.state.bumped then
                 sfx (GameAudio.Splash 0.8)
+
+              else
+                Cmd.none
+            , if justWrecked then
+                sfx (GameAudio.Impact 1.0)
+
+              else if knocked then
+                sfx (GameAudio.Impact 0.6)
 
               else
                 Cmd.none
@@ -666,6 +746,8 @@ tick dt model =
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes)
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
         , toast = toast
+        , hull = hull
+        , debris = debris
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
     )
@@ -759,9 +841,19 @@ viewRace :
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
     let
+        wrecked =
+            Hull.wrecked model.hull
+
+        -- A wrecked boat is drawn as its loose bricks (`debris`) instead.
+        ownBoat =
+            if wrecked then
+                []
+
+            else
+                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing } ]
+
         boats =
-            { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing }
-                :: List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
+            ownBoat ++ List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
 
         loadingShips =
             remotePlayers model
@@ -801,12 +893,19 @@ viewRace model callbacks maybeRoom =
             , scenery = callbacks.meshFor
             , treasureFound = model.progress.treasureFound
             , props = callbacks.props
+            , debris = model.debris
             }
 
         playerCount =
             maybeRoom |> Maybe.map (\r -> List.length r.players) |> Maybe.withDefault 1
     in
-    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
+    div
+        [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans"
+
+        -- A tap anywhere in the race starts tilt steering where the phone
+        -- still has to ask for the sensor (iOS), see tilt-steer.js.
+        , Attr.attribute "data-tilt-start" ""
+        ]
         [ div [ Attr.class "absolute inset-0 z-0" ]
             [ case ( Grid.layoutFor (Grid.orientation model.viewportWidth model.viewportHeight) playerCount, maybeRoom ) of
                 ( Grid.Tiles shape, Just room ) ->
@@ -817,6 +916,9 @@ viewRace model callbacks maybeRoom =
             ]
         , if model.progress.finished then
             text ""
+
+          else if wrecked then
+            HUD.viewWrecked { onRestart = callbacks.onRestartCourse, onExit = callbacks.onReturnToShipyard }
 
           else
             HUD.viewHud
@@ -834,6 +936,8 @@ viewRace model callbacks maybeRoom =
                 , wind = (Weather.conditions model.course.wind model.weather).wind
                 , weather = Weather.label model.weather
                 , flash = (Weather.conditions model.course.wind model.weather).flash
+                , hull = model.hull
+                , courseBearing = backToCourse model
                 , actions =
                     { onSteer = Steer
                     , onFire = FireCannons
