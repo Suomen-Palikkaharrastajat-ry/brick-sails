@@ -18,7 +18,7 @@ appears as an extra "Your ship" entry in the boat picker.
 In a multiplayer room every player shares their ship once: a built-in boat by
 name, a loaded build as a `#b/...` build link. Room updates only name it by
 `vehicleId`; the JS runtime fetches each ship once and hands it over through
-`Ports.multiplayerVehicleLoaded`. A shared build goes through the same checks
+`GamePorts.multiplayerVehicleLoaded`. A shared build goes through the same checks
 and geometry pipeline as "Your ship" and is kept in `documents` and `meshes`
 under `remoteKey id`, so it is built once per id.
 
@@ -29,10 +29,11 @@ import Browser.Events
 import Dict exposing (Dict)
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
 import Game.Multiplayer as Multiplayer
+import Game.PartLoading as PartLoading
+import Game.Ports as GamePorts
 import Html exposing (Html)
 import Http
 import Json.Decode as Decode
-import Json.Encode as Encode
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
 import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
@@ -124,15 +125,8 @@ main =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     let
-        fallback =
-            if String.isEmpty (String.trim flags.ldrawFallbackBase) then
-                Nothing
-
-            else
-                Just flags.ldrawFallbackBase
-
         base =
-            { resolver = Resolve.resolverConfig flags.ldrawBase fallback
+            { resolver = PartLoading.resolverFromFlags flags
             , partCache = Resolve.initCache
             , documents =
                 Boats.all
@@ -148,9 +142,7 @@ init flags =
             , viewMode = ViewShipyard
             , sailModel = Nothing
             , audioMuted = flags.savedAudioMuted
-            , leaderboard =
-                Decode.decodeString Leaderboard.decodeLeaderboard flags.savedLeaderboardJson
-                    |> Result.withDefault Leaderboard.empty
+            , leaderboard = Leaderboard.fromJson flags.savedLeaderboardJson
             , tilt = { available = False, enabled = False }
             , shipyardTime = 0
             , viewportWidth = 1024
@@ -219,7 +211,7 @@ update msg model =
             in
             case ( next.loadError, HashPayload.parseDirectBase64 model.pasteText ) of
                 ( Nothing, Just b64 ) ->
-                    ( { next | pasteText = "" }, Cmd.batch [ cmd, Ports.setUrlHash ("#b/" ++ b64) ] )
+                    ( { next | pasteText = "" }, Cmd.batch [ cmd, GamePorts.setUrlHash ("#b/" ++ b64) ] )
 
                 ( Nothing, Nothing ) ->
                     ( { next | pasteText = "" }, cmd )
@@ -228,7 +220,7 @@ update msg model =
                     ( next, cmd )
 
         OpenFile ->
-            ( model, Ports.requestFileUpload () )
+            ( model, GamePorts.requestFileUpload () )
 
         FileContentReceived text ->
             loadShip Nothing text model
@@ -245,12 +237,12 @@ update msg model =
 
         StartSailing ->
             ( { model | viewMode = ViewSailing, sailModel = Just (newSail Nothing model) }
-            , Ports.calibrateTilt ()
+            , GamePorts.calibrateTilt ()
             )
 
         StartHostMultiplayer ->
             ( model
-            , Ports.createMultiplayerRoom
+            , GamePorts.createMultiplayerRoom
                 { roomId = ""
                 , courseId = model.course.id
                 , name = "Host"
@@ -260,7 +252,7 @@ update msg model =
 
         JoinMultiplayer ->
             ( model
-            , Ports.joinMultiplayerRoom
+            , GamePorts.joinMultiplayerRoom
                 { roomId = ""
                 , name = "Sailor"
                 , vehicleHash = sharedShip model
@@ -281,12 +273,12 @@ update msg model =
                         Nothing ->
                             ( { model | viewMode = ViewSailing, sailModel = Just (newSail (Just room) model) }
                             , Cmd.batch
-                                [ Ports.setUrlHash ("#room=" ++ room.roomId)
-                                , Ports.calibrateTilt ()
+                                [ GamePorts.setUrlHash ("#room=" ++ room.roomId)
+                                , GamePorts.calibrateTilt ()
 
                                 -- Joined from a room link: share the selected ship.
                                 , if room.role == Multiplayer.JoinedPlayer then
-                                    Ports.setMultiplayerVehicle (sharedShip model)
+                                    GamePorts.setMultiplayerVehicle (sharedShip model)
 
                                   else
                                     Cmd.none
@@ -325,7 +317,7 @@ update msg model =
 
         ReturnToShipyard ->
             ( { model | viewMode = ViewShipyard, sailModel = Nothing }
-            , Cmd.batch [ Ports.leaveMultiplayerRoom (), silenceAudio ]
+            , Cmd.batch [ GamePorts.leaveMultiplayerRoom (), silenceAudio ]
             )
 
         ToggleMute ->
@@ -333,7 +325,7 @@ update msg model =
                 | audioMuted = not model.audioMuted
                 , sailModel = model.sailModel |> Maybe.map (\s -> { s | audioMuted = not model.audioMuted })
               }
-            , Ports.setAudioMuted (not model.audioMuted)
+            , GamePorts.setAudioMuted (not model.audioMuted)
             )
 
         TiltStatusChanged status ->
@@ -489,10 +481,10 @@ requestParts model =
         needed =
             Dict.values progress
                 |> List.concatMap .needed
-                |> uniqueNames
+                |> PartLoading.uniqueNames
 
         ready name p =
-            List.isEmpty p.needed && p.waiting == 0 && not (Dict.member name model.meshes)
+            List.isEmpty p.needed && p.inFlight == 0 && not (Dict.member name model.meshes)
 
         built =
             Dict.foldl
@@ -515,7 +507,7 @@ requestParts model =
         | partCache = Resolve.markLoading needed model.partCache
         , meshes = built
       }
-    , Cmd.batch (List.map (\name -> Resolve.fetchPart model.resolver name PartFetched) needed)
+    , PartLoading.fetchParts model.resolver PartFetched needed
     )
 
 
@@ -552,22 +544,6 @@ sailRuleForBoat name model =
             ShipMesh.sailByPartName Ingest.isSailPart
 
 
-uniqueNames : List String -> List String
-uniqueNames names =
-    List.foldl
-        (\n ( seen, acc ) ->
-            if Dict.member n seen then
-                ( seen, acc )
-
-            else
-                ( Dict.insert n () seen, n :: acc )
-        )
-        ( Dict.empty, [] )
-        names
-        |> Tuple.second
-        |> List.reverse
-
-
 {-| Brick loading progress of a boat, while it is not built yet.
 -}
 loadingOf : Model -> Boat -> Maybe { loaded : Int, total : Int }
@@ -583,7 +559,7 @@ loadingOf model boat =
                         p =
                             ShipMesh.partProgress doc model.partCache
                     in
-                    { loaded = p.total - p.waiting - List.length p.needed, total = p.total }
+                    { loaded = p.settled, total = p.total }
                 )
 
 
@@ -603,21 +579,21 @@ recordFinish sail model cmd =
                 model.leaderboard
     in
     ( { model | leaderboard = board }
-    , Cmd.batch [ cmd, Ports.saveLeaderboard (Encode.encode 0 (Leaderboard.encodeLeaderboard board)) ]
+    , Cmd.batch [ cmd, GamePorts.saveLeaderboard (Leaderboard.toJson board) ]
     )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ Ports.viewportResized ViewportResized
-        , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
-        , Ports.multiplayerError MultiplayerError
-        , Ports.multiplayerVehicleLoaded MultiplayerVehicleLoaded
-        , Ports.tiltStatus TiltStatusChanged
-        , Ports.fileContentReceived FileContentReceived
-        , Ports.fileLoadError FileLoadError
-        , Ports.hashChanged HashChanged
+        [ GamePorts.viewportResized ViewportResized
+        , GamePorts.multiplayerRoomStateChanged MultiplayerRoomChanged
+        , GamePorts.multiplayerError MultiplayerError
+        , GamePorts.multiplayerVehicleLoaded MultiplayerVehicleLoaded
+        , GamePorts.tiltStatus TiltStatusChanged
+        , GamePorts.fileContentReceived FileContentReceived
+        , GamePorts.fileLoadError FileLoadError
+        , GamePorts.hashChanged HashChanged
         , case ( model.viewMode, model.sailModel ) of
             ( ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)

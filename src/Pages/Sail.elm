@@ -17,6 +17,7 @@ import FeatherIcons
 import Game.Audio as GameAudio
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
 import Game.MultiplayerUI as MultiplayerUI
+import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
@@ -279,7 +280,7 @@ update msg model =
                 ( model, Cmd.none )
 
         ToggleMute ->
-            ( { model | audioMuted = not model.audioMuted }, Ports.setAudioMuted (not model.audioMuted) )
+            ( { model | audioMuted = not model.audioMuted }, GamePorts.setAudioMuted (not model.audioMuted) )
 
         KeyDown key ->
             case key of
@@ -342,16 +343,16 @@ update msg model =
                 fresh =
                     initSail model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
             in
-            ( { fresh | multiplayer = model.multiplayer }, Ports.calibrateTilt () )
+            ( { fresh | multiplayer = model.multiplayer }, GamePorts.calibrateTilt () )
 
         CopyShareUrl ->
             ( model
-            , Ports.copyShareUrl
+            , GamePorts.copyShareUrl
                 (model.multiplayer |> Maybe.map (\r -> "#room=" ++ r.roomId) |> Maybe.withDefault "")
             )
 
         StartMultiplayerCountdown ->
-            ( model, Ports.startMultiplayerCountdown () )
+            ( model, GamePorts.startMultiplayerCountdown () )
 
         UpdateMultiplayerRoom room ->
             let
@@ -374,7 +375,7 @@ update msg model =
                             fresh =
                                 initSail model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
-                        ( { fresh | phase = WaitingForRoom }, Ports.calibrateTilt () )
+                        ( { fresh | phase = WaitingForRoom }, GamePorts.calibrateTilt () )
 
                 ( InRace, _ ) ->
                     if model.phase == WaitingForRoom then
@@ -555,7 +556,7 @@ tick dt model =
                         p =
                             Vec3.toRecord state.position
                     in
-                    Ports.sendMultiplayerTelemetry
+                    GamePorts.sendMultiplayerTelemetry
                         { pos = [ p.x, p.y, p.z ]
                         , rot = [ state.pitch, state.heading, state.heel ]
                         , speed = state.speed
@@ -589,7 +590,7 @@ subscriptions _ =
         , Browser.Events.onKeyDown (Decode.map KeyDown (Decode.field "code" Decode.string))
         , Browser.Events.onKeyUp (Decode.map KeyUp (Decode.field "code" Decode.string))
         , Browser.Events.onVisibilityChange (\_ -> ReleaseControls)
-        , Ports.tiltSteer TiltSteer
+        , GamePorts.tiltSteer TiltSteer
         ]
 
 

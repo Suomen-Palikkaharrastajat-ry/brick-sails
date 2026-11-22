@@ -23,15 +23,15 @@ without a second copy of the mesh.
 -}
 
 import Dict
+import Game.PartLoading as PartLoading
 import LDraw.Document as Document exposing (Document, Placement)
 import LDraw.Geometry as Geometry
-import LDraw.Resolve as Resolve exposing (PartCache, PartStatus(..))
+import LDraw.Resolve exposing (PartCache, PartStatus(..))
 import LDraw.Types exposing (LDrawLine(..))
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Render.Mesh exposing (Vertex)
 import Render.Scene as Scene exposing (Scene)
-import Set
 
 
 {-| A boat's geometry, ready to draw.
@@ -86,70 +86,19 @@ sailByPartName isSail p =
     isSail p.part
 
 
-{-| Part files still to fetch for a model, and how many are on their way.
-A model is ready to build when both are empty.
+{-| Part files still to fetch for a boat, and how many are on their way.
+A boat is ready to build when nothing is `needed` and nothing is `inFlight`.
 -}
 type alias PartProgress =
-    { needed : List String
-    , waiting : Int
-    , total : Int
-    }
+    PartLoading.PartProgress
 
 
-{-| Walk every part the model references, through sub-models and already
-loaded part files, and report which ones the cache does not have yet.
+{-| Walk every part the boat references, starting from its flattened
+placements, and report which ones the cache does not have yet.
 -}
 partProgress : Document -> PartCache -> PartProgress
 partProgress doc cache =
-    let
-        subfiles =
-            Dict.fromList (Document.subfiles doc)
-
-        start =
-            List.map .part (Document.flattenedPlacements doc)
-
-        step frontier visited acc =
-            case frontier of
-                [] ->
-                    { acc | needed = List.reverse acc.needed }
-
-                raw :: rest ->
-                    let
-                        name =
-                            normalize raw
-                    in
-                    if String.isEmpty name || Set.member name visited then
-                        step rest visited acc
-
-                    else
-                        let
-                            seen =
-                                Set.insert name visited
-                        in
-                        case Dict.get name subfiles of
-                            Just lines ->
-                                step (Resolve.pendingParts lines Dict.empty ++ rest) seen acc
-
-                            Nothing ->
-                                case Dict.get name cache of
-                                    Nothing ->
-                                        step rest seen { acc | needed = name :: acc.needed, total = acc.total + 1 }
-
-                                    Just Loading ->
-                                        step rest seen { acc | waiting = acc.waiting + 1, total = acc.total + 1 }
-
-                                    Just (Failed _) ->
-                                        step rest seen { acc | total = acc.total + 1 }
-
-                                    Just (Loaded lines) ->
-                                        step (Resolve.pendingParts lines Dict.empty ++ rest) seen { acc | total = acc.total + 1 }
-    in
-    step start Set.empty { needed = [], waiting = 0, total = 0 }
-
-
-normalize : String -> String
-normalize raw =
-    String.toLower (String.replace "\\" "/" (String.trim raw))
+    PartLoading.progress (PartLoading.flattenedParts doc) doc cache
 
 
 {-| Flatten a model whose parts are all in the cache into a `ShipMesh`.
