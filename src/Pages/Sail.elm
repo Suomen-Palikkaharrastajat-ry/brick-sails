@@ -690,6 +690,10 @@ viewHostCommentatorSplitScreen model callbacks room =
                             , waterSpeed = p.speed
                             , apparentWindSpeed = 12.0
                             , apparentWindAngle = 45.0
+                            , velocity = vec3 0.0 0.0 0.0
+                            , angularVelocity = 0.0
+                            , heave = 0.0
+                            , driftAngle = 0.0
                             }
                     in
                     { spec = model.spec
@@ -808,6 +812,10 @@ viewSinglePlayerSail model callbacks maybeRoom =
                                     , waterSpeed = p.speed
                                     , apparentWindSpeed = 12.0
                                     , apparentWindAngle = 45.0
+                                    , velocity = vec3 0.0 0.0 0.0
+                                    , angularVelocity = 0.0
+                                    , heave = 0.0
+                                    , driftAngle = 0.0
                                     }
                                 , slot = p.slot
                                 }
