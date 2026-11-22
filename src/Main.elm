@@ -318,13 +318,13 @@ update msg model =
             ( model, Ports.openQrScanner () )
 
         QrCodeScanned scannedHash ->
-            ( model, Ports.decodeBinaryHash scannedHash )
+            ( { model | currentHash = scannedHash }, Ports.decodeBinaryHash scannedHash )
 
         QrScannerError _ ->
             ( model, Cmd.none )
 
         HashChanged newHash ->
-            ( model, Ports.decodeBinaryHash newHash )
+            ( { model | currentHash = newHash }, Ports.decodeBinaryHash newHash )
 
         BinaryHashDecoded maybeBytes ->
             case maybeBytes of
