@@ -15,3 +15,57 @@
     user-select: none;
   }
 }
+
+/* Phones play in landscape only. In portrait, cover the game with a hint until
+   the phone is turned. Touch devices only: desktop windows never show it. */
+.rotate-hint {
+  display: none;
+}
+
+@media (orientation: portrait) and (pointer: coarse) and (max-width: 900px) {
+  .rotate-hint {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0 16px;
+    background: #0c4a6e;
+    color: #ffffff;
+    font-family: system-ui, sans-serif;
+    text-align: center;
+  }
+
+  .rotate-hint__icon {
+    width: 64px;
+    height: 64px;
+    color: #38bdf8;
+    animation: rotate-hint-turn 2.4s ease-in-out infinite;
+  }
+
+  .rotate-hint p {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+
+  .rotate-hint p[lang='en'] {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: rgb(255 255 255 / 0.72);
+  }
+}
+
+@keyframes rotate-hint-turn {
+  0%, 20% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-hint__icon {
+    animation: none !important;
+  }
+}
