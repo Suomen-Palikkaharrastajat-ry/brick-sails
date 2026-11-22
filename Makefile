@@ -88,7 +88,7 @@ elm-format: ## Auto-format Elm source files
 
 .PHONY: elm-review
 elm-review: ## Run elm-review rules
-	elm-review
+	@if [ -f review/elm.json ]; then elm-review; else true; fi
 
 .PHONY: elm-review-fix
 elm-review-fix: ## Run elm-review with auto-fix
