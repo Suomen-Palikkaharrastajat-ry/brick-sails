@@ -4,15 +4,20 @@ module Sails.OceanShader exposing
     , makeCtx
     , oceanEntity
     , propEntity
+    , propView
     , skyEntity
     , sunDirection
     )
 
-{-| WebGL shaders for Brick Sails: a bright toy-like sea with a gentle swell,
-the sky dome, and one flat-shaded shader for every prop (boats, buoys,
-islands, targets, cannonballs and splashes).
+{-| WebGL shaders for Brick Sails: a sea of blue studded plates on a gentle
+swell and the brick sky (both the shared brick look of `Game.BrickLook`),
+the camera, sun and fog the brick-built props are drawn with (`propView`),
+and one flat-shaded shader for the course markers (the ring round the next
+buoy and the guide arrow).
 -}
 
+import Game.BrickLook as BrickLook
+import Game.BrickProps as BrickProps
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import WebGL
@@ -70,10 +75,39 @@ type alias WaterVertex =
 type alias WaterUniforms =
     { u_view : Mat4
     , u_perspective : Mat4
+    , u_time : Float
+    , u_deep : Vec3
+    , u_shallow : Vec3
     , u_eyePos : Vec3
     , u_sunDir : Vec3
-    , u_time : Float
+    , u_fogColor : Vec3
+    , u_fogNear : Float
+    , u_fogFar : Float
+    , u_fogMax : Float
+    , u_skyAmbient : Vec3
+    , u_groundAmbient : Vec3
+    , u_studPitch : Float
+    , u_plateStuds : Float
+    , u_gloss : Float
     }
+
+
+skyColour : Vec3
+skyColour =
+    vec3 0.75 0.88 0.97
+
+
+{-| Fog of the sea and the props: none near the boats, all sky colour at the
+edge of the world.
+-}
+fogNear : Float
+fogNear =
+    140
+
+
+fogFar : Float
+fogFar =
+    520
 
 
 {-| 64 x 64 grid of 12 m cells around the play area.
@@ -101,21 +135,36 @@ waterMesh =
         |> WebGL.triangles
 
 
+{-| The sea: blue studded plates (`Game.BrickLook.surfaceFragmentShader`),
+dark blue in the troughs and dark azure on the crests, rising and falling
+with the swell.
+-}
 oceanEntity : Ctx -> WebGL.Entity
 oceanEntity ctx =
     WebGL.entityWith [ DepthTest.default ]
         waterVertexShader
-        waterFragmentShader
+        BrickLook.surfaceFragmentShader
         waterMesh
         { u_view = ctx.view
         , u_perspective = ctx.perspective
+        , u_time = ctx.time
+        , u_deep = BrickLook.colour 1
+        , u_shallow = BrickLook.colour 321
         , u_eyePos = ctx.eye
         , u_sunDir = sunDir
-        , u_time = ctx.time
+        , u_fogColor = skyColour
+        , u_fogNear = fogNear
+        , u_fogFar = fogFar
+        , u_fogMax = 1
+        , u_skyAmbient = skyColour
+        , u_groundAmbient = vec3 0.3 0.4 0.5
+        , u_studPitch = 0.35
+        , u_plateStuds = 16
+        , u_gloss = 0.7
         }
 
 
-waterVertexShader : WebGL.Shader WaterVertex WaterUniforms { v_worldPos : Vec3 }
+waterVertexShader : WebGL.Shader WaterVertex WaterUniforms BrickLook.SurfaceVaryings
 waterVertexShader =
     [glsl|
         precision mediump float;
@@ -123,69 +172,27 @@ waterVertexShader =
         uniform mat4 u_view;
         uniform mat4 u_perspective;
         uniform float u_time;
+        uniform vec3 u_deep;
+        uniform vec3 u_shallow;
         varying vec3 v_worldPos;
+        varying vec3 v_normal;
+        varying vec3 v_color;
+        varying float v_studs;
 
         void main () {
             float k1 = 6.28318 / 36.0;
             float k2 = 6.28318 / 22.0;
-            float h = 0.22 * sin(k1 * (position.z * 0.9 + position.x * 0.4) - k1 * 3.0 * u_time)
-                    + 0.10 * sin(k2 * (position.x * 0.8 - position.z * 0.5) - k2 * 2.4 * u_time);
+            float a1 = k1 * (position.z * 0.9 + position.x * 0.4) - k1 * 3.0 * u_time;
+            float a2 = k2 * (position.x * 0.8 - position.z * 0.5) - k2 * 2.4 * u_time;
+            float h = 0.22 * sin(a1) + 0.10 * sin(a2);
+            float dx = 0.22 * k1 * 0.4 * cos(a1) + 0.10 * k2 * 0.8 * cos(a2);
+            float dz = 0.22 * k1 * 0.9 * cos(a1) - 0.10 * k2 * 0.5 * cos(a2);
             vec3 p = vec3(position.x, h, position.z);
             v_worldPos = p;
+            v_normal = normalize(vec3(-dx, 1.0, -dz));
+            v_color = mix(u_deep, u_shallow, smoothstep(-0.25, 0.3, h));
+            v_studs = 1.0;
             gl_Position = u_perspective * u_view * vec4(p, 1.0);
-        }
-    |]
-
-
-waterFragmentShader : WebGL.Shader {} WaterUniforms { v_worldPos : Vec3 }
-waterFragmentShader =
-    [glsl|
-        precision mediump float;
-        uniform vec3 u_eyePos;
-        uniform vec3 u_sunDir;
-        uniform float u_time;
-        varying vec3 v_worldPos;
-
-        void main () {
-            vec2 p = v_worldPos.xz;
-            float k1 = 6.28318 / 36.0;
-            float k2 = 6.28318 / 22.0;
-            float k3 = 6.28318 / 5.0;
-            float a1 = k1 * (p.y * 0.9 + p.x * 0.4) - k1 * 3.0 * u_time;
-            float a2 = k2 * (p.x * 0.8 - p.y * 0.5) - k2 * 2.4 * u_time;
-            float a3 = k3 * (p.x * 0.6 + p.y * 0.8) - k3 * 1.5 * u_time;
-            float k4 = 6.28318 / 8.3;
-            float a4 = k4 * (p.x * 0.95 - p.y * 0.3) - k4 * 1.9 * u_time;
-            // Two swells plus two small ripples at unrelated angles and lengths
-            // (crossed equal ripples would paint a visible checkerboard).
-            float dx = 0.22 * k1 * 0.4 * cos(a1) + 0.10 * k2 * 0.8 * cos(a2)
-                     + 0.015 * k3 * 0.6 * cos(a3) + 0.025 * k4 * 0.95 * cos(a4);
-            float dz = 0.22 * k1 * 0.9 * cos(a1) - 0.10 * k2 * 0.5 * cos(a2)
-                     + 0.015 * k3 * 0.8 * cos(a3) - 0.025 * k4 * 0.3 * cos(a4);
-            vec3 N = normalize(vec3(-dx, 1.0, -dz));
-            // Height from the same formula as the vertex shader, per pixel, so the
-            // colour does not show the 12 m grid.
-            float h = 0.22 * sin(a1) + 0.10 * sin(a2);
-            vec3 V = normalize(u_eyePos - v_worldPos);
-            vec3 L = normalize(u_sunDir);
-
-            vec3 deep = vec3(0.02, 0.33, 0.62);
-            vec3 light = vec3(0.07, 0.52, 0.8);
-            vec3 col = mix(deep, light, smoothstep(-0.25, 0.3, h));
-
-            float fresnel = 0.02 + 0.35 * pow(1.0 - max(0.0, dot(N, V)), 4.0);
-            vec3 sky = vec3(0.75, 0.88, 0.97);
-            col = mix(col, sky, fresnel);
-
-            vec3 H = normalize(L + V);
-            col += vec3(pow(max(0.0, dot(N, H)), 200.0) * 0.5);
-
-            float crest = smoothstep(0.28, 0.33, h + 0.03 * sin(a3 * 2.0));
-            col = mix(col, vec3(0.9, 0.97, 1.0), crest * 0.35);
-
-            float dist = length(v_worldPos - u_eyePos);
-            float fog = clamp((dist - 160.0) / 320.0, 0.0, 1.0);
-            gl_FragColor = vec4(mix(col, sky, fog), 1.0);
         }
     |]
 
@@ -194,89 +201,36 @@ waterFragmentShader =
 -- SKY
 
 
-type alias SkyUniforms =
-    { u_view : Mat4
-    , u_perspective : Mat4
-    , u_eyePos : Vec3
-    , u_sunDir : Vec3
-    }
-
-
+{-| The shared brick sky: a sun disc of yellow bricks and clouds of white
+bricks drifting along the horizon.
+-}
 skyEntity : Ctx -> WebGL.Entity
 skyEntity ctx =
-    WebGL.entityWith [ DepthTest.always { write = False, near = 0, far = 1 } ]
-        skyVertexShader
-        skyFragmentShader
-        skyMesh
-        { u_view = ctx.view
-        , u_perspective = ctx.perspective
-        , u_eyePos = ctx.eye
-        , u_sunDir = sunDir
+    BrickLook.skyEntity
+        { viewProjection = Mat4.mul ctx.perspective ctx.view
+        , eye = ctx.eye
+        , zenith = vec3 0.2 0.52 0.9
+        , horizon = skyColour
+        , sunDir = sunDir
+        , time = ctx.time
         }
 
 
-skyMesh : WebGL.Mesh { position : Vec3 }
-skyMesh =
-    let
-        r =
-            600.0
-
-        rings =
-            8
-
-        segs =
-            16
-
-        v i j =
-            let
-                phi =
-                    (toFloat i / toFloat rings) * (pi / 2.0) - 0.2
-
-                theta =
-                    (toFloat j / toFloat segs) * (2.0 * pi)
-            in
-            { position = vec3 (r * cos phi * sin theta) (r * sin phi) (r * cos phi * cos theta) }
-
-        quad i j =
-            [ ( v i j, v i (j + 1), v (i + 1) j ), ( v (i + 1) j, v i (j + 1), v (i + 1) (j + 1) ) ]
-    in
-    List.range 0 (rings - 1)
-        |> List.concatMap (\i -> List.range 0 (segs - 1) |> List.concatMap (quad i))
-        |> WebGL.triangles
-
-
-skyVertexShader : WebGL.Shader { position : Vec3 } SkyUniforms { v_dir : Vec3 }
-skyVertexShader =
-    [glsl|
-        precision mediump float;
-        attribute vec3 position;
-        uniform mat4 u_view;
-        uniform mat4 u_perspective;
-        uniform vec3 u_eyePos;
-        varying vec3 v_dir;
-
-        void main () {
-            v_dir = position;
-            gl_Position = (u_perspective * u_view * vec4(position + u_eyePos, 1.0)).xyww;
-        }
-    |]
-
-
-skyFragmentShader : WebGL.Shader {} SkyUniforms { v_dir : Vec3 }
-skyFragmentShader =
-    [glsl|
-        precision mediump float;
-        uniform vec3 u_sunDir;
-        varying vec3 v_dir;
-
-        void main () {
-            vec3 dir = normalize(v_dir);
-            float y = max(0.0, dir.y);
-            vec3 sky = mix(vec3(0.75, 0.88, 0.97), vec3(0.2, 0.52, 0.9), pow(y, 0.6));
-            float s = max(0.0, dot(dir, normalize(u_sunDir)));
-            gl_FragColor = vec4(sky + vec3(pow(s, 200.0) * 0.8), 1.0);
-        }
-    |]
+{-| The camera, sun and fog for the brick-built props (`Game.BrickProps`).
+-}
+propView : Ctx -> Int -> Int -> BrickProps.View
+propView ctx width height =
+    { view = ctx.view
+    , projection = ctx.perspective
+    , eye = ctx.eye
+    , sunDir = sunDir
+    , fogColor = skyColour
+    , fogNear = fogNear
+    , fogFar = fogFar
+    , fogMax = 1
+    , width = max 1 width
+    , height = max 1 height
+    }
 
 
 
@@ -366,7 +320,7 @@ propFragmentShader =
             float spec = pow(max(0.0, dot(N, H)), 32.0) * 0.25;
             vec3 col = v_color * (0.55 + 0.55 * diff) + vec3(spec);
             float dist = length(v_worldPos - u_eyePos);
-            float fog = clamp((dist - 160.0) / 320.0, 0.0, 1.0);
+            float fog = smoothstep(140.0, 520.0, dist);
             gl_FragColor = vec4(mix(col, vec3(0.75, 0.88, 0.97), fog), 1.0);
         }
     |]

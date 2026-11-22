@@ -656,6 +656,7 @@ viewSail :
         , onRestartCourse : SailMsg
         , meshFor : String -> Maybe ShipMesh
         , remoteShip : RemoteShipLookup
+        , props : Render.Props
         }
     -> Html SailMsg
 viewSail model callbacks =
@@ -663,7 +664,7 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostSplitScreen callbacks.remoteShip model room
+                    viewHostSplitScreen callbacks.props callbacks.remoteShip model room
 
                 JoinedPlayer ->
                     viewRace model callbacks (Just room)
@@ -672,8 +673,8 @@ viewSail model callbacks =
             viewRace model callbacks Nothing
 
 
-viewHostSplitScreen : RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen remoteShip model room =
+viewHostSplitScreen : Render.Props -> RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen props remoteShip model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -701,6 +702,7 @@ viewHostSplitScreen remoteShip model room =
                             , balls = []
                             , impacts = []
                             , time = model.simTime
+                            , props = props
                             }
                             qW
                             qH
@@ -740,7 +742,7 @@ viewHostSplitScreen remoteShip model room =
 
 viewRace :
     SailModel
-    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup, props : Render.Props }
     -> Maybe RoomState
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
@@ -785,6 +787,7 @@ viewRace model callbacks maybeRoom =
                 , balls = model.cannonballs
                 , impacts = model.impacts
                 , time = model.simTime
+                , props = callbacks.props
                 }
                 model.viewportWidth
                 model.viewportHeight

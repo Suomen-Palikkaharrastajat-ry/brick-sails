@@ -1,20 +1,32 @@
 module Sails.Render exposing
-    ( RenderBoat
+    ( Props
+    , RenderBoat
+    , propSources
     , renderShipyard
     , renderWorld
     )
 
-{-| Draws the sailing world: sea, sky, blocky islands, buoys, the finish
-gate, floating targets, cannonballs and the toy boats.
+{-| Draws the sailing world: sea, sky, islands, buoys, the finish gate,
+floating targets, cannonballs and the toy boats.
 
 The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
-pipeline's plastic shader and edge shader. Everything in one canvas shares a
-single view and projection (`Sails.OceanShader.Ctx`), so the depth buffer is
-consistent: the water hides exactly the part of the hull below the waterline.
-The props around the course are small procedural meshes.
+pipeline's plastic shader and edge shader. The props around the course are
+brick models too, from catalog parts (`Game.BrickModels`, the same trees as
+Brick Racer's), built once (`Props`) and drawn per piece with
+`Game.BrickProps`, stretched to the sizes the course and the physics use.
+The sea and the sky have the shared brick look (`Game.BrickLook`). Only the
+ring round the next buoy and the guide arrow are flat course markers.
+
+Everything in one canvas shares a single view and projection
+(`Sails.OceanShader.Ctx`), so the depth buffer is consistent: the water hides
+exactly the part of the hull below the waterline.
 
 -}
 
+import Dict exposing (Dict)
+import Game.BrickLook as BrickLook
+import Game.BrickModels as BrickModels
+import Game.BrickProps as BrickProps exposing (PropModel)
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Math.Matrix4 as Mat4 exposing (Mat4)
@@ -45,6 +57,32 @@ import WebGL.Settings.DepthTest as DepthTest
 -- PUBLIC
 
 
+{-| The prop models built so far, by name (see `propSources`). Pieces whose
+model is not built yet are not drawn.
+-}
+type alias Props =
+    Dict String PropModel
+
+
+{-| Every prop model the course uses, by name: load them with
+`Game.BrickProps.refresh`.
+-}
+propSources : List ( String, String )
+propSources =
+    [ ( "buoy", BrickModels.buoy )
+    , ( "beacon", BrickModels.beacon )
+    , ( "floatingTarget", BrickModels.floatingTarget )
+    , ( "island", BrickModels.island )
+    , ( "lighthouse", BrickModels.lighthouse )
+    , ( "pineTree", BrickModels.pineTree )
+    , ( "leafyTree", BrickModels.leafyTree )
+    , ( "cannonball", BrickModels.cannonball )
+    , ( "splash", BrickModels.splash )
+    , ( "3001.dat", BrickModels.singlePart "3001.dat" )
+    , ( "3003.dat", BrickModels.singlePart "3003.dat" )
+    ]
+
+
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
 loading), its state, and an optional sail colour override (used to tell
 multiplayer boats apart).
@@ -69,6 +107,7 @@ renderWorld :
         , balls : List Cannonball
         , impacts : List CombatImpact
         , time : Float
+        , props : Props
         }
     -> Int
     -> Int
@@ -78,17 +117,43 @@ renderWorld cam scene width height =
         ctx =
             Ocean.makeCtx cam scene.time width height
 
+        pv =
+            Ocean.propView ctx width height
+
+        drawProp name model tint =
+            case Dict.get name scene.props of
+                Just prop ->
+                    BrickProps.draw pv model tint (edgeWidthAt ctx (Mat4.transform model (vec3 0 0 0))) prop
+
+                Nothing ->
+                    []
+
+        withFit name fit at tint =
+            case Dict.get name scene.props of
+                Just prop ->
+                    let
+                        model =
+                            Mat4.mul at (fit prop)
+                    in
+                    BrickProps.draw pv model tint (edgeWidthAt ctx (Mat4.transform at (vec3 0 0 0))) prop
+
+                Nothing ->
+                    []
+
+        draw =
+            { prop = drawProp, fitted = withFit }
+
         entities =
             [ Ocean.skyEntity ctx
             , Ocean.oceanEntity ctx
             ]
-                ++ islandEntities ctx scene.course
-                ++ List.concatMap (buoyEntities ctx scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
-                ++ List.concatMap (targetEntities ctx scene.time) scene.targets
+                ++ islandEntities draw scene.course
+                ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
+                ++ List.concatMap (targetEntities draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height) scene.boats
                 ++ guideEntities ctx scene.guide
-                ++ List.map (ballEntity ctx) scene.balls
-                ++ List.map (impactEntity ctx) scene.impacts
+                ++ List.concatMap (ballEntity draw) scene.balls
+                ++ List.concatMap (impactEntity draw) scene.impacts
     in
     canvas width height entities
 
@@ -306,8 +371,35 @@ ocean =
     Ocean.propEntity
 
 
-buoyEntities : Ctx -> Float -> Int -> List Waypoint -> Waypoint -> List WebGL.Entity
-buoyEntities ctx time nextIndex all wp =
+{-| How to draw a brick prop: `prop` with a full model matrix, `fitted` with
+a placement and a fit (see `Game.BrickProps.fitHeight` and friends), each
+with a tint for the prop's colour-16 parts.
+-}
+type alias Draw =
+    { prop : String -> Mat4 -> Vec4 -> List WebGL.Entity
+    , fitted : String -> (PropModel -> Mat4) -> Mat4 -> Vec4 -> List WebGL.Entity
+    }
+
+
+{-| Brick edge lines only on props near the camera.
+-}
+edgeWidthAt : Ctx -> Vec3 -> Float
+edgeWidthAt ctx at =
+    clamp 0 1.2 (1.2 * (30 - Vec3.distance ctx.eye at) / 10)
+
+
+plain : Vec4
+plain =
+    vec4 1 1 1 1
+
+
+tint3 : Vec3 -> Vec4
+tint3 c =
+    vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
+
+
+buoyEntities : Ctx -> Draw -> Float -> Int -> List Waypoint -> Waypoint -> List WebGL.Entity
+buoyEntities ctx draw time nextIndex all wp =
     let
         p =
             Vec3.toRecord wp.position
@@ -320,9 +412,6 @@ buoyEntities ctx time nextIndex all wp =
 
         bob =
             0.2 * sin (time * 2 + toFloat wp.index)
-
-        at =
-            Mat4.makeTranslate3 p.x bob p.z
 
         color =
             if passed then
@@ -344,9 +433,8 @@ buoyEntities ctx time nextIndex all wp =
 
         ring =
             if isNext then
-                [ ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 (wp.radius * pulse) 1 (wp.radius * pulse)) (vec3 1 0.92 0.3) ringMesh
-                , ocean ctx (at |> rotY (time * 1.5)) (vec3 1 0.85 0.15) beaconMesh
-                ]
+                ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 (wp.radius * pulse) 1 (wp.radius * pulse)) (vec3 1 0.92 0.3) ringMesh
+                    :: draw.fitted "beacon" (BrickProps.fitHeight 5.9) (Mat4.makeTranslate3 p.x (bob + 2.6) p.z |> rotY (time * 1.5)) plain
 
             else
                 []
@@ -367,16 +455,29 @@ buoyEntities ctx time nextIndex all wp =
                                 atan2 (p.x - a.x) (p.z - a.z)
                             )
                         |> Maybe.withDefault 0
+
+                frame =
+                    Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
             in
-            ocean ctx (Mat4.makeTranslate3 p.x 0 p.z |> rotY approach |> Mat4.scale3 wp.radius 1 1) white gateMesh
-                :: ring
+            List.concatMap
+                (\b -> draw.prop b.part (Mat4.mul frame b.transform) (tint3 (BrickLook.colour b.color)))
+                (BrickModels.archBricks
+                    { halfWidth = wp.radius
+                    , postHeight = 6.5
+                    , unit = 0.02
+                    , postColor = 15
+                    , bannerColors = [ 0, 15 ]
+                    }
+                )
+                ++ ring
 
         _ ->
-            ocean ctx at color buoyMesh :: ring
+            draw.fitted "buoy" (BrickProps.fitHeight 3.3) (Mat4.makeTranslate3 p.x (bob - 0.6) p.z) (tint3 color)
+                ++ ring
 
 
-targetEntities : Ctx -> Float -> Target -> List WebGL.Entity
-targetEntities ctx time t =
+targetEntities : Draw -> Float -> Target -> List WebGL.Entity
+targetEntities draw time t =
     if t.sunk && t.sinkAge > 1.6 then
         []
 
@@ -392,26 +493,67 @@ targetEntities ctx time t =
                 else
                     0
         in
-        [ ocean ctx
+        draw.fitted "floatingTarget"
+            (BrickProps.fitWidth 1.6)
             (Mat4.makeTranslate3 p.x (p.y - sink) p.z
                 |> rotY (time * 0.4 + toFloat t.id)
                 |> rotZ (sink * 0.5)
+                |> Mat4.translate3 0 -0.4 0
             )
-            white
-            targetMesh
-        ]
+            plain
 
 
-islandEntities : Ctx -> Course -> List WebGL.Entity
-islandEntities ctx course =
+{-| Islands of round bricks stretched to each island's radius and height
+(the radius the boats bump into), with brick trees on the grass and the
+lighthouse on the first island's hill.
+-}
+islandEntities : Draw -> Course -> List WebGL.Entity
+islandEntities draw course =
     List.indexedMap
         (\i isl ->
-            ocean ctx
-                (Mat4.makeTranslate3 isl.x -0.6 isl.z |> Mat4.scale3 isl.radius isl.height isl.radius)
-                white
-                islandMesh
-                :: (if i == 0 then
-                        [ ocean ctx (Mat4.makeTranslate3 isl.x (isl.height - 0.6) isl.z) white lighthouseMesh ]
+            let
+                grassY =
+                    -0.6 + 0.58 * isl.height
+
+                treeCount =
+                    3 + modBy 2 i
+
+                tree k =
+                    let
+                        a =
+                            degrees (120 + 40 * toFloat k + 17 * toFloat i)
+
+                        pine =
+                            modBy 2 (k + i) == 0
+                    in
+                    draw.fitted
+                        (if pine then
+                            "pineTree"
+
+                         else
+                            "leafyTree"
+                        )
+                        (BrickProps.fitHeight
+                            (if pine then
+                                0.9 * isl.height
+
+                             else
+                                0.75 * isl.height
+                            )
+                        )
+                        (Mat4.makeTranslate3 (isl.x + 0.7 * isl.radius * cos a) grassY (isl.z + 0.7 * isl.radius * sin a))
+                        plain
+            in
+            draw.fitted "island"
+                (BrickProps.fitBox { width = 2 * isl.radius, height = 1.5 * isl.height, depth = 2 * isl.radius })
+                (Mat4.makeTranslate3 isl.x (-0.6 - 0.5 * isl.height) isl.z)
+                plain
+                ++ List.concatMap tree (List.range 0 (treeCount - 1))
+                ++ (if i == 0 then
+                        draw.fitted "lighthouse"
+                            (BrickProps.fitHeight 10.6)
+                            (Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius))
+                            plain
 
                     else
                         []
@@ -455,17 +597,17 @@ guideEntities ctx guide =
             []
 
 
-ballEntity : Ctx -> Cannonball -> WebGL.Entity
-ballEntity ctx ball =
+ballEntity : Draw -> Cannonball -> List WebGL.Entity
+ballEntity draw ball =
     let
         p =
             Vec3.toRecord ball.position
     in
-    ocean ctx (Mat4.makeTranslate3 p.x p.y p.z) white ballMesh
+    draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
 
 
-impactEntity : Ctx -> CombatImpact -> WebGL.Entity
-impactEntity ctx imp =
+impactEntity : Draw -> CombatImpact -> List WebGL.Entity
+impactEntity draw imp =
     let
         p =
             Vec3.toRecord imp.position
@@ -479,15 +621,15 @@ impactEntity ctx imp =
         r =
             0.6 + t * 2.2
     in
-    ocean ctx
-        (Mat4.makeTranslate3 p.x p.y p.z |> Mat4.scale3 r h r)
+    draw.fitted "splash"
+        (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
+        (Mat4.makeTranslate3 p.x p.y p.z)
         (if imp.isHit then
-            vec3 1 0.6 0.15
+            vec4 1 0.6 0.15 1
 
          else
-            white
+            vec4 1 1 1 1
         )
-        splashMesh
 
 
 
@@ -547,46 +689,6 @@ box ( x0, y0, z0 ) ( x1, y1, z1 ) col =
         ]
 
 
-{-| Upright n-sided prism centred on (cx, cz).
--}
-prism : Int -> Float -> ( Float, Float ) -> ( Float, Float ) -> Vec3 -> List Tri
-prism n r ( cx, cz ) ( y0, y1 ) col =
-    let
-        pt i y =
-            let
-                a =
-                    2 * pi * toFloat i / toFloat n
-            in
-            vec3 (cx + r * sin a) y (cz + r * cos a)
-
-        side i =
-            face (pt i y0) (pt (i + 1) y0) (pt (i + 1) y1) (pt i y1) col
-
-        cap i =
-            let
-                up =
-                    { position = vec3 cx y1 cz, normal = vec3 0 1 0, color = col }
-
-                down =
-                    { position = vec3 cx y0 cz, normal = vec3 0 -1 0, color = col }
-
-                at y nrm j =
-                    { position = pt j y, normal = nrm, color = col }
-            in
-            [ ( up, at y1 (vec3 0 1 0) i, at y1 (vec3 0 1 0) (i + 1) )
-            , ( down, at y0 (vec3 0 -1 0) (i + 1), at y0 (vec3 0 -1 0) i )
-            ]
-    in
-    List.range 0 (n - 1) |> List.concatMap (\i -> side i ++ cap i)
-
-
-{-| A brick stud on top of a surface at height y.
--}
-stud : Float -> Float -> Float -> Vec3 -> List Tri
-stud x y z col =
-    prism 8 0.15 ( x, z ) ( y, y + 0.1 ) col
-
-
 transformTris : Mat4 -> List Tri -> List Tri
 transformTris m =
     let
@@ -598,34 +700,6 @@ transformTris m =
 
 
 -- MESHES
-
-
-darkWood : Vec3
-darkWood =
-    vec3 0.35 0.22 0.12
-
-
-black : Vec3
-black =
-    vec3 0.12 0.12 0.14
-
-
-buoyMesh : WebGL.Mesh PropVertex
-buoyMesh =
-    WebGL.triangles
-        (prism 8 1.0 ( 0, 0 ) ( -0.6, 0.8 ) white
-            ++ box ( -0.4, 0.8, -0.4 ) ( 0.4, 2.6, 0.4 ) white
-            ++ box ( -0.42, 1.5, -0.42 ) ( 0.42, 1.9, 0.42 ) (vec3 0.95 0.95 0.95)
-            ++ stud 0 2.6 0 white
-        )
-
-
-beaconMesh : WebGL.Mesh PropVertex
-beaconMesh =
-    WebGL.triangles
-        (box ( -0.08, 2.6, -0.08 ) ( 0.08, 8.5, 0.08 ) (vec3 0.9 0.9 0.9)
-            ++ box ( 0, 7.0, -0.04 ) ( 1.8, 8.4, 0.04 ) white
-        )
 
 
 ringMesh : WebGL.Mesh PropVertex
@@ -653,74 +727,6 @@ ringMesh =
     WebGL.triangles (List.range 0 (n - 1) |> List.concatMap seg)
 
 
-gateMesh : WebGL.Mesh PropVertex
-gateMesh =
-    let
-        -- Scaled in X by the gate radius: posts sit at x = -1 and x = 1.
-        post x =
-            box ( x - 0.06, -0.5, -0.5 ) ( x + 0.06, 7.0, 0.5 ) white
-
-        checker i =
-            let
-                x0 =
-                    -1 + toFloat i * 0.2
-            in
-            box ( x0, 6.0, -0.15 )
-                ( x0 + 0.2, 7.2, 0.15 )
-                (if modBy 2 i == 0 then
-                    black
-
-                 else
-                    white
-                )
-    in
-    WebGL.triangles
-        (post -1 ++ post 1 ++ List.concatMap checker (List.range 0 9))
-
-
-targetMesh : WebGL.Mesh PropVertex
-targetMesh =
-    WebGL.triangles
-        (box ( -0.8, -0.4, -0.8 ) ( 0.8, 0.5, 0.8 ) (vec3 0.6 0.4 0.2)
-            ++ box ( -0.82, 0.05, -0.82 ) ( 0.82, 0.15, 0.82 ) darkWood
-            ++ prism 12 0.7 ( 0, 0 ) ( 0.5, 0.62 ) (vec3 0.9 0.12 0.12)
-            ++ prism 12 0.47 ( 0, 0 ) ( 0.62, 0.7 ) white
-            ++ prism 12 0.22 ( 0, 0 ) ( 0.7, 0.78 ) (vec3 0.9 0.12 0.12)
-        )
-
-
-islandMesh : WebGL.Mesh PropVertex
-islandMesh =
-    -- Unit island (radius 1, height 1), scaled per island.
-    WebGL.triangles
-        (prism 12 1.0 ( 0, 0 ) ( -0.5, 0.18 ) (vec3 0.93 0.84 0.58)
-            ++ prism 12 0.8 ( 0, 0 ) ( 0.18, 0.55 ) (vec3 0.35 0.68 0.3)
-            ++ prism 12 0.5 ( 0.1, -0.05 ) ( 0.55, 1.0 ) (vec3 0.27 0.56 0.24)
-            ++ prism 6 0.25 ( -0.35, 0.3 ) ( 0.55, 0.8 ) (vec3 0.55 0.55 0.58)
-        )
-
-
-lighthouseMesh : WebGL.Mesh PropVertex
-lighthouseMesh =
-    let
-        band i =
-            box ( -1.2, toFloat i * 1.6, -1.2 )
-                ( 1.2, toFloat (i + 1) * 1.6, 1.2 )
-                (if modBy 2 i == 0 then
-                    vec3 0.95 0.95 0.95
-
-                 else
-                    vec3 0.85 0.15 0.15
-                )
-    in
-    WebGL.triangles
-        (List.concatMap band (List.range 0 4)
-            ++ box ( -1.5, 8.0, -1.5 ) ( 1.5, 8.4, 1.5 ) black
-            ++ box ( -0.9, 8.4, -0.9 ) ( 0.9, 9.8, 0.9 ) (vec3 1 0.9 0.4)
-            ++ prism 4 1.3 ( 0, 0 ) ( 9.8, 10.6 ) (vec3 0.85 0.15 0.15)
-        )
-
-
 arrowMesh : WebGL.Mesh PropVertex
 arrowMesh =
     let
@@ -730,18 +736,3 @@ arrowMesh =
     in
     WebGL.triangles
         (arm 1 ++ arm -1 ++ (arm 1 ++ arm -1 |> transformTris (Mat4.makeTranslate3 0 0 -1.4)))
-
-
-ballMesh : WebGL.Mesh PropVertex
-ballMesh =
-    WebGL.triangles (prism 6 0.35 ( 0, 0 ) ( -0.3, 0.3 ) black)
-
-
-splashMesh : WebGL.Mesh PropVertex
-splashMesh =
-    -- Unit splash: a short stack of shrinking rings.
-    WebGL.triangles
-        (prism 8 1.0 ( 0, 0 ) ( 0, 0.35 ) white
-            ++ prism 8 0.65 ( 0, 0 ) ( 0.35, 0.7 ) white
-            ++ prism 8 0.3 ( 0, 0 ) ( 0.7, 1.0 ) white
-        )
