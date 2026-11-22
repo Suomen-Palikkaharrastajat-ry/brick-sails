@@ -249,16 +249,8 @@ stepPhysics dt simTime wind spec state =
         relWindRad =
             relWindDeg * pi / 180.0
 
-        -- Force along wind direction (drag) + perpendicular to wind (lift)
-        fSailAlongWind =
-            dragForce
-
-        fSailPerpWind =
-            if relWindDeg > 0.0 then
-                -liftForce
-
-            else
-                liftForce
+        absRelWindRad =
+            absRelWind * pi / 180.0
 
         -- Project into ship forward axis (scaled by Sail Area to Displacement ratio)
         dispCubicM =
@@ -272,10 +264,10 @@ stepPhysics dt simTime wind spec state =
 
         rawThrust =
             if inIrons then
-                -dragForce * 0.3 -- In irons, wind pushes ship slowly backwards
+                0.0 - (dragForce * 0.3) -- In irons, wind pushes ship slowly backwards
 
             else
-                fSailPerpWind * sin relWindRad - fSailAlongWind * cos relWindRad
+                liftForce * sin absRelWindRad - dragForce * cos absRelWindRad
 
         fThrust =
             rawThrust * thrustScale
@@ -286,7 +278,13 @@ stepPhysics dt simTime wind spec state =
                 0.0
 
             else
-                fSailPerpWind * cos relWindRad + fSailAlongWind * sin relWindRad
+                (if relWindDeg > 0.0 then
+                    -1.0
+
+                 else
+                    1.0
+                )
+                    * (liftForce * cos absRelWindRad + dragForce * sin absRelWindRad)
 
         -- 4. Hydrodynamic water resistance
         -- Forward skin friction + quadratic wave-making resistance
