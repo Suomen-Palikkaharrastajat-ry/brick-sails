@@ -28,6 +28,7 @@ import Pages.Results as Results
 import Ports
 import Render.Camera as Camera exposing (Camera)
 import Render.Scene exposing (Scene)
+import Sails.CameraRig as CameraRig
 import Sails.HUD as HUD
 import Sails.Physics as Physics
 import Sails.Render as Render
@@ -96,9 +97,6 @@ initSail spec scene course audioMuted pb maybeMulti width height =
     let
         initState =
             Physics.initSailingState course
-
-        initCam =
-            Camera.defaultCamera
     in
     { spec = spec
     , scene = scene
@@ -112,11 +110,9 @@ initSail spec scene course audioMuted pb maybeMulti width height =
         , finished = False
         }
     , camera =
-        { initCam
-            | eye = vec3 0.0 5.0 -12.0
-            , target = vec3 0.0 0.5 0.0
-            , sceneRadius = 600.0
-        }
+        Camera.init
+            |> Camera.setSceneRadius 600.0
+            |> CameraRig.lookAt (vec3 0.0 5.0 -12.0) (vec3 0.0 0.5 0.0)
     , cameraMode = Chase
     , orbitYaw = 0.0
     , orbitPitch = 0.25
@@ -278,13 +274,13 @@ update msg model =
                     model.camera
 
                 newEye =
-                    GameCamera.dampVec3 6.0 oldCam.eye targetEye dt
+                    GameCamera.dampVec3 6.0 (Camera.position oldCam) targetEye dt
 
                 newLookAt =
                     GameCamera.dampVec3 6.0 oldCam.target targetLookAt dt
 
                 newCam =
-                    { oldCam | eye = newEye, target = newLookAt }
+                    CameraRig.lookAt newEye newLookAt oldCam
 
                 -- Send audio telemetry
                 audioCmd =
@@ -726,14 +722,10 @@ viewHostCommentatorSplitScreen model callbacks room =
                             GameCamera.chasePosition p.position fwd 14.0 4.8
 
                         cam =
-                            { eye = camEye
-                            , target = p.position
-                            , up = vec3 0 1 0
-                            , fov = 55.0
-                            , near = 0.1
-                            , far = 1200.0
-                            , sceneRadius = 600.0
-                            }
+                            Camera.init
+                                |> Camera.setViewportHeight (toFloat (max 1 qH))
+                                |> Camera.setSceneRadius 600.0
+                                |> CameraRig.lookAt camEye p.position
                     in
                     div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
                         [ Render.renderSailingViewportMulti cam allShips model.cannonballs model.impacts model.course model.simTime qW qH

@@ -23,6 +23,7 @@ import Ports
 import Render.Camera as Camera exposing (Camera)
 import Render.Scene as Scene exposing (Scene)
 import Sails.Analyze as Analyze exposing (AnalysisReport)
+import Sails.CameraRig as CameraRig
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
 import Sails.Types
@@ -126,15 +127,10 @@ init flags =
         report =
             Analyze.analyzeShip spec
 
-        initCam =
-            Camera.defaultCamera
-
         shipyardCam =
-            { initCam
-                | eye = vec3 4.5 3.2 5.5
-                , target = vec3 0.0 0.2 0.0
-                , sceneRadius = 15.0
-            }
+            Camera.init
+                |> Camera.setSceneRadius 15.0
+                |> CameraRig.lookAt (vec3 4.5 3.2 5.5) (vec3 0.0 0.2 0.0)
 
         board =
             Decode.decodeString Leaderboard.decodeLeaderboard flags.savedLeaderboardJson
