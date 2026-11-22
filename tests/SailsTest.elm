@@ -636,7 +636,7 @@ suite =
                     Expect.all
                         [ \_ -> Expect.greaterThan 9.5 eye.y
                         , \_ -> Expect.within (Expect.Absolute 1.5) 3.5 target.y
-                        , \_ -> Expect.lessThan -20 eye.z
+                        , \_ -> Expect.lessThan -14 eye.z
                         , \_ -> Expect.notWithin (Expect.Absolute 3) 0 eye.x
                         ]
                         ()

@@ -17,13 +17,18 @@ into those values.
 
 The game camera is a close chase camera, framed like Brick Racer's chase
 camera: it sits a few boat lengths behind the boat and a little above the
-masthead, looking down at about 18 degrees (0.31 rad, inside the racer's
+masthead, looking down at about 24 degrees (0.42 rad, inside the racer's
 0.16 to 0.45 rad chase range), a little round to one side (a three-quarter
 view) so the tall brick masts are seen from the side rather than end-on. It
-aims a little under mid-mast height, two metres ahead of the boat as the
-racer aims just ahead of the car, follows the boat
-quickly, leans towards the next buoy and pulls back a little when the buoy
-is far (the on-water arrow points at it before it comes into view).
+aims at the boat a little under mid-mast height, half a metre ahead as the
+racer aims just ahead of the car, follows the boat quickly, turns towards
+the next buoy and pulls back only a few metres when the buoy is far (the
+on-water arrow points at it before it comes into view). It stays centred on
+the boat (it no longer slides towards the buoy), so the close camera keeps
+the hull and the masthead on screen.
+It is close enough for the player's own build to fill a good part of a
+phone screen, and far enough that the tallest brick masthead (9 m, see
+`Sails.ShipMesh`) and the whole hull stay in the 45 degree view.
 
 -}
 
@@ -62,7 +67,7 @@ type alias Follow =
 
 pitchDegrees : Float
 pitchDegrees =
-    18.0
+    24.0
 
 
 {-| The eye sits this many degrees round from straight behind the boat, a
@@ -80,7 +85,7 @@ the masthead stays on it.
 -}
 lookHeight : Float
 lookHeight =
-    3.0
+    3.2
 
 
 initFollow : Vec3 -> Float -> Follow
@@ -88,13 +93,20 @@ initFollow boat heading =
     { yaw = heading, distance = chaseDistance, focus = boat }
 
 
-{-| Resting follow distance in metres, about three boat lengths: the racer
-keeps about five car radii back (2.6 m + 2 radii), and a brick boat's radius
-(half its bounding diagonal) is about 5 m.
+{-| Resting follow distance in metres, about two boat lengths (a brick
+boat is scaled to about 8.4 m long): close, so the player sees their own
+build well.
 -}
 chaseDistance : Float
 chaseDistance =
-    24.0
+    17.0
+
+
+{-| The most the camera pulls back past `chaseDistance` for a far buoy.
+-}
+maxPullBack : Float
+maxPullBack =
+    3.0
 
 
 {-| How far ahead of the boat the camera aims, in metres: the racer aims
@@ -102,7 +114,7 @@ chaseDistance =
 -}
 lookAhead : Float
 lookAhead =
-    2.0
+    0.5
 
 
 {-| Move an angle (degrees) towards a goal along the short way round.
@@ -147,15 +159,6 @@ stepFollow dt aspect boat heading next follow =
                         lean =
                             bearing - heading - 360.0 * toFloat (floor ((bearing - heading + 180.0) / 360.0))
 
-                        -- On a narrow portrait screen keep the boat centred; on a
-                        -- wide screen there is room to shift towards the buoy.
-                        pull =
-                            if aspect < 1 then
-                                0
-
-                            else
-                                min 8 (sep * 0.2) / max 0.001 sep
-
                         maxLean =
                             if aspect < 1 then
                                 30
@@ -164,22 +167,24 @@ stepFollow dt aspect boat heading next follow =
                                 45
                     in
                     ( heading + clamp -maxLean maxLean (lean * 0.5)
-                    , vec3 (b.x + dx * pull) 0 (b.z + dz * pull)
+                    , vec3 b.x 0 b.z
                     , sep
                     )
 
                 Nothing ->
                     ( heading, vec3 b.x 0 b.z, 0 )
 
+        -- A narrow portrait screen pulls back so a boat seen from the side
+        -- still fits across it.
         portraitBoost =
             if aspect < 1 then
-                1.3
+                1.25
 
             else
                 1.0
 
         goalDistance =
-            clamp chaseDistance 32 (20 + separation * 0.12) * portraitBoost
+            clamp chaseDistance (chaseDistance + maxPullBack) (chaseDistance + separation * 0.02) * portraitBoost
     in
     -- Rates as the racer's chase camera (distance 5, target 8.5 per second);
     -- yaw is slower than the racer's 9 so a tack or a buoy rounding swings
