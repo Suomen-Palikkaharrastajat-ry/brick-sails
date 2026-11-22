@@ -13,11 +13,14 @@ interactive camera controllers, and HUD overlay.
 -}
 
 import Browser.Events
+import FeatherIcons
 import Game.Audio as GameAudio
 import Game.Camera as GameCamera
 import Game.Leaderboard as Leaderboard
-import Html exposing (Html, div)
+import Game.Multiplayer as Multiplayer exposing (RemotePlayer, Role(..), RoomState, RoomStatus(..))
+import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
+import Html.Events exposing (onClick)
 import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
@@ -53,6 +56,7 @@ type alias SailModel =
     , simTime : Float
     , audioMuted : Bool
     , personalBest : Maybe LeaderboardEntry
+    , multiplayer : Maybe RoomState
     , viewportWidth : Int
     , viewportHeight : Int
     }
@@ -73,10 +77,12 @@ type SailMsg
     | ReturnToShipyard
     | RestartCourse
     | CopyShareUrl
+    | StartMultiplayerCountdown
+    | UpdateMultiplayerRoom RoomState
 
 
-initSail : ShipSpec -> Scene -> Course -> Bool -> Maybe LeaderboardEntry -> Int -> Int -> SailModel
-initSail spec scene course audioMuted pb width height =
+initSail : ShipSpec -> Scene -> Course -> Bool -> Maybe LeaderboardEntry -> Maybe RoomState -> Int -> Int -> SailModel
+initSail spec scene course audioMuted pb maybeMulti width height =
     let
         initState =
             Physics.initSailingState course
@@ -108,6 +114,7 @@ initSail spec scene course audioMuted pb width height =
     , simTime = 0.0
     , audioMuted = audioMuted
     , personalBest = pb
+    , multiplayer = maybeMulti
     , viewportWidth = width
     , viewportHeight = height
     }
@@ -212,6 +219,28 @@ update msg model =
                             , toneHz = 0.0
                             , toneGain = 0.0
                             }
+
+                -- Send multiplayer telemetry if in a room
+                telemetryCmd =
+                    case model.multiplayer of
+                        Just room ->
+                            let
+                                sPos =
+                                    Vec3.toRecord newState.position
+
+                                progRatio =
+                                    toFloat newProgress.currentWaypointIndex / toFloat (max 1 newProgress.totalWaypoints)
+                            in
+                            Ports.sendMultiplayerTelemetry
+                                { pos = [ sPos.x, sPos.y, sPos.z ]
+                                , rot = [ newState.pitchAngle, newState.heading, newState.heelAngle ]
+                                , speed = newState.waterSpeed
+                                , progress = progRatio
+                                , finished = newProgress.finished
+                                }
+
+                        Nothing ->
+                            Cmd.none
             in
             ( { model
                 | state = newState
@@ -219,7 +248,7 @@ update msg model =
                 , camera = newCam
                 , simTime = newSimTime
               }
-            , Cmd.batch [ audioCmd, sfxCmd ]
+            , Cmd.batch [ audioCmd, sfxCmd, telemetryCmd ]
             )
 
         SteerLeft ->
@@ -380,12 +409,27 @@ update msg model =
                     ( model, Cmd.none )
 
         RestartCourse ->
-            ( initSail model.spec model.scene model.course model.audioMuted model.personalBest model.viewportWidth model.viewportHeight
+            ( initSail model.spec model.scene model.course model.audioMuted model.personalBest model.multiplayer model.viewportWidth model.viewportHeight
             , Cmd.none
             )
 
         CopyShareUrl ->
-            ( model, Ports.copyShareUrl "" )
+            let
+                roomArg =
+                    case model.multiplayer of
+                        Just r ->
+                            "#room=" ++ r.roomId
+
+                        Nothing ->
+                            ""
+            in
+            ( model, Ports.copyShareUrl roomArg )
+
+        StartMultiplayerCountdown ->
+            ( model, Ports.startMultiplayerCountdown () )
+
+        UpdateMultiplayerRoom room ->
+            ( { model | multiplayer = Just room }, Cmd.none )
 
         ReturnToShipyard ->
             ( model, Cmd.none )
@@ -474,20 +518,247 @@ viewSail :
         }
     -> Html SailMsg
 viewSail model callbacks =
+    case model.multiplayer of
+        Just room ->
+            case room.role of
+                HostCommentator ->
+                    viewHostCommentatorSplitScreen model callbacks room
+
+                JoinedPlayer ->
+                    viewSinglePlayerSail model callbacks (Just room)
+
+        Nothing ->
+            viewSinglePlayerSail model callbacks Nothing
+
+
+viewHostCommentatorSplitScreen :
+    SailModel
+    ->
+        { onReturnToShipyard : SailMsg
+        , onRestartCourse : SailMsg
+        }
+    -> RoomState
+    -> Html SailMsg
+viewHostCommentatorSplitScreen model callbacks room =
+    let
+        qW =
+            max 160 (model.viewportWidth // 2)
+
+        qH =
+            max 120 (model.viewportHeight // 2)
+
+        allShips =
+            List.map
+                (\p ->
+                    let
+                        remState =
+                            { position = p.position
+                            , heading = (Vec3.toRecord p.rotation).y
+                            , heelAngle = (Vec3.toRecord p.rotation).z
+                            , pitchAngle = (Vec3.toRecord p.rotation).x
+                            , rudderAngle = 0.0
+                            , sailSheet = 0.5
+                            , waterSpeed = p.speed
+                            , apparentWindSpeed = 12.0
+                            , apparentWindAngle = 45.0
+                            }
+                    in
+                    { spec = model.spec
+                    , scene = model.scene
+                    , state = remState
+                    , slot = p.slot
+                    }
+                )
+                room.players
+
+        renderQuadrant slot =
+            let
+                playerMaybe =
+                    List.filter (\p -> p.slot == slot) room.players
+                        |> List.head
+            in
+            case playerMaybe of
+                Just p ->
+                    let
+                        remHeading =
+                            (Vec3.toRecord p.rotation).y
+
+                        headingRad =
+                            remHeading * pi / 180.0
+
+                        fwd =
+                            vec3 (sin headingRad) 0.0 (cos headingRad)
+
+                        camEye =
+                            GameCamera.chasePosition p.position fwd 14.0 4.8
+
+                        cam =
+                            { eye = camEye
+                            , target = p.position
+                            , up = vec3 0 1 0
+                            , fov = 55.0
+                            , near = 0.1
+                            , far = 1200.0
+                            , sceneRadius = 600.0
+                            }
+                    in
+                    div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
+                        [ Render.renderSailingViewportMulti cam allShips model.course model.simTime qW qH
+                        , div [ Attr.class "absolute top-2 left-2 z-10 flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg" ]
+                            [ span [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black uppercase " ++ Multiplayer.slotBadgeClass slot) ]
+                                [ text ("P" ++ String.fromInt slot) ]
+                            , span [ Attr.class "text-xs font-bold text-white truncate max-w-[100px]" ] [ text p.name ]
+                            , span [ Attr.class "text-xs font-mono font-bold text-sky-400" ]
+                                [ text (String.fromFloat (toFloat (round (p.speed * 10)) / 10.0) ++ " kn") ]
+                            , if p.finished then
+                                span [ Attr.class "text-xs font-black text-emerald-400" ] [ text "FINISHED" ]
+
+                              else
+                                text ""
+                            ]
+                        ]
+
+                Nothing ->
+                    div [ Attr.class "relative w-full h-full flex flex-col items-center justify-center border border-dashed border-slate-800 bg-slate-950/60 p-4 text-center" ]
+                        [ span [ Attr.class ("px-2 py-0.5 rounded-full text-xs font-black uppercase tracking-wider mb-2 " ++ Multiplayer.slotBadgeClass slot) ]
+                            [ text ("Slot " ++ String.fromInt slot) ]
+                        , span [ Attr.class "text-xs font-semibold text-slate-400" ] [ text "Waiting for sailor to join..." ]
+                        , span [ Attr.class "text-[11px] font-mono text-slate-500 mt-1" ] [ text ("Invite: #room=" ++ room.roomId) ]
+                        ]
+    in
     div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
-        [ -- 1. Fullscreen WebGL 3D Sailing Viewport
+        [ -- 2x2 Grid Viewports
+          div [ Attr.class "grid grid-cols-2 grid-rows-2 w-full h-full" ]
+            [ renderQuadrant 1
+            , renderQuadrant 2
+            , renderQuadrant 3
+            , renderQuadrant 4
+            ]
+        , -- Top Commentator Bar
+          div [ Attr.class "absolute top-3 inset-x-0 mx-auto w-fit z-30 flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto" ]
+            [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30" ]
+                [ text ("ROOM: " ++ room.roomId) ]
+            , button
+                [ onClick CopyShareUrl
+                , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors flex items-center gap-1.5"
+                ]
+                [ FeatherIcons.share2 |> FeatherIcons.toHtml []
+                , text "Copy Link"
+                ]
+            , if room.status == Lobby then
+                button
+                    [ onClick StartMultiplayerCountdown
+                    , Attr.class "text-xs font-black px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 active:scale-95 text-slate-950 shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-1.5"
+                    ]
+                    [ FeatherIcons.play |> FeatherIcons.toHtml []
+                    , text "START REGATTA"
+                    ]
+
+              else
+                span [ Attr.class "text-xs font-extrabold text-amber-400 uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20" ]
+                    [ text (Multiplayer.statusToString room.status) ]
+            , button
+                [ onClick callbacks.onReturnToShipyard
+                , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                ]
+                [ text "Exit" ]
+            ]
+        , -- Synchronized Countdown Overlay
+          case room.status of
+            Countdown n ->
+                div [ Attr.class "absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 pointer-events-none select-none backdrop-blur-sm" ]
+                    [ div [ Attr.class "text-9xl font-black text-amber-400 animate-pulse drop-shadow-2xl font-mono" ]
+                        [ text (if n > 0 then String.fromInt n else "SAIL!") ]
+                    ]
+
+            _ ->
+                text ""
+        ]
+
+
+viewSinglePlayerSail :
+    SailModel
+    ->
+        { onReturnToShipyard : SailMsg
+        , onRestartCourse : SailMsg
+        }
+    -> Maybe RoomState
+    -> Html SailMsg
+viewSinglePlayerSail model callbacks maybeRoom =
+    let
+        mySlotNum =
+            case maybeRoom of
+                Just r ->
+                    r.mySlot
+
+                Nothing ->
+                    1
+
+        localShip =
+            { spec = model.spec
+            , scene = model.scene
+            , state = model.state
+            , slot = mySlotNum
+            }
+
+        remoteShips =
+            case maybeRoom of
+                Just r ->
+                    List.filter (\p -> p.slot /= r.mySlot) r.players
+                        |> List.map
+                            (\p ->
+                                { spec = model.spec
+                                , scene = model.scene
+                                , state =
+                                    { position = p.position
+                                    , heading = (Vec3.toRecord p.rotation).y
+                                    , heelAngle = (Vec3.toRecord p.rotation).z
+                                    , pitchAngle = (Vec3.toRecord p.rotation).x
+                                    , rudderAngle = 0.0
+                                    , sailSheet = 0.5
+                                    , waterSpeed = p.speed
+                                    , apparentWindSpeed = 12.0
+                                    , apparentWindAngle = 45.0
+                                    }
+                                , slot = p.slot
+                                }
+                            )
+
+                Nothing ->
+                    []
+
+        allShips =
+            localShip :: remoteShips
+    in
+    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans" ]
+        [ -- 1. Fullscreen WebGL 3D Sailing Viewport with Local and Remote Ships
           div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderSailingViewport
+            [ Render.renderSailingViewportMulti
                 model.camera
-                model.state
-                model.spec
-                model.scene
+                allShips
                 model.course
                 model.simTime
                 model.viewportWidth
                 model.viewportHeight
             ]
-        , -- 2. HUD Overlay
+        , -- 2. Multiplayer Room Indicator Banner
+          case maybeRoom of
+            Just room ->
+                div [ Attr.class "absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-white/10 shadow-lg pointer-events-auto" ]
+                    [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
+                        [ text ("P" ++ String.fromInt room.mySlot) ]
+                    , span [ Attr.class "text-xs font-mono font-bold text-sky-400" ] [ text ("Room: " ++ room.roomId) ]
+                    , button
+                        [ onClick CopyShareUrl
+                        , Attr.title "Copy room link"
+                        , Attr.class "p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                        ]
+                        [ FeatherIcons.share2 |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [] ]
+                    ]
+
+            Nothing ->
+                text ""
+        , -- 3. HUD Overlay
           HUD.viewHudOverlay
             { state = model.state
             , spec = model.spec
@@ -507,7 +778,22 @@ viewSail model callbacks =
                 , onTack = Tack
                 }
             }
-        , -- 3. Finished Regatta Results Modal
+        , -- 4. Synchronized Countdown Overlay
+          case maybeRoom of
+            Just room ->
+                case room.status of
+                    Countdown n ->
+                        div [ Attr.class "absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 pointer-events-none select-none backdrop-blur-sm" ]
+                            [ div [ Attr.class "text-9xl font-black text-amber-400 animate-pulse drop-shadow-2xl font-mono" ]
+                                [ text (if n > 0 then String.fromInt n else "GO!") ]
+                            ]
+
+                    _ ->
+                        text ""
+
+            Nothing ->
+                text ""
+        , -- 5. Finished Regatta Results Modal
           if model.progress.finished then
             Results.viewResults
                 { course = model.course

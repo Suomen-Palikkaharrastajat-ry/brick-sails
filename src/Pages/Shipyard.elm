@@ -30,6 +30,8 @@ type alias ShipyardActions msg =
     { onSelectPreset : String -> msg
     , onSelectCourse : CourseId -> msg
     , onStartSailing : msg
+    , onStartHostMultiplayer : msg
+    , onJoinMultiplayer : msg
     , onCopyShareUrl : msg
     , onToggleMute : msg
     }
@@ -167,13 +169,35 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                             Ingest.presets
                         )
                     ]
+                , -- Multiplayer Section
+                  div [ Attr.class "flex flex-col gap-1.5 pt-1 border-t border-slate-800" ]
+                    [ span [ Attr.class "block text-[10px] font-bold text-sky-400 uppercase tracking-wider" ] [ text "Online Multiplayer" ]
+                    , div [ Attr.class "flex gap-1.5" ]
+                        [ button
+                            [ onClick actions.onStartHostMultiplayer
+                            , Attr.title "Create 4-player room with commentator split-screen view"
+                            , Attr.class "flex-1 py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-sky-500/20 shadow-sm"
+                            ]
+                            [ FeatherIcons.tv |> FeatherIcons.toHtml []
+                            , text "Host (4-Split)"
+                            ]
+                        , button
+                            [ onClick actions.onJoinMultiplayer
+                            , Attr.title "Join existing regatta room with single mobile view"
+                            , Attr.class "flex-1 py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-white/5"
+                            ]
+                            [ FeatherIcons.users |> FeatherIcons.toHtml []
+                            , text "Join Regatta"
+                            ]
+                        ]
+                    ]
                 , -- Launch "SET SAIL" Button
                   button
                     [ onClick actions.onStartSailing
                     , Attr.class "w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-sky-500 via-sky-400 to-teal-400 hover:brightness-110 active:scale-[0.98] transition-all text-slate-950 font-black text-sm uppercase tracking-widest shadow-xl shadow-sky-500/30 flex items-center justify-center gap-2"
                     ]
                     [ FeatherIcons.navigation |> FeatherIcons.toHtml []
-                    , text "SET SAIL"
+                    , text "SET SAIL (Solo)"
                     ]
                 ]
             ]

@@ -2,6 +2,7 @@ import './main.css'
 import { initBricksRuntime } from './vendor/packages/brick-frame-viewport/runtime/initBricksRuntime.js'
 import { decodeHash, isBinaryHash } from './vendor/packages/brick-frame-viewport/runtime/url-hash-codec.js'
 import { createAudioEngine } from './audio.js'
+import { createMultiplayerManager } from './vendor/packages/brick-frame-game/runtime/multiplayer.js'
 import { Elm } from './src/Main.elm'
 
 const ldrawBase = import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw'
@@ -107,6 +108,20 @@ const runtime = initBricksRuntime({
 })
 
 const ports = runtime.app?.ports
+const multiplayer = createMultiplayerManager(ports)
+
+// Check if loaded with #room=CODE or #join=CODE
+try {
+  const hashStr = window.location.hash || ''
+  const roomMatch = hashStr.match(/[#&](?:room|join)=([A-Za-z0-9]{4,12})/i)
+  if (roomMatch && roomMatch[1]) {
+    setTimeout(() => {
+      multiplayer.joinRoom(roomMatch[1].toUpperCase(), 'Sailor ' + Math.floor(Math.random() * 900 + 100), '')
+    }, 100)
+  }
+} catch {
+  // Ignore initial hash parse errors
+}
 
 const unlockAudioOnce = () => {
   audioEngine.unlock()

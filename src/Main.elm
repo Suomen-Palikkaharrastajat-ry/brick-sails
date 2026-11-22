@@ -9,6 +9,7 @@ import Browser.Dom as Dom
 import Browser.Events
 import Dict
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
+import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState)
 import Html exposing (Html, div)
 import Html.Attributes as Attr
 import Json.Decode as Decode
@@ -72,6 +73,10 @@ type Msg
     = SelectPreset String
     | SelectCourse CourseId
     | StartSailing
+    | StartHostMultiplayer
+    | JoinMultiplayer
+    | MultiplayerRoomChanged Decode.Value
+    | MultiplayerError String
     | ReturnToShipyard
     | RestartCourse
     | ToggleMute
@@ -202,7 +207,7 @@ update msg model =
                     Leaderboard.bestForCourse (Sails.Types.courseIdToString model.course.id) model.leaderboard
 
                 sail =
-                    Sail.initSail model.spec model.scene model.course model.audioMuted pb model.viewportWidth model.viewportHeight
+                    Sail.initSail model.spec model.scene model.course model.audioMuted pb Nothing model.viewportWidth model.viewportHeight
             in
             ( { model
                 | viewMode = ViewSailing
@@ -211,21 +216,80 @@ update msg model =
             , Ports.requestTiltPermission ()
             )
 
+        StartHostMultiplayer ->
+            ( model
+            , Ports.createMultiplayerRoom
+                { roomId = ""
+                , courseId = Sails.Types.courseIdToString model.course.id
+                , name = "Host Commentator"
+                , vehicleHash = model.currentHash
+                }
+            )
+
+        JoinMultiplayer ->
+            ( model
+            , Ports.joinMultiplayerRoom
+                { roomId = ""
+                , name = "Sailor"
+                , vehicleHash = model.currentHash
+                }
+            )
+
+        MultiplayerRoomChanged rawJson ->
+            case Decode.decodeValue Multiplayer.decodeRoomState rawJson of
+                Ok room ->
+                    case model.sailModel of
+                        Just sModel ->
+                            let
+                                ( nextSail, sCmd ) =
+                                    Sail.update (Sail.UpdateMultiplayerRoom room) sModel
+                            in
+                            ( { model | sailModel = Just nextSail }
+                            , Cmd.map SailMessage sCmd
+                            )
+
+                        Nothing ->
+                            let
+                                pb =
+                                    Leaderboard.bestForCourse (Sails.Types.courseIdToString model.course.id) model.leaderboard
+
+                                newSail =
+                                    Sail.initSail model.spec model.scene model.course model.audioMuted pb (Just room) model.viewportWidth model.viewportHeight
+                            in
+                            ( { model
+                                | viewMode = ViewSailing
+                                , sailModel = Just newSail
+                              }
+                            , Cmd.batch
+                                [ Ports.setUrlHash ("#room=" ++ room.roomId)
+                                , Ports.requestTiltPermission ()
+                                ]
+                            )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+        MultiplayerError _ ->
+            ( model, Cmd.none )
+
         ReturnToShipyard ->
             ( { model
                 | viewMode = ViewShipyard
                 , sailModel = Nothing
               }
-            , Ports.updateAudioState
-                { active = False
-                , windGain = 0.0
-                , windHz = 350.0
-                , washGain = 0.0
-                , washHz = 180.0
-                , hullGain = 0.0
-                , toneHz = 0.0
-                , toneGain = 0.0
-                }
+            , Cmd.batch
+                [ Ports.leaveMultiplayerRoom ()
+                , Ports.updateAudioState
+                    { active = False
+                    , windGain = 0.0
+                    , windHz = 350.0
+                    , washGain = 0.0
+                    , washHz = 180.0
+                    , hullGain = 0.0
+                    , toneHz = 0.0
+                    , toneGain = 0.0
+                    }
+                ]
             )
 
         RestartCourse ->
@@ -286,18 +350,23 @@ update msg model =
             )
 
         SailMessage sMsg ->
-            case model.sailModel of
-                Just sModel ->
-                    let
-                        ( nextSail, sCmd ) =
-                            Sail.update sMsg sModel
-                    in
-                    ( { model | sailModel = Just nextSail }
-                    , Cmd.map SailMessage sCmd
-                    )
+            case sMsg of
+                Sail.ReturnToShipyard ->
+                    update ReturnToShipyard model
 
-                Nothing ->
-                    ( model, Cmd.none )
+                _ ->
+                    case model.sailModel of
+                        Just sModel ->
+                            let
+                                ( nextSail, sCmd ) =
+                                    Sail.update sMsg sModel
+                            in
+                            ( { model | sailModel = Just nextSail }
+                            , Cmd.map SailMessage sCmd
+                            )
+
+                        Nothing ->
+                            ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -307,6 +376,8 @@ subscriptions model =
         , Ports.binaryHashDecoded BinaryHashDecoded
         , Ports.fileContentReceived FileContentReceived
         , Ports.viewportResized ViewportResized
+        , Ports.multiplayerRoomStateChanged MultiplayerRoomChanged
+        , Ports.multiplayerError MultiplayerError
         , case ( model.viewMode, model.sailModel ) of
             ( ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)
@@ -334,6 +405,8 @@ view model =
                     { onSelectPreset = SelectPreset
                     , onSelectCourse = SelectCourse
                     , onStartSailing = StartSailing
+                    , onStartHostMultiplayer = StartHostMultiplayer
+                    , onJoinMultiplayer = JoinMultiplayer
                     , onCopyShareUrl = CopyShareUrl
                     , onToggleMute = ToggleMute
                     }

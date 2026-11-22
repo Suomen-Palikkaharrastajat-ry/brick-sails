@@ -1,6 +1,8 @@
 module Sails.Render exposing
-    ( buildShipWorldMatrix
+    ( RenderShipSlot
+    , buildShipWorldMatrix
     , renderSailingViewport
+    , renderSailingViewportMulti
     , renderShipyardViewport
     )
 
@@ -93,23 +95,28 @@ sailingStyle =
     }
 
 
-{-| Render the active 3D Sailing Viewport.
+{-| Slot record for rendering a ship in a multiplayer or multi-vehicle viewport.
 -}
-renderSailingViewport :
+type alias RenderShipSlot =
+    { spec : ShipSpec
+    , scene : Scene
+    , state : SailingState
+    , slot : Int
+    }
+
+
+{-| Render the full 3D sailing scene with multiple ships (host commentator split-screen or multiplayer opponents).
+-}
+renderSailingViewportMulti :
     Camera
-    -> SailingState
-    -> ShipSpec
-    -> Scene
+    -> List RenderShipSlot
     -> Course
     -> Float
     -> Int
     -> Int
     -> Html msg
-renderSailingViewport camera state spec shipScene course simTime width height =
+renderSailingViewportMulti camera shipSlots course simTime width height =
     let
-        shipMat =
-            buildShipWorldMatrix state
-
         sky =
             OceanShader.skyEntity camera width height
 
@@ -123,7 +130,11 @@ renderSailingViewport camera state spec shipScene course simTime width height =
             OceanShader.islandEntity camera width height
 
         shipEntities =
-            Scene.renderSceneWithTransform shipMat shipScene camera sailingStyle width height
+            List.concatMap
+                (\s ->
+                    Scene.renderSceneWithTransform (buildShipWorldMatrix s.state) s.scene camera sailingStyle width height
+                )
+                shipSlots
 
         allEntities =
             [ sky, islands, ocean, buoys ] ++ shipEntities
@@ -138,6 +149,28 @@ renderSailingViewport camera state spec shipScene course simTime width height =
         , Attr.class "w-full h-full block"
         ]
         allEntities
+
+
+{-| Render the active 3D Sailing Viewport for a single ship.
+-}
+renderSailingViewport :
+    Camera
+    -> SailingState
+    -> ShipSpec
+    -> Scene
+    -> Course
+    -> Float
+    -> Int
+    -> Int
+    -> Html msg
+renderSailingViewport camera state spec shipScene course simTime width height =
+    renderSailingViewportMulti
+        camera
+        [ { spec = spec, scene = shipScene, state = state, slot = 1 } ]
+        course
+        simTime
+        width
+        height
 
 
 {-| Render the Shipyard inspection plinth.
