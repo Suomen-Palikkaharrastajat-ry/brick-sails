@@ -11,6 +11,7 @@ Detects hull displacement volume, masts, sails, rudders, and metacentric stabili
 
 import Dict exposing (Dict)
 import LDraw.Document as Document exposing (Document)
+import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Types exposing (ShipSpec, lduToMeters)
 
@@ -82,21 +83,9 @@ classifyPart rawName yPos =
 ingestDocument : String -> Document -> ShipSpec
 ingestDocument name doc =
     let
-        allLines =
-            doc.steps
-                |> List.concatMap .lines
-
         partPlacements =
-            allLines
-                |> List.filterMap
-                    (\line ->
-                        case line of
-                            Document.SubfileLine { file, transform } ->
-                                Just ( file, transform.position )
-
-                            _ ->
-                                Nothing
-                    )
+            Document.flattenedPlacements doc
+                |> List.map (\p -> ( p.part, Mat4.transform p.matrix (Vec3.vec3 0 0 0) ))
     in
     ingestFromPlacements name partPlacements
 
