@@ -4,16 +4,23 @@ module Sails.OceanShader exposing
     , makeCtx
     , oceanEntity
     , propEntity
+    , propView
     , skyEntity
     , sunDirection
     , withWeather
     )
 
-{-| WebGL shaders for Brick Sails: a bright toy-like sea with a gentle swell,
-the sky dome, and one flat-shaded shader for every prop (boats, buoys,
-islands, targets, cannonballs and splashes).
+{-| WebGL shaders for Brick Sails: a sea of blue studded plates on the swell
+of `Sails.Physics.seaElevation` and the brick sky (both the shared brick look
+of `Game.BrickLook`), the camera, sun and fog the brick-built props are drawn
+with (`propView`), and one flat-shaded shader for the course markers and the
+island scenery. The weather (`withWeather`) raises the sea, darkens the sea,
+sky and light under storm clouds, pulls the fog in and lights everything up
+in a lightning flash.
 -}
 
+import Game.BrickLook as BrickLook
+import Game.BrickProps as BrickProps
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import WebGL
@@ -86,13 +93,68 @@ type alias WaterVertex =
 type alias WaterUniforms =
     { u_view : Mat4
     , u_perspective : Mat4
-    , u_eyePos : Vec3
-    , u_sunDir : Vec3
     , u_time : Float
     , u_sea : Float
-    , u_gloom : Float
-    , u_flash : Float
+    , u_deep : Vec3
+    , u_shallow : Vec3
+    , u_cap : Vec3
+    , u_eyePos : Vec3
+    , u_sunDir : Vec3
+    , u_fogColor : Vec3
+    , u_fogNear : Float
+    , u_fogFar : Float
+    , u_fogMax : Float
+    , u_skyAmbient : Vec3
+    , u_groundAmbient : Vec3
+    , u_studPitch : Float
+    , u_plateStuds : Float
+    , u_gloss : Float
     }
+
+
+skyColour : Vec3
+skyColour =
+    vec3 0.75 0.88 0.97
+
+
+{-| The low grey ceiling of storm clouds.
+-}
+stormColour : Vec3
+stormColour =
+    vec3 0.34 0.38 0.44
+
+
+mixV : Vec3 -> Vec3 -> Float -> Vec3
+mixV a b f =
+    Vec3.add (Vec3.scale (1 - f) a) (Vec3.scale f b)
+
+
+{-| The sky colour at the horizon (and of the fog) in this weather: grey
+under storm clouds, white in a lightning flash.
+-}
+horizonColour : Ctx -> Vec3
+horizonColour ctx =
+    Vec3.add (mixV skyColour stormColour ctx.gloom) (Vec3.scale (0.5 * ctx.flash) (vec3 1 1 1))
+
+
+{-| Fog of the sea and the props: none near the boats, all sky colour at the
+edge of the world. Storm clouds pull it in.
+-}
+fogNear : Ctx -> Float
+fogNear ctx =
+    140 - 80 * ctx.gloom
+
+
+fogFar : Ctx -> Float
+fogFar ctx =
+    520 - 240 * ctx.gloom
+
+
+{-| How much a lightning flash brightens what it lights.
+-}
+flashLight : Ctx -> Vec3 -> Vec3
+flashLight ctx colour =
+    Vec3.add colour (Vec3.scale (0.6 * ctx.flash) (vec3 0.55 0.6 0.7))
 
 
 {-| 64 x 64 grid of 12 m cells around the play area.
@@ -120,24 +182,39 @@ waterMesh =
         |> WebGL.triangles
 
 
+{-| The sea: blue studded plates (`Game.BrickLook.surfaceFragmentShader`),
+dark blue in the troughs and dark azure on the crests, with white caps on the
+highest crests, rising and falling with the swell. Under storm clouds the
+plates are a dull grey-blue and the sea loses its sheen.
+-}
 oceanEntity : Ctx -> WebGL.Entity
 oceanEntity ctx =
     WebGL.entityWith [ DepthTest.default ]
         waterVertexShader
-        waterFragmentShader
+        BrickLook.surfaceFragmentShader
         waterMesh
         { u_view = ctx.view
         , u_perspective = ctx.perspective
-        , u_eyePos = ctx.eye
-        , u_sunDir = sunDir
         , u_time = ctx.time
         , u_sea = ctx.sea
-        , u_gloom = ctx.gloom
-        , u_flash = ctx.flash
+        , u_deep = flashLight ctx (mixV (BrickLook.colour 1) (vec3 0.05 0.16 0.24) ctx.gloom)
+        , u_shallow = flashLight ctx (mixV (BrickLook.colour 321) (vec3 0.16 0.3 0.38) ctx.gloom)
+        , u_cap = flashLight ctx (mixV (vec3 0.9 0.97 1.0) (vec3 0.7 0.76 0.8) ctx.gloom)
+        , u_eyePos = ctx.eye
+        , u_sunDir = sunDir
+        , u_fogColor = horizonColour ctx
+        , u_fogNear = fogNear ctx
+        , u_fogFar = fogFar ctx
+        , u_fogMax = 1
+        , u_skyAmbient = horizonColour ctx
+        , u_groundAmbient = mixV (vec3 0.3 0.4 0.5) (vec3 0.15 0.18 0.22) ctx.gloom
+        , u_studPitch = 0.35
+        , u_plateStuds = 16
+        , u_gloss = 0.7 * (1 - 0.6 * ctx.gloom)
         }
 
 
-waterVertexShader : WebGL.Shader WaterVertex WaterUniforms { v_worldPos : Vec3 }
+waterVertexShader : WebGL.Shader WaterVertex WaterUniforms BrickLook.SurfaceVaryings
 waterVertexShader =
     [glsl|
         precision mediump float;
@@ -145,9 +222,14 @@ waterVertexShader =
         uniform mat4 u_view;
         uniform mat4 u_perspective;
         uniform float u_time;
-        varying vec3 v_worldPos;
-
         uniform float u_sea;
+        uniform vec3 u_deep;
+        uniform vec3 u_shallow;
+        uniform vec3 u_cap;
+        varying vec3 v_worldPos;
+        varying vec3 v_normal;
+        varying vec3 v_color;
+        varying float v_studs;
 
         // Same sea as Sails.Physics.seaElevation.
         float seaHeight(vec2 p, float t) {
@@ -162,81 +244,36 @@ waterVertexShader =
         }
 
         void main () {
-            float h = seaHeight(position.xz, u_time);
-            vec3 p = vec3(position.x, h, position.z);
-            v_worldPos = p;
-            gl_Position = u_perspective * u_view * vec4(p, 1.0);
-        }
-    |]
+            vec2 q = position.xz;
+            float h = seaHeight(q, u_time);
 
-
-waterFragmentShader : WebGL.Shader {} WaterUniforms { v_worldPos : Vec3 }
-waterFragmentShader =
-    [glsl|
-        precision mediump float;
-        uniform vec3 u_eyePos;
-        uniform vec3 u_sunDir;
-        uniform float u_time;
-        uniform float u_sea;
-        uniform float u_gloom;
-        uniform float u_flash;
-        varying vec3 v_worldPos;
-
-        void main () {
-            vec2 p = v_worldPos.xz;
+            // Slope of the two swells and the storm swell, scaled by the wave
+            // set, for the normal (the set envelope itself is long and flat).
             float k1 = 6.28318 / 36.0;
             float k2 = 6.28318 / 22.0;
-            float k3 = 6.28318 / 5.0;
             float k0 = 6.28318 / 64.0;
             float kg = 6.28318 / 150.0;
-            float a1 = k1 * (p.y * 0.9 + p.x * 0.4) - k1 * 3.0 * u_time;
-            float a2 = k2 * (p.x * 0.8 - p.y * 0.5) - k2 * 2.4 * u_time;
-            float a3 = k3 * (p.x * 0.6 + p.y * 0.8) - k3 * 1.5 * u_time;
-            float k4 = 6.28318 / 8.3;
-            float a4 = k4 * (p.x * 0.95 - p.y * 0.3) - k4 * 1.9 * u_time;
-            float a0 = k0 * (p.x * 0.3 + p.y * 0.95) - k0 * 4.2 * u_time;
-            // Wave-set envelope and storm swell, as in Sails.Physics.seaElevation.
-            float s = u_sea * (1.0 + 0.5 * pow(max(0.0, sin(kg * (p.y * 0.9 + p.x * 0.4) - kg * 1.5 * u_time)), 4.0));
+            float a1 = k1 * (q.y * 0.9 + q.x * 0.4) - k1 * 3.0 * u_time;
+            float a2 = k2 * (q.x * 0.8 - q.y * 0.5) - k2 * 2.4 * u_time;
+            float a0 = k0 * (q.x * 0.3 + q.y * 0.95) - k0 * 4.2 * u_time;
+            float s = u_sea * (1.0 + 0.5 * pow(max(0.0, sin(kg * (q.y * 0.9 + q.x * 0.4) - kg * 1.5 * u_time)), 4.0));
             float storm = 0.45 * max(0.0, u_sea - 1.0);
-            // Two swells plus two small ripples at unrelated angles and lengths
-            // (crossed equal ripples would paint a visible checkerboard).
-            float ripple = 1.0 + 1.5 * max(0.0, u_sea - 1.0);
-            float dx = s * (0.22 * k1 * 0.4 * cos(a1) + 0.10 * k2 * 0.8 * cos(a2))
-                     + ripple * (0.015 * k3 * 0.6 * cos(a3) + 0.025 * k4 * 0.95 * cos(a4))
-                     + storm * k0 * 0.3 * cos(a0);
-            float dz = s * (0.22 * k1 * 0.9 * cos(a1) - 0.10 * k2 * 0.5 * cos(a2))
-                     + ripple * (0.015 * k3 * 0.8 * cos(a3) - 0.025 * k4 * 0.3 * cos(a4))
-                     + storm * k0 * 0.95 * cos(a0);
-            vec3 N = normalize(vec3(-dx, 1.0, -dz));
-            // Height from the same formula as the vertex shader, per pixel, so the
-            // colour does not show the 12 m grid.
-            float h = s * (0.22 * sin(a1) + 0.10 * sin(a2)) + storm * sin(a0);
+            float dx = s * (0.22 * k1 * 0.4 * cos(a1) + 0.10 * k2 * 0.8 * cos(a2)) + storm * k0 * 0.3 * cos(a0);
+            float dz = s * (0.22 * k1 * 0.9 * cos(a1) - 0.10 * k2 * 0.5 * cos(a2)) + storm * k0 * 0.95 * cos(a0);
+
+            // Height relative to the sea state, for the colour and the caps.
             float hn = h / max(0.6, s + storm * 3.0);
-            vec3 V = normalize(u_eyePos - v_worldPos);
-            vec3 L = normalize(u_sunDir);
-
-            vec3 deep = mix(vec3(0.02, 0.33, 0.62), vec3(0.05, 0.16, 0.24), u_gloom);
-            vec3 light = mix(vec3(0.07, 0.52, 0.8), vec3(0.16, 0.3, 0.38), u_gloom);
-            vec3 col = mix(deep, light, smoothstep(-0.25, 0.3, hn));
-
-            float fresnel = 0.02 + 0.35 * pow(1.0 - max(0.0, dot(N, V)), 4.0);
-            vec3 sky = mix(vec3(0.75, 0.88, 0.97), vec3(0.34, 0.38, 0.44), u_gloom);
-            col = mix(col, sky, fresnel);
-
-            vec3 H = normalize(L + V);
-            col += vec3(pow(max(0.0, dot(N, H)), 200.0) * 0.5 * (1.0 - u_gloom));
-
-            // White caps: more and lower down the waves as the sea gets up.
+            vec3 col = mix(u_deep, u_shallow, smoothstep(-0.25, 0.3, hn));
+            // White caps: a little lower down the waves as the sea gets up.
             float capLine = 0.31 - 0.05 * clamp(u_sea - 1.0, 0.0, 1.5);
-            float crest = smoothstep(capLine - 0.02, capLine + 0.02, hn + 0.03 * sin(a3 * 2.0));
-            col = mix(col, mix(vec3(0.9, 0.97, 1.0), vec3(0.7, 0.76, 0.8), u_gloom), crest * 0.35);
+            float crest = smoothstep(capLine - 0.04, capLine + 0.04, hn);
 
-            col += vec3(0.55, 0.6, 0.7) * u_flash;
-
-            float dist = length(v_worldPos - u_eyePos);
-            float fogStart = 160.0 - 90.0 * u_gloom;
-            float fog = clamp((dist - fogStart) / (320.0 - 120.0 * u_gloom), 0.0, 1.0);
-            gl_FragColor = vec4(mix(col, sky + vec3(0.5) * u_flash, fog), 1.0);
+            vec3 p = vec3(position.x, h, position.z);
+            v_worldPos = p;
+            v_normal = normalize(vec3(-dx, 1.0, -dz));
+            v_color = mix(col, u_cap, crest * 0.35);
+            v_studs = 1.0;
+            gl_Position = u_perspective * u_view * vec4(p, 1.0);
         }
     |]
 
@@ -245,100 +282,36 @@ waterFragmentShader =
 -- SKY
 
 
-type alias SkyUniforms =
-    { u_view : Mat4
-    , u_perspective : Mat4
-    , u_eyePos : Vec3
-    , u_sunDir : Vec3
-    , u_gloom : Float
-    , u_flash : Float
-    }
-
-
+{-| The shared brick sky: a sun disc of yellow bricks and clouds of white
+bricks drifting along the horizon, under a sky that greys over in a storm.
+-}
 skyEntity : Ctx -> WebGL.Entity
 skyEntity ctx =
-    WebGL.entityWith [ DepthTest.always { write = False, near = 0, far = 1 } ]
-        skyVertexShader
-        skyFragmentShader
-        skyMesh
-        { u_view = ctx.view
-        , u_perspective = ctx.perspective
-        , u_eyePos = ctx.eye
-        , u_sunDir = sunDir
-        , u_gloom = ctx.gloom
-        , u_flash = ctx.flash
+    BrickLook.skyEntity
+        { viewProjection = Mat4.mul ctx.perspective ctx.view
+        , eye = ctx.eye
+        , zenith = Vec3.add (mixV (vec3 0.2 0.52 0.9) (vec3 0.2 0.23 0.28) ctx.gloom) (Vec3.scale (0.75 * ctx.flash) (vec3 1 1 1))
+        , horizon = horizonColour ctx
+        , sunDir = sunDir
+        , time = ctx.time
         }
 
 
-skyMesh : WebGL.Mesh { position : Vec3 }
-skyMesh =
-    let
-        r =
-            600.0
-
-        rings =
-            8
-
-        segs =
-            16
-
-        v i j =
-            let
-                phi =
-                    (toFloat i / toFloat rings) * (pi / 2.0) - 0.2
-
-                theta =
-                    (toFloat j / toFloat segs) * (2.0 * pi)
-            in
-            { position = vec3 (r * cos phi * sin theta) (r * sin phi) (r * cos phi * cos theta) }
-
-        quad i j =
-            [ ( v i j, v i (j + 1), v (i + 1) j ), ( v (i + 1) j, v i (j + 1), v (i + 1) (j + 1) ) ]
-    in
-    List.range 0 (rings - 1)
-        |> List.concatMap (\i -> List.range 0 (segs - 1) |> List.concatMap (quad i))
-        |> WebGL.triangles
-
-
-skyVertexShader : WebGL.Shader { position : Vec3 } SkyUniforms { v_dir : Vec3 }
-skyVertexShader =
-    [glsl|
-        precision mediump float;
-        attribute vec3 position;
-        uniform mat4 u_view;
-        uniform mat4 u_perspective;
-        uniform vec3 u_eyePos;
-        varying vec3 v_dir;
-
-        void main () {
-            v_dir = position;
-            gl_Position = (u_perspective * u_view * vec4(position + u_eyePos, 1.0)).xyww;
-        }
-    |]
-
-
-skyFragmentShader : WebGL.Shader {} SkyUniforms { v_dir : Vec3 }
-skyFragmentShader =
-    [glsl|
-        precision mediump float;
-        uniform vec3 u_sunDir;
-        uniform float u_gloom;
-        uniform float u_flash;
-        varying vec3 v_dir;
-
-        void main () {
-            vec3 dir = normalize(v_dir);
-            float y = max(0.0, dir.y);
-            vec3 sky = mix(vec3(0.75, 0.88, 0.97), vec3(0.2, 0.52, 0.9), pow(y, 0.6));
-            // Storm clouds: a low grey ceiling with darker rolls in it.
-            float rolls = 0.5 + 0.5 * sin(dir.x * 9.0 + dir.z * 5.0) * sin(dir.z * 7.0 - dir.x * 3.0);
-            vec3 cloud = mix(vec3(0.34, 0.38, 0.44), vec3(0.2, 0.23, 0.28), rolls * pow(y, 0.4));
-            sky = mix(sky, cloud, u_gloom);
-            float s = max(0.0, dot(dir, normalize(u_sunDir)));
-            sky += vec3(pow(s, 200.0) * 0.8) * (1.0 - u_gloom);
-            gl_FragColor = vec4(sky + vec3(0.75, 0.8, 0.95) * u_flash, 1.0);
-        }
-    |]
+{-| The camera, sun and fog for the brick-built props (`Game.BrickProps`).
+-}
+propView : Ctx -> Int -> Int -> BrickProps.View
+propView ctx width height =
+    { view = ctx.view
+    , projection = ctx.perspective
+    , eye = ctx.eye
+    , sunDir = sunDir
+    , fogColor = horizonColour ctx
+    , fogNear = fogNear ctx
+    , fogFar = fogFar ctx
+    , fogMax = 1
+    , width = max 1 width
+    , height = max 1 height
+    }
 
 
 
@@ -363,6 +336,9 @@ type alias PropUniforms =
     , u_tint : Vec3
     , u_gloom : Float
     , u_flash : Float
+    , u_fogColor : Vec3
+    , u_fogNear : Float
+    , u_fogFar : Float
     }
 
 
@@ -383,6 +359,9 @@ propEntity ctx model tint mesh =
         , u_tint = tint
         , u_gloom = ctx.gloom
         , u_flash = ctx.flash
+        , u_fogColor = horizonColour ctx
+        , u_fogNear = fogNear ctx
+        , u_fogFar = fogFar ctx
         }
 
 
@@ -419,6 +398,9 @@ propFragmentShader =
         uniform vec3 u_sunDir;
         uniform float u_gloom;
         uniform float u_flash;
+        uniform vec3 u_fogColor;
+        uniform float u_fogNear;
+        uniform float u_fogFar;
         varying vec3 v_worldPos;
         varying vec3 v_normal;
         varying vec3 v_color;
@@ -434,9 +416,8 @@ propFragmentShader =
             float spec = pow(max(0.0, dot(N, H)), 32.0) * 0.25 * (1.0 - u_gloom);
             vec3 col = v_color * (0.55 - 0.15 * u_gloom + 0.55 * diff + 0.6 * u_flash) + vec3(spec);
             float dist = length(v_worldPos - u_eyePos);
-            float fogStart = 160.0 - 90.0 * u_gloom;
-            float fog = clamp((dist - fogStart) / (320.0 - 120.0 * u_gloom), 0.0, 1.0);
-            vec3 sky = mix(vec3(0.75, 0.88, 0.97), vec3(0.34, 0.38, 0.44), u_gloom);
-            gl_FragColor = vec4(mix(col, sky, fog), 1.0);
+            // The same fog as the sea and the brick-built props.
+            float fog = smoothstep(u_fogNear, u_fogFar, dist);
+            gl_FragColor = vec4(mix(col, u_fogColor, fog), 1.0);
         }
     |]

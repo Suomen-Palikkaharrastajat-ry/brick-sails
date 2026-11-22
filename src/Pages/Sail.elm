@@ -744,6 +744,7 @@ viewSail :
         , onRestartCourse : SailMsg
         , meshFor : String -> Maybe ShipMesh
         , remoteShip : RemoteShipLookup
+        , props : Render.Props
         }
     -> Html SailMsg
 viewSail model callbacks =
@@ -751,7 +752,7 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostSplitScreen callbacks.meshFor callbacks.remoteShip model room
+                    viewHostSplitScreen callbacks.meshFor callbacks.props callbacks.remoteShip model room
 
                 JoinedPlayer ->
                     viewRace model callbacks (Just room)
@@ -760,8 +761,8 @@ viewSail model callbacks =
             viewRace model callbacks Nothing
 
 
-viewHostSplitScreen : (String -> Maybe ShipMesh) -> RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen scenery remoteShip model room =
+viewHostSplitScreen : (String -> Maybe ShipMesh) -> Render.Props -> RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen scenery props remoteShip model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -792,6 +793,7 @@ viewHostSplitScreen scenery remoteShip model room =
                             , weather = Weather.conditions model.course.wind model.weather
                             , scenery = scenery
                             , treasureFound = []
+                            , props = props
                             }
                             qW
                             qH
@@ -831,7 +833,7 @@ viewHostSplitScreen scenery remoteShip model room =
 
 viewRace :
     SailModel
-    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup, props : Render.Props }
     -> Maybe RoomState
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
@@ -879,6 +881,7 @@ viewRace model callbacks maybeRoom =
                 , weather = Weather.conditions model.course.wind model.weather
                 , scenery = callbacks.meshFor
                 , treasureFound = model.progress.treasureFound
+                , props = callbacks.props
                 }
                 model.viewportWidth
                 model.viewportHeight

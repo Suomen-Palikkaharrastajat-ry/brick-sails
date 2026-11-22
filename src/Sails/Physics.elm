@@ -148,17 +148,20 @@ shorePoint island bearing share =
         (island.z + cos (degrees bearing) * island.radius * share)
 
 
-{-| Height of an island's beach and of the grass above it (the island
-meshes of `Sails.Render` are scaled by the island's height).
+{-| Height of an island's beach and of the grass above it. `Sails.Render`
+draws an island as four tiers of 2 x 2 round bricks (`Game.BrickModels.island`,
+100 LDU tall with the studs) stretched to 1.5 x the island's height, its base
+half the height below -0.6 m: the beach is the top of the second tier
+(48 LDU) and the grass the top of the third (72 LDU).
 -}
 beachHeight : Island -> Float
 beachHeight island =
-    0.18 * island.height - 0.6
+    0.22 * island.height - 0.6
 
 
 grassHeight : Island -> Float
 grassHeight island =
-    0.55 * island.height - 0.6
+    0.58 * island.height - 0.6
 
 
 buoy : Int -> Float -> Float -> BuoyKind -> Waypoint

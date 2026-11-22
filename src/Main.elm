@@ -27,6 +27,7 @@ under `remoteKey id`, so it is built once per id.
 import Browser
 import Browser.Events
 import Dict exposing (Dict)
+import Game.BrickProps as BrickProps
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
 import Game.Multiplayer as Multiplayer
 import Game.PartLoading as PartLoading
@@ -44,6 +45,7 @@ import Sails.Boats as Boats
 import Sails.Handling as Handling
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
+import Sails.Render as Render
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
@@ -73,6 +75,7 @@ type alias Model =
     , partCache : PartCache
     , documents : Dict String Document
     , meshes : Dict String ShipMesh
+    , props : Render.Props
     , customShip : Maybe Boat
     , remoteShips : Dict String RemoteShip
     , pasteText : String
@@ -134,6 +137,7 @@ init flags =
                     ++ (Scenery.all |> List.map (\piece -> ( Scenery.key piece, Document.parse piece.ldraw )))
                     |> Dict.fromList
             , meshes = Dict.empty
+            , props = Dict.empty
             , customShip = Nothing
             , remoteShips = Dict.empty
             , pasteText = ""
@@ -468,8 +472,9 @@ loadShip bytes input model =
             ( { model | loadError = Just err }, Cmd.none )
 
 
-{-| Fetch every part a boat or the island scenery still needs, and build the
-geometry of each model whose parts are all in. Called at start-up and after every fetched part.
+{-| Fetch every part a boat, the island scenery or a course prop still needs,
+and build the geometry of each model and prop whose parts are all in. Called at
+start-up and after every fetched part.
 -}
 requestParts : Model -> ( Model, Cmd Msg )
 requestParts model =
@@ -503,12 +508,16 @@ requestParts model =
                 )
                 model.meshes
                 progress
+
+        scenery =
+            BrickProps.refresh Render.propSources (Resolve.markLoading needed model.partCache) model.props
     in
     ( { model
-        | partCache = Resolve.markLoading needed model.partCache
+        | partCache = scenery.cache
         , meshes = built
+        , props = scenery.props
       }
-    , PartLoading.fetchParts model.resolver PartFetched needed
+    , PartLoading.fetchParts model.resolver PartFetched (needed ++ scenery.fetch)
     )
 
 
@@ -625,6 +634,7 @@ view model =
                     , onRestartCourse = Sail.RestartCourse
                     , meshFor = \name -> Dict.get name model.meshes
                     , remoteShip = remoteShipFor model
+                    , props = model.props
                     }
                 )
 
