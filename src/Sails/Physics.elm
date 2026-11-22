@@ -163,7 +163,7 @@ stepPhysics dt simTime wind spec state =
             cos headingRad
 
         rightZ =
-            -sin headingRad
+            0.0 - sin headingRad
 
         -- Forward and lateral velocity components over water
         vForward =
@@ -348,7 +348,7 @@ stepPhysics dt simTime wind spec state =
             state.rudderAngle * pi / 180.0
 
         rudderTorque =
-            -sin rudderRad * (newVForward * 1.8)
+            (0.0 - sin rudderRad) * (newVForward * 1.8)
 
         yawDamping =
             -state.angularVelocity * 2.2
@@ -396,7 +396,7 @@ stepPhysics dt simTime wind spec state =
             Vec3.toRecord (waterNormal newPosX newPosZ simTime)
 
         wavePitchDeg =
-            -asin (clamp -0.99 0.99 (norm.z * forwardZ + norm.x * forwardX)) * (180.0 / pi)
+            (0.0 - asin (clamp -0.99 0.99 (norm.z * forwardZ + norm.x * forwardX))) * (180.0 / pi)
 
         newPitchDeg =
             state.pitchAngle + (wavePitchDeg - state.pitchAngle) * (clampedDt * 5.0)
@@ -437,7 +437,7 @@ fireCannons sourceSlot spec state startId =
             cos headingRad
 
         rtZ =
-            -sin headingRad
+            0.0 - sin headingRad
 
         shipPos =
             Vec3.toRecord state.position
