@@ -5,7 +5,7 @@ module Pages.Shipyard exposing
 
 {-| Harbor Shipyard Inspector view:
 3D inspection plinth, ship seaworthiness analysis, preset selector,
-course challenge picker, external Brick Studio / Brick Play links, and "Set Sail" launcher.
+course challenge picker, external Brick Play link, and "Set Sail" launcher.
 -}
 
 import FeatherIcons
@@ -149,13 +149,6 @@ viewShipyard { spec, scene, camera, report, selectedCourse, audioMuted, currentH
                         [ FeatherIcons.camera |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
                         , text "Scan QR"
                         ]
-                    , a
-                        [ Attr.href ("https://palikkaharrastajat.fi/" ++ currentHash)
-                        , Attr.target "_blank"
-                        , Attr.rel "noopener noreferrer"
-                        , Attr.class "flex-1 py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-center font-semibold text-slate-300 transition-colors"
-                        ]
-                        [ text "Studio" ]
                     , a
                         [ Attr.href ("https://rakenna.palikkaharrastajat.fi/" ++ currentHash)
                         , Attr.target "_blank"
