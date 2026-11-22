@@ -1,6 +1,7 @@
 module Sails.Physics exposing
     ( StepInput
     , angleDiff
+    , beachHeight
     , bonusPerHit
     , cannonRange
     , checkShipHits
@@ -9,14 +10,17 @@ module Sails.Physics exposing
     , defaultSailLevel
     , finalTime
     , fireCannons
+    , grassHeight
     , initProgress
     , initSailingState
     , overpower
+    , reachedTreasure
     , sailDrive
     , sailLevel
     , sailLevels
     , sailLoad
     , seaElevation
+    , shorePoint
     , starRating
     , stepBoat
     , stepImpacts
@@ -24,6 +28,7 @@ module Sails.Physics exposing
     , stepProjectiles
     , stepTargets
     , swellHeading
+    , treasureReach
     , waterElevation
     , waveScale
     , windFactor
@@ -52,6 +57,7 @@ import Sails.Types
         , Island
         , SailingState
         , Target
+        , Treasure
         , Waypoint
         , Wind
         )
@@ -69,7 +75,7 @@ defaultCourse : Course
 defaultCourse =
     { id = "island-loop"
     , title = "Island Loop"
-    , description = "Sail through the buoys in order, round the island and back to the finish gate."
+    , description = "Sail through the buoys in order, round the island and back to the finish gate. Pirate treasure lies on the islet past buoy 4."
     , waypoints =
         [ buoy 0 30 38 PortBuoy
         , buoy 1 68 98 StarboardBuoy
@@ -84,17 +90,75 @@ defaultCourse =
             (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 })
             [ ( 26, 8 ), ( 62, 60 ), ( 64, 134 ), ( 4, 190 ), ( -66, 175 ), ( -92, 108 ), ( -56, 36 ) ]
     , islands =
-        [ { x = -12, z = 100, radius = 24, height = 6 }
-        , { x = 150, z = 90, radius = 40, height = 10 }
+        [ lighthouseIsland
+        , harbourIsland
         , { x = -170, z = 230, radius = 50, height = 12 }
         , { x = 40, z = 330, radius = 45, height = 9 }
         , { x = -130, z = -60, radius = 35, height = 7 }
+        , treasureIsland
+        ]
+    , towns =
+        [ { name = "Fisher's Cove", island = lighthouseIsland, bearing = 100 }
+        , { name = "Port Brick", island = harbourIsland, bearing = 268 }
+        ]
+    , treasures =
+        [ { id = 0
+          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland 140 0.86)
+          , bearing = 140
+          , bonusSeconds = 6
+          }
         ]
     , wind = { speed = 7.0, direction = 270.0 }
     , startPosition = vec3 0 0 0
     , startHeading = 38.0
     , targetSeconds = 50.0
     }
+
+
+{-| The island inside the loop, with the lighthouse and a fishing village.
+-}
+lighthouseIsland : Island
+lighthouseIsland =
+    { x = -12, z = 100, radius = 24, height = 6 }
+
+
+{-| The big island east of the course, with the harbour town.
+-}
+harbourIsland : Island
+harbourIsland =
+    { x = 150, z = 90, radius = 40, height = 10 }
+
+
+{-| A small island outside the loop between buoys 4 and 5, where the
+pirates buried their chest: a short detour off the route.
+-}
+treasureIsland : Island
+treasureIsland =
+    { x = -78, z = 205, radius = 10, height = 5 }
+
+
+{-| A point on an island at a compass bearing from its centre, `share` of
+its radius out (1 is the water's edge), at sea level.
+-}
+shorePoint : Island -> Float -> Float -> Vec3
+shorePoint island bearing share =
+    vec3
+        (island.x + sin (degrees bearing) * island.radius * share)
+        0
+        (island.z + cos (degrees bearing) * island.radius * share)
+
+
+{-| Height of an island's beach and of the grass above it (the island
+meshes of `Sails.Render` are scaled by the island's height).
+-}
+beachHeight : Island -> Float
+beachHeight island =
+    0.18 * island.height - 0.6
+
+
+grassHeight : Island -> Float
+grassHeight island =
+    0.55 * island.height - 0.6
 
 
 buoy : Int -> Float -> Float -> BuoyKind -> Waypoint
@@ -137,6 +201,8 @@ initProgress course =
     , splits = []
     , finished = False
     , targetsHit = 0
+    , treasureFound = []
+    , treasureBonus = 0
     }
 
 
@@ -648,11 +714,28 @@ bonusPerHit =
     2.0
 
 
-{-| Race time minus the target bonus.
+{-| Race time minus the target and treasure bonuses.
 -}
 finalTime : CourseProgress -> Float
 finalTime progress =
-    max 0 (progress.elapsedSeconds - bonusPerHit * toFloat progress.targetsHit)
+    max 0 (progress.elapsedSeconds - bonusPerHit * toFloat progress.targetsHit - progress.treasureBonus)
+
+
+{-| How close the boat must sail to a chest to take it aboard.
+-}
+treasureReach : Float
+treasureReach =
+    7.0
+
+
+{-| Treasure the boat is close enough to collect now, leaving out what is
+already found.
+-}
+reachedTreasure : SailingState -> List Treasure -> List Int -> List Treasure
+reachedTreasure state treasures found =
+    List.filter
+        (\t -> not (List.member t.id found) && horizontalDistance state.position t.position <= treasureReach)
+        treasures
 
 
 {-| 3 stars at or under the target time, 2 within 30 % of it, otherwise 1.

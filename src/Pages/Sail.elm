@@ -508,8 +508,29 @@ tick dt model =
             else
                 hits
 
+        treasure =
+            if racing then
+                Physics.reachedTreasure state model.course.treasures progressAfterBuoys.treasureFound
+
+            else
+                []
+
+        treasureBonus =
+            List.sum (List.map .bonusSeconds treasure)
+
         progress =
-            { progressAfterBuoys | targetsHit = progressAfterBuoys.targetsHit + countedHits }
+            { progressAfterBuoys
+                | targetsHit = progressAfterBuoys.targetsHit + countedHits
+                , treasureFound = progressAfterBuoys.treasureFound ++ List.map .id treasure
+                , treasureBonus = progressAfterBuoys.treasureBonus + treasureBonus
+            }
+
+        treasureToast =
+            if List.isEmpty treasure then
+                Nothing
+
+            else
+                Just ( "Treasure! −" ++ String.fromInt (round treasureBonus) ++ " s", 1.6 )
 
         passToast =
             case passed of
@@ -531,7 +552,7 @@ tick dt model =
                 Nothing
 
         toast =
-            case List.filterMap identity [ goToast, passToast, hitToast ] of
+            case List.filterMap identity [ goToast, passToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -565,6 +586,11 @@ tick dt model =
 
               else
                 Cmd.none
+            , if List.isEmpty treasure then
+                Cmd.none
+
+              else
+                sfx GameAudio.Checkpoint
             , if boltStruck && not model.audioMuted then
                 sfx (GameAudio.Impact 0.5)
 
@@ -725,7 +751,7 @@ viewSail model callbacks =
         Just room ->
             case room.role of
                 HostCommentator ->
-                    viewHostSplitScreen callbacks.remoteShip model room
+                    viewHostSplitScreen callbacks.meshFor callbacks.remoteShip model room
 
                 JoinedPlayer ->
                     viewRace model callbacks (Just room)
@@ -734,8 +760,8 @@ viewSail model callbacks =
             viewRace model callbacks Nothing
 
 
-viewHostSplitScreen : RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
-viewHostSplitScreen remoteShip model room =
+viewHostSplitScreen : (String -> Maybe ShipMesh) -> RemoteShipLookup -> SailModel -> RoomState -> Html SailMsg
+viewHostSplitScreen scenery remoteShip model room =
     let
         qW =
             max 160 (model.viewportWidth // 2)
@@ -764,6 +790,8 @@ viewHostSplitScreen remoteShip model room =
                             , impacts = []
                             , time = model.simTime
                             , weather = Weather.conditions model.course.wind model.weather
+                            , scenery = scenery
+                            , treasureFound = []
                             }
                             qW
                             qH
@@ -849,6 +877,8 @@ viewRace model callbacks maybeRoom =
                 , impacts = model.impacts
                 , time = model.simTime
                 , weather = Weather.conditions model.course.wind model.weather
+                , scenery = callbacks.meshFor
+                , treasureFound = model.progress.treasureFound
                 }
                 model.viewportWidth
                 model.viewportHeight

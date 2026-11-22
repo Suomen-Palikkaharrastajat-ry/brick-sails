@@ -149,6 +149,12 @@ viewStatus { progress, state, cameraYaw, wind, weather } =
                 ]
                 [ FeatherIcons.arrowUp |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
             , span [ Attr.class (Tuple.second powerLabel) ] [ text (Tuple.first powerLabel) ]
+            , if List.isEmpty progress.treasureFound then
+                text ""
+
+              else
+                span [ Attr.class "text-amber-300", Attr.attribute "data-testid" "treasure" ]
+                    [ text ("Treasure " ++ String.fromInt (List.length progress.treasureFound) ++ " (-" ++ String.fromInt (round progress.treasureBonus) ++ "s)") ]
             , if progress.targetsHit > 0 then
                 span [ Attr.class "text-rose-300" ]
                     [ text ("Targets " ++ String.fromInt progress.targetsHit ++ " (-" ++ String.fromInt (round (Physics.bonusPerHit * toFloat progress.targetsHit)) ++ "s)") ]

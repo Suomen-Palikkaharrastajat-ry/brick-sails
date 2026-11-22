@@ -100,6 +100,12 @@ viewResults { course, progress, boatName, personalBest, actions } =
                                     else
                                         "s"
                                    )
+                                ++ (if List.isEmpty progress.treasureFound then
+                                        ""
+
+                                    else
+                                        " − " ++ String.fromInt (round progress.treasureBonus) ++ " s treasure"
+                                   )
                             )
                         ]
                     , if isNewRecord then

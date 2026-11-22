@@ -11,6 +11,8 @@ module Sails.Types exposing
     , SailingState
     , ShipSpec
     , Target
+    , Town
+    , Treasure
     , ViewMode(..)
     , Waypoint
     , Wind
@@ -76,6 +78,29 @@ type alias Island =
     }
 
 
+{-| A small brick town on an island's shore: houses on the grass and a pier
+running out to the water, facing out along the compass `bearing` from the
+island's centre.
+-}
+type alias Town =
+    { name : String
+    , island : Island
+    , bearing : Float
+    }
+
+
+{-| A pirate treasure chest on an island's beach, at `position`, facing
+out along `bearing`. Sailing close enough collects it for `bonusSeconds`
+off the race time.
+-}
+type alias Treasure =
+    { id : Int
+    , position : Vec3
+    , bearing : Float
+    , bonusSeconds : Float
+    }
+
+
 {-| Wind conditions: speed in m/s and the compass heading the wind blows towards.
 -}
 type alias Wind =
@@ -84,7 +109,8 @@ type alias Wind =
     }
 
 
-{-| One short course: buoys in order, targets along the way and a few islands.
+{-| One short course: buoys in order, targets along the way, a few islands,
+the towns on them and the treasure hidden on them.
 -}
 type alias Course =
     { id : String
@@ -93,6 +119,8 @@ type alias Course =
     , waypoints : List Waypoint
     , targets : List Target
     , islands : List Island
+    , towns : List Town
+    , treasures : List Treasure
     , wind : Wind
     , startPosition : Vec3
     , startHeading : Float
@@ -204,7 +232,8 @@ type alias SailingState =
     }
 
 
-{-| Progress through the course.
+{-| Progress through the course. `treasureFound` lists the ids of the
+treasure collected, `treasureBonus` the seconds it takes off the time.
 -}
 type alias CourseProgress =
     { currentWaypointIndex : Int
@@ -213,6 +242,8 @@ type alias CourseProgress =
     , splits : List Float
     , finished : Bool
     , targetsHit : Int
+    , treasureFound : List Int
+    , treasureBonus : Float
     }
 
 

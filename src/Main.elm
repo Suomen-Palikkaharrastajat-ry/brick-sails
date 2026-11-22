@@ -44,6 +44,7 @@ import Sails.Boats as Boats
 import Sails.Handling as Handling
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
+import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
 import Studio.HashPayload as HashPayload
@@ -129,8 +130,8 @@ init flags =
             { resolver = PartLoading.resolverFromFlags flags
             , partCache = Resolve.initCache
             , documents =
-                Boats.all
-                    |> List.map (\b -> ( b.name, Document.parse b.ldraw ))
+                (Boats.all |> List.map (\b -> ( b.name, Document.parse b.ldraw )))
+                    ++ (Scenery.all |> List.map (\piece -> ( Scenery.key piece, Document.parse piece.ldraw )))
                     |> Dict.fromList
             , meshes = Dict.empty
             , customShip = Nothing
@@ -467,8 +468,8 @@ loadShip bytes input model =
             ( { model | loadError = Just err }, Cmd.none )
 
 
-{-| Fetch every part a boat still needs, and build the geometry of each boat
-whose parts are all in. Called at start-up and after every fetched part.
+{-| Fetch every part a boat or the island scenery still needs, and build the
+geometry of each model whose parts are all in. Called at start-up and after every fetched part.
 -}
 requestParts : Model -> ( Model, Cmd Msg )
 requestParts model =
@@ -492,7 +493,7 @@ requestParts model =
                     if ready name p then
                         case Dict.get name model.documents of
                             Just doc ->
-                                Dict.insert name (ShipMesh.build (sailRule name model) doc model.partCache) acc
+                                Dict.insert name (buildMesh name doc model) acc
 
                             Nothing ->
                                 acc
@@ -509,6 +510,17 @@ requestParts model =
       }
     , PartLoading.fetchParts model.resolver PartFetched needed
     )
+
+
+{-| Geometry of a boat or a piece of island scenery.
+-}
+buildMesh : String -> Document -> Model -> ShipMesh
+buildMesh name doc model =
+    if Scenery.isScenery name then
+        ShipMesh.buildScenery Scenery.metersPerLdu doc model.partCache
+
+    else
+        ShipMesh.build (sailRule name model) doc model.partCache
 
 
 sailRule : String -> Model -> Document.Placement -> Bool

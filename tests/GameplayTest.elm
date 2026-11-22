@@ -3,10 +3,16 @@ module GameplayTest exposing (suite)
 {-| Tests of the sea, the sails, the weather and the islands.
 -}
 
+import Dict
 import Expect
+import LDraw.Document as Document
+import LDraw.Parser as Parser
+import LDraw.Resolve exposing (PartStatus(..))
 import Math.Vector3 as Vec3
 import Sails.Boats as Boats
 import Sails.Physics as Physics
+import Sails.Scenery as Scenery
+import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (CourseProgress, SailingState, Wind)
 import Sails.Weather as Weather exposing (Spell(..), Weather)
 import Test exposing (Test, describe, test)
@@ -180,6 +186,89 @@ spells seed seconds =
         (List.range 1 (round (seconds / 0.1)))
         |> Tuple.second
         |> List.reverse
+
+
+{-| Shortest distance from a point to the segment a-b, on the water.
+-}
+segmentDistance : ( Float, Float ) -> ( Float, Float ) -> ( Float, Float ) -> Float
+segmentDistance ( px, pz ) ( ax, az ) ( bx, bz ) =
+    let
+        dx =
+            bx - ax
+
+        dz =
+            bz - az
+
+        t =
+            clamp 0 1 (((px - ax) * dx + (pz - az) * dz) / max 1.0e-6 (dx * dx + dz * dz))
+    in
+    sqrt ((px - (ax + t * dx)) ^ 2 + (pz - (az + t * dz)) ^ 2)
+
+
+{-| The buoy route as legs, from the start line through every buoy.
+-}
+legs : List ( ( Float, Float ), ( Float, Float ) )
+legs =
+    let
+        pts =
+            (course.startPosition :: List.map .position course.waypoints)
+                |> List.map (\v -> ( Vec3.getX v, Vec3.getZ v ))
+    in
+    List.map2 Tuple.pair pts (List.drop 1 pts)
+
+
+{-| Autopilot that detours to the treasure after buoy 4 and then finishes.
+-}
+treasureHunt : Float -> ( CourseProgress, List Int )
+treasureHunt limit =
+    let
+        go state progress found =
+            if progress.finished || progress.elapsedSeconds > limit then
+                ( progress, found )
+
+            else
+                let
+                    chest =
+                        List.head course.treasures
+
+                    goal =
+                        case chest of
+                            Just t ->
+                                if progress.currentWaypointIndex == 4 && not (List.member t.id found) then
+                                    Vec3.toRecord t.position
+
+                                else
+                                    buoyGoal
+
+                            Nothing ->
+                                buoyGoal
+
+                    buoyGoal =
+                        List.drop progress.currentWaypointIndex course.waypoints
+                            |> List.head
+                            |> Maybe.map (.position >> Vec3.toRecord)
+                            |> Maybe.withDefault { x = 0, y = 0, z = 0 }
+
+                    p =
+                        Vec3.toRecord state.position
+
+                    bearing =
+                        atan2 (goal.x - p.x) (goal.z - p.z) * 180 / pi
+
+                    next =
+                        Physics.stepBoat
+                            { dt = 0.02, time = progress.elapsedSeconds, steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25), throttle = 1, sea = 1, sail = 1 }
+                            course.wind
+                            Boats.default
+                            course.islands
+                            state
+
+                    ( nextProgress, _ ) =
+                        Physics.stepProgress 0.02 next course.waypoints progress
+                in
+                go next nextProgress (found ++ List.map .id (Physics.reachedTreasure next course.treasures found))
+    in
+    go (Physics.initSailingState course) (Physics.initProgress course) []
 
 
 suite : Test
@@ -422,6 +511,82 @@ suite =
                         , \_ -> Expect.equal True full.finished
                         , \_ -> Expect.atMost (course.targetSeconds * 3) reefed.elapsedSeconds
                         , \_ -> Expect.greaterThan fairRace.elapsedSeconds reefed.elapsedSeconds
+                        ]
+                        ()
+            ]
+        , describe "Islands, towns and treasure"
+            [ test "every island is clear of the buoy route" <|
+                \_ ->
+                    course.islands
+                        |> List.filter
+                            (\isl -> List.any (\( a, b ) -> segmentDistance ( isl.x, isl.z ) a b < isl.radius + 8) legs)
+                        |> Expect.equal []
+            , test "every buoy and the start are in open water" <|
+                \_ ->
+                    (course.startPosition :: List.map .position course.waypoints)
+                        |> List.filter
+                            (\v -> List.any (\isl -> sqrt ((Vec3.getX v - isl.x) ^ 2 + (Vec3.getZ v - isl.z) ^ 2) < isl.radius + 10) course.islands)
+                        |> Expect.equal []
+            , test "towns stand on islands of the course and a treasure island has a chest" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.atLeast 1 (List.length course.towns)
+                        , \_ -> Expect.equal True (List.all (\t -> List.member t.island course.islands) course.towns)
+                        , \_ -> Expect.atLeast 1 (List.length course.treasures)
+                        , \_ ->
+                            course.treasures
+                                |> List.all
+                                    (\t ->
+                                        List.any
+                                            (\isl ->
+                                                let
+                                                    d =
+                                                        sqrt ((Vec3.getX t.position - isl.x) ^ 2 + (Vec3.getZ t.position - isl.z) ^ 2)
+                                                in
+                                                d < isl.radius && d + Physics.treasureReach > isl.radius + 2
+                                            )
+                                            course.islands
+                                    )
+                                |> Expect.equal True
+                        ]
+                        ()
+            , test "the treasure can be reached from the route and the course still finished" <|
+                \_ ->
+                    let
+                        ( progress, found ) =
+                            treasureHunt 200
+
+                        withTreasure =
+                            { progress | treasureFound = found, treasureBonus = List.sum (List.map .bonusSeconds course.treasures) }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal (List.map .id course.treasures) found
+                        , \_ -> Expect.equal True progress.finished
+                        , \_ -> Expect.within (Expect.Absolute 1.0e-6) (Physics.finalTime progress - 6) (Physics.finalTime withTreasure)
+                        ]
+                        ()
+            , test "the scenery is built from catalog bricks and stands on the ground" <|
+                \_ ->
+                    let
+                        catalogParts =
+                            [ "3001.dat", "3004.dat", "3005.dat", "3020.dat", "3024.dat", "3034.dat", "3037.dat", "3062b.dat", "3460.dat", "3957a.dat", "2335.dat", "6141.dat" ]
+
+                        box =
+                            Parser.parseFile "4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"
+
+                        cache =
+                            catalogParts |> List.map (\n -> ( n, Loaded box )) |> Dict.fromList
+
+                        parts piece =
+                            Document.flattenedPlacements (Document.parse piece.ldraw) |> List.map .part
+
+                        mesh piece =
+                            ShipMesh.buildScenery Scenery.metersPerLdu (Document.parse piece.ldraw) cache
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal [] (List.concatMap parts Scenery.all |> List.filter (\p -> not (List.member p catalogParts)))
+                        , \_ -> Expect.equal True (List.all (\piece -> List.length (parts piece) >= 10) Scenery.all)
+                        , \_ -> Expect.equal True (List.all (\piece -> (mesh piece).heightMeters > 2 && (mesh piece).lengthMeters < 20) Scenery.all)
                         ]
                         ()
             ]

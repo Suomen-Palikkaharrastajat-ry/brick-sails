@@ -2,6 +2,7 @@ module Sails.ShipMesh exposing
     ( PartProgress
     , ShipMesh
     , build
+    , buildScenery
     , partProgress
     , sailByColour
     , sailByPartName
@@ -202,6 +203,41 @@ build isSail doc rawCache =
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
     , heightMeters = size.y * scale
+    }
+
+
+{-| Flatten a scenery model (see `Sails.Scenery`) whose parts are all in the
+cache, at a fixed scale in metres per LDraw unit. Its origin stays where
+the model has it, on the ground; it has no sails.
+-}
+buildScenery : Float -> Document -> PartCache -> ShipMesh
+buildScenery metersPerLdu doc rawCache =
+    let
+        cache =
+            List.foldl (\( name, lines ) acc -> Dict.insert name (Loaded lines) acc) rawCache (Document.subfiles doc)
+
+        geom =
+            Geometry.flattenWith Geometry.worldOptions (List.map toRef (Document.flattenedPlacements doc)) cache 15 Mat4.identity
+
+        size =
+            boundsOf geom.triangles |> (\b -> Vec3.sub b.max b.min) |> Vec3.toRecord
+
+        empty =
+            Scene.buildScene { triangles = [], lines = [], conditionalLines = [] } False
+    in
+    { scene =
+        Scene.buildScene
+            { triangles = geom.triangles
+            , lines = geom.lines
+            , conditionalLines = []
+            }
+            False
+    , sails = empty
+    , sailFoot = 0
+    , toBoat = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
+    , triangleCount = List.length geom.triangles
+    , lengthMeters = max size.x size.z * metersPerLdu
+    , heightMeters = size.y * metersPerLdu
     }
 
 

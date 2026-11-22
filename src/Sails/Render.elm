@@ -26,6 +26,7 @@ import Render.Scene exposing (Scene)
 import Render.Shader as Shader
 import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
 import Sails.Physics as Physics
+import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types
     exposing
@@ -35,6 +36,8 @@ import Sails.Types
         , Course
         , SailingState
         , Target
+        , Town
+        , Treasure
         , Waypoint
         )
 import Sails.Weather exposing (Conditions)
@@ -72,6 +75,8 @@ renderWorld :
         , impacts : List CombatImpact
         , time : Float
         , weather : Conditions
+        , scenery : String -> Maybe ShipMesh
+        , treasureFound : List Int
         }
     -> Int
     -> Int
@@ -87,6 +92,8 @@ renderWorld cam scene width height =
             , Ocean.oceanEntity ctx
             ]
                 ++ islandEntities ctx scene.course
+                ++ townEntities ctx width height scene.scenery scene.course.towns
+                ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (buoyEntities ctx scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
                 ++ List.concatMap (targetEntities ctx scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height) scene.boats
@@ -449,6 +456,66 @@ islandEntities ctx course =
         )
         course.islands
         |> List.concat
+
+
+{-| A brick scenery piece standing at a point, its front facing `bearing`.
+Nothing is drawn until its parts are in.
+-}
+sceneryEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Scenery.Piece -> Vec3 -> Float -> List WebGL.Entity
+sceneryEntities ctx width height scenery piece at bearing =
+    case scenery (Scenery.key piece) of
+        Just mesh ->
+            let
+                p =
+                    Vec3.toRecord at
+
+                model =
+                    Mat4.makeTranslate3 p.x p.y p.z
+                        |> rotY (degrees bearing)
+                        |> (\m -> Mat4.mul m mesh.toBoat)
+            in
+            brickPasses ctx width height (Vec3.distance ctx.eye at) (vec4 1 1 1 0) model mesh.scene
+
+        Nothing ->
+            []
+
+
+{-| Each town: its houses on the grass and its pier from the beach out to
+the water's edge.
+-}
+townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> List Town -> List WebGL.Entity
+townEntities ctx width height scenery towns =
+    List.concatMap
+        (\town ->
+            let
+                isl =
+                    town.island
+            in
+            sceneryEntities ctx width height scenery Scenery.houses (Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)) town.bearing
+                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) town.bearing
+        )
+        towns
+
+
+{-| Treasure still to find: the chest, and a gold ring on the water showing
+how close to sail to take it aboard.
+-}
+treasureEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Float -> List Int -> List Treasure -> List WebGL.Entity
+treasureEntities ctx width height scenery time found treasures =
+    treasures
+        |> List.filter (\t -> not (List.member t.id found))
+        |> List.concatMap
+            (\t ->
+                let
+                    p =
+                        Vec3.toRecord t.position
+
+                    r =
+                        Physics.treasureReach * (1 + 0.05 * sin (time * 4))
+                in
+                ocean ctx (Mat4.makeTranslate3 p.x 0.4 p.z |> Mat4.scale3 r 1 r) (vec3 1 0.82 0.2) ringMesh
+                    :: sceneryEntities ctx width height scenery Scenery.chest t.position t.bearing
+            )
 
 
 guideEntities : Ctx -> Maybe { from : Vec3, to : Vec3 } -> List WebGL.Entity
