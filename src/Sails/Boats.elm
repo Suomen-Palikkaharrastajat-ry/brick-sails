@@ -10,6 +10,7 @@ geometry through the brick pipeline, so nothing on screen is a made-up shape.
 
 -}
 
+import Sails.Handling exposing (Handling)
 import Sails.Types exposing (Boat, BoatKind(..))
 
 
@@ -30,11 +31,11 @@ customName =
     "Your ship"
 
 
-{-| A ship loaded from a build link. It handles like the sloop; its look is
-the loaded build.
+{-| A ship loaded from a build link. Its look is the loaded build and its
+handling comes from the build's analysis (`Sails.Handling.fromSpec`).
 -}
-custom : String -> Boat
-custom title =
+custom : String -> Handling -> Boat
+custom title handling =
     { kind = CustomShip
     , name = customName
     , description =
@@ -45,8 +46,9 @@ custom title =
             "Your build: " ++ title
     , ldraw = ""
     , sailColour = Nothing
-    , topSpeed = sloop.topSpeed
-    , turnRate = sloop.turnRate
+    , topSpeed = handling.topSpeed
+    , turnRate = handling.turnRate
+    , acceleration = handling.acceleration
     }
 
 
@@ -67,6 +69,7 @@ sloop =
     , sailColour = Just 15
     , topSpeed = 9.0
     , turnRate = 95.0
+    , acceleration = 1.3
     }
 
 
@@ -79,6 +82,7 @@ cutter =
     , sailColour = Just 14
     , topSpeed = 8.6
     , turnRate = 125.0
+    , acceleration = 1.3
     }
 
 
@@ -91,6 +95,7 @@ schooner =
     , sailColour = Just 4
     , topSpeed = 9.5
     , turnRate = 85.0
+    , acceleration = 1.3
     }
 
 
@@ -103,6 +108,7 @@ catamaran =
     , sailColour = Just 322
     , topSpeed = 10.0
     , turnRate = 72.0
+    , acceleration = 1.3
     }
 
 

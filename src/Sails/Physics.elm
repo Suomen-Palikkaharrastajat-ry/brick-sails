@@ -223,7 +223,7 @@ stepBoat input wind boat islands state =
             input.throttle * boat.topSpeed * power * (1 - 0.12 * abs steer)
 
         speed =
-            state.speed + (targetSpeed - state.speed) * min 1 (dt * 1.3)
+            state.speed + (targetSpeed - state.speed) * min 1 (dt * boat.acceleration)
 
         rad =
             degrees heading

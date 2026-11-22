@@ -29,6 +29,7 @@ type alias AnalysisReport =
     , maxHullSpeedKnots : Float
     , sailAreaDisplacementRatio : Float
     , minCloseHauledAngle : Float -- degrees to wind (e.g. 42°)
+    , reserveBuoyancy : Float -- buoyant hull volume / displaced volume (> 1 floats with room to spare)
     , notes : List String
     }
 
@@ -50,6 +51,11 @@ analyzeShip spec =
         -- in knots: ~ 2.43 * sqrt(length in meters)
         hullSpeedKnots =
             2.43 * sqrt (max 1.0 spec.lengthMeters)
+
+        -- Buoyant volume of the hull box (block coefficient ~0.6) against
+        -- the volume of water the ship's mass displaces.
+        reserve =
+            (spec.lengthMeters * spec.beamMeters * spec.draftMeters * 0.6) / max 0.01 dispCubicM
 
         stability =
             if spec.metacentricHeight > 1.0 then
@@ -113,5 +119,6 @@ analyzeShip spec =
     , maxHullSpeedKnots = hullSpeedKnots
     , sailAreaDisplacementRatio = sad
     , minCloseHauledAngle = closeHauledAngle
+    , reserveBuoyancy = reserve
     , notes = notes
     }

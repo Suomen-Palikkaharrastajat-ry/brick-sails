@@ -11,6 +11,7 @@ import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
+import Sails.Handling as Handling
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
 import Sails.ShipMesh as ShipMesh
@@ -112,6 +113,27 @@ autopilot boat limit =
                 go next nextProgress
     in
     go (Physics.initSailingState course) (Physics.initProgress course)
+
+
+{-| Part names and origins of a brick model, as `Ingest.ingestDocument` reads them.
+-}
+placementsOf : String -> List ( String, Vec3.Vec3 )
+placementsOf ldr =
+    Document.flattenedPlacements (Document.parse ldr)
+        |> List.map (\p -> ( p.part, Mat4.transform p.matrix (vec3 0 0 0) ))
+
+
+{-| The sloop's bricks with `n` extra flags hung on the mast.
+-}
+sloopWithFlags : Int -> List ( String, Vec3.Vec3 )
+sloopWithFlags n =
+    placementsOf Boats.default.ldraw
+        ++ List.map (\i -> ( "2335.dat", vec3 0 (-60 - 24 * toFloat i) 0 )) (List.range 1 n)
+
+
+inRange : ( Float, Float ) -> Float -> Expect.Expectation
+inRange ( lo, hi ) v =
+    Expect.all [ Expect.atLeast lo, Expect.atMost hi ] v
 
 
 suite : Test
@@ -279,6 +301,84 @@ suite =
                     (ShipMesh.partProgress (Document.parse Boats.default.ldraw) Dict.empty).needed
                         |> List.length
                         |> Expect.atLeast 8
+            ]
+        , describe "Loaded build handling"
+            [ test "a build with more sail accelerates harder and turns wider than one with less" <|
+                \_ ->
+                    let
+                        small =
+                            Ingest.ingestFromPlacements "Small rig" (sloopWithFlags 0) |> Handling.fromSpec
+
+                        big =
+                            Ingest.ingestFromPlacements "Big rig" (sloopWithFlags 4) |> Handling.fromSpec
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan (small.acceleration + 0.1) big.acceleration
+                        , \_ -> Expect.lessThan (small.turnRate - 3) big.turnRate
+                        , \_ -> Expect.atLeast small.topSpeed big.topSpeed
+                        ]
+                        ()
+            , test "the extra sail makes the boat quicker off the line in the race physics" <|
+                \_ ->
+                    let
+                        boatFrom n =
+                            Boats.custom "" (Ingest.ingestFromPlacements "" (sloopWithFlags n) |> Handling.fromSpec)
+
+                        start =
+                            Physics.initSailingState course
+
+                        after n =
+                            (sail (boatFrom n) 0 1.0 start).speed
+                    in
+                    Expect.greaterThan (after 0 + 0.2) (after 4)
+            , test "the sloop's own bricks derive the sloop's handling" <|
+                \_ ->
+                    let
+                        h =
+                            Handling.fromSpec (Ingest.ingestDocument "Sloop" (Document.parse Boats.default.ldraw))
+                    in
+                    Expect.all
+                        [ \_ -> Expect.within (Expect.Absolute 0.1) Boats.default.topSpeed h.topSpeed
+                        , \_ -> Expect.within (Expect.Absolute 1) Boats.default.turnRate h.turnRate
+                        , \_ -> Expect.within (Expect.Absolute 0.02) Boats.default.acceleration h.acceleration
+                        ]
+                        ()
+            , test "every derived value stays within the clamped range" <|
+                \_ ->
+                    let
+                        builds =
+                            [ sampleShipPlacements
+                            , sloopWithFlags 0
+                            , sloopWithFlags 30
+                            , [ ( "3001.dat", vec3 0 -24 0 ), ( "3001.dat", vec3 0 -24 40 ), ( "3957a.dat", vec3 0 -40 0 ) ]
+                            , List.map (\i -> ( "3001.dat", vec3 (toFloat (modBy 20 i) * 40) -24 (toFloat (i // 20) * 80) )) (List.range 0 199)
+                            ]
+                                ++ List.map (\b -> placementsOf b.ldraw) Boats.all
+
+                        derived =
+                            List.map (Ingest.ingestFromPlacements "Build" >> Handling.fromSpec) builds
+                    in
+                    Expect.all
+                        (List.concatMap
+                            (\h ->
+                                [ \_ -> inRange Handling.limits.topSpeed h.topSpeed
+                                , \_ -> inRange Handling.limits.turnRate h.turnRate
+                                , \_ -> inRange Handling.limits.acceleration h.acceleration
+                                ]
+                            )
+                            derived
+                        )
+                        ()
+            , test "the four built-in boats keep their handling" <|
+                \_ ->
+                    Boats.all
+                        |> List.map (\b -> ( b.name, ( b.topSpeed, b.turnRate, b.acceleration ) ))
+                        |> Expect.equal
+                            [ ( "Sloop", ( 9.0, 95.0, 1.3 ) )
+                            , ( "Cutter", ( 8.6, 125.0, 1.3 ) )
+                            , ( "Schooner", ( 9.5, 85.0, 1.3 ) )
+                            , ( "Catamaran", ( 10.0, 72.0, 1.3 ) )
+                            ]
             ]
         , describe "Seaworthiness & Architecture Analysis"
             [ test "analyzes micro sloop as seaworthy" <|

@@ -40,6 +40,7 @@ import Pages.Sail as Sail
 import Pages.Shipyard as Shipyard
 import Ports
 import Sails.Boats as Boats
+import Sails.Handling as Handling
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
@@ -454,12 +455,12 @@ loadShip : Maybe (List Int) -> String -> Model -> ( Model, Cmd Msg )
 loadShip bytes input model =
     case
         Ingest.decodeShipInput bytes input
-            |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\_ -> decoded))
+            |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\spec -> ( decoded, spec )))
     of
-        Ok decoded ->
+        Ok ( decoded, spec ) ->
             let
                 ship =
-                    Boats.custom decoded.title
+                    Boats.custom decoded.title (Handling.fromSpec spec)
             in
             requestParts
                 { model
