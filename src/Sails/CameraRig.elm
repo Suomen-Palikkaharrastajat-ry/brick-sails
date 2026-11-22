@@ -1,5 +1,6 @@
 module Sails.CameraRig exposing
     ( Follow
+    , chaseDistance
     , dampAngle
     , followView
     , initFollow
@@ -14,14 +15,15 @@ module Sails.CameraRig exposing
 `target + eyeOffset`. `lookAt` converts a world-space eye and look-at point
 into those values.
 
-The game camera is a high follow camera: it sits well behind and above the
-boat, looking down at about 25 degrees so the tall brick masts are seen from
-the side rather than end-on (a little round to one side, a three-quarter
-view), aims at mid-mast height so the whole boat stays
-in the middle of the screen, turns smoothly with the boat, leans
-towards the next buoy and pulls back when the buoy is far, so the boat
-stays on screen and the buoy comes into view as early as the screen shape
-allows (the on-water arrow points at it before that).
+The game camera is a close chase camera, framed like Brick Racer's chase
+camera: it sits a few boat lengths behind the boat and a little above the
+masthead, looking down at about 18 degrees (0.31 rad, inside the racer's
+0.16 to 0.45 rad chase range), a little round to one side (a three-quarter
+view) so the tall brick masts are seen from the side rather than end-on. It
+aims a little under mid-mast height, two metres ahead of the boat as the
+racer aims just ahead of the car, follows the boat
+quickly, leans towards the next buoy and pulls back a little when the buoy
+is far (the on-water arrow points at it before it comes into view).
 
 -}
 
@@ -60,7 +62,7 @@ type alias Follow =
 
 pitchDegrees : Float
 pitchDegrees =
-    25.0
+    18.0
 
 
 {-| The eye sits this many degrees round from straight behind the boat, a
@@ -72,17 +74,35 @@ sideDegrees =
     18.0
 
 
-{-| Height above the water the camera aims at: about half a brick mast, so
-hull and masthead both stay on screen.
+{-| Height above the water the camera aims at: a little under half a brick
+mast, so from close in the hull stays clear of the bottom of the screen and
+the masthead stays on it.
 -}
 lookHeight : Float
 lookHeight =
-    3.5
+    3.0
 
 
 initFollow : Vec3 -> Float -> Follow
 initFollow boat heading =
-    { yaw = heading, distance = 40.0, focus = boat }
+    { yaw = heading, distance = chaseDistance, focus = boat }
+
+
+{-| Resting follow distance in metres, about three boat lengths: the racer
+keeps about five car radii back (2.6 m + 2 radii), and a brick boat's radius
+(half its bounding diagonal) is about 5 m.
+-}
+chaseDistance : Float
+chaseDistance =
+    24.0
+
+
+{-| How far ahead of the boat the camera aims, in metres: the racer aims
+0.85 m (about one car radius) ahead of the car.
+-}
+lookAhead : Float
+lookAhead =
+    2.0
 
 
 {-| Move an angle (degrees) towards a goal along the short way round.
@@ -159,11 +179,14 @@ stepFollow dt aspect boat heading next follow =
                 1.0
 
         goalDistance =
-            clamp 38 60 (30 + separation * 0.4) * portraitBoost
+            clamp chaseDistance 32 (20 + separation * 0.12) * portraitBoost
     in
-    { yaw = dampAngle 2.2 follow.yaw goalYaw dt
-    , distance = follow.distance + (goalDistance - follow.distance) * min 1 (1.2 * dt)
-    , focus = Vec3.add follow.focus (Vec3.scale (min 1 (3.0 * dt)) (Vec3.sub goalFocus follow.focus))
+    -- Rates as the racer's chase camera (distance 5, target 8.5 per second);
+    -- yaw is slower than the racer's 9 so a tack or a buoy rounding swings
+    -- the view round smoothly instead of snapping.
+    { yaw = dampAngle 3.5 follow.yaw goalYaw dt
+    , distance = follow.distance + (goalDistance - follow.distance) * min 1 (5.0 * dt)
+    , focus = Vec3.add follow.focus (Vec3.scale (min 1 (8.5 * dt)) (Vec3.sub goalFocus follow.focus))
     }
 
 
@@ -192,7 +215,7 @@ followView follow =
 
         -- Look a little ahead of the focus, at mid-mast height.
         ahead =
-            follow.distance * 0.05
+            lookAhead
     in
     { eye = vec3 (f.x - sin eyeRad * back) (lookHeight + up) (f.z - cos eyeRad * back)
     , target = vec3 (f.x + sin yawRad * ahead) lookHeight (f.z + cos yawRad * ahead)

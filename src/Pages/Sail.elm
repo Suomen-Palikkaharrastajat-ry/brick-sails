@@ -689,7 +689,7 @@ viewHostSplitScreen remoteShip model room =
                 Just p ->
                     let
                         cam =
-                            CameraRig.followView { yaw = (Vec3.toRecord p.rotation).y, distance = 34, focus = p.position }
+                            CameraRig.followView { yaw = (Vec3.toRecord p.rotation).y, distance = CameraRig.chaseDistance, focus = p.position }
                     in
                     div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
                         [ Render.renderWorld cam

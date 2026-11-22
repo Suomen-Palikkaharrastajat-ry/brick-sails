@@ -652,5 +652,28 @@ suite =
                                 (List.range 1 60)
                     in
                     Expect.within (Expect.Absolute 2) 120 stepped.yaw
+            , test "camera chases close behind the boat, a few boat lengths back" <|
+                \_ ->
+                    let
+                        boat =
+                            vec3 0 0 0
+
+                        settle next =
+                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.5 boat 0 next f)
+                                (CameraRig.initFollow boat 0)
+                                (List.range 1 100)
+
+                        horizontal f =
+                            let
+                                eye =
+                                    Vec3.toRecord (CameraRig.followView f).eye
+                            in
+                            sqrt (eye.x * eye.x + eye.z * eye.z)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.atMost 26 (horizontal (settle Nothing))
+                        , \_ -> Expect.atMost 34 (horizontal (settle (Just (vec3 0 0 300))))
+                        ]
+                        ()
             ]
         ]
