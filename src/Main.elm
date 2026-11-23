@@ -5,6 +5,10 @@ Deployed to <https://ohoi.palikkaharrastajat.fi>.
 
 Two screens: the boat picker (`Pages.Shipyard`) and the race (`Pages.Sail`).
 
+The interface is in Finnish unless the `language` flag (a `?lang=` link or a
+saved choice, read by the shared boot code) asks for English. The FI / EN
+switch on the boat picker changes it and saves the choice.
+
 Every boat is a brick model. `Main` owns the part cache: it parses each boat's
 LDraw document once, fetches the parts it needs from the catalog
 (`LDraw.Resolve`, one pre-bundled MPD per part), and builds each boat's
@@ -34,6 +38,7 @@ import Game.PartLoading as PartLoading
 import Game.Ports as GamePorts
 import Html exposing (Html)
 import Http
+import I18n exposing (Language(..))
 import Json.Decode as Decode
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
@@ -43,6 +48,7 @@ import Pages.Shipyard as Shipyard
 import Ports
 import Sails.Boats as Boats
 import Sails.Handling as Handling
+import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
 import Sails.Render as Render
@@ -59,6 +65,7 @@ type alias Flags =
     , ldrawFallbackBase : String
     , initialHash : String
     , predecodedInitialBytes : Maybe (List Int)
+    , language : String
     }
 
 
@@ -91,6 +98,7 @@ type alias Model =
     , viewportWidth : Int
     , viewportHeight : Int
     , roomCodeInput : String
+    , language : Language
     }
 
 
@@ -116,6 +124,7 @@ type Msg
     | FileContentReceived String
     | FileLoadError String
     | HashChanged String
+    | ToggleLanguage
 
 
 main : Program Flags Model Msg
@@ -155,6 +164,7 @@ init flags =
             , viewportWidth = 1024
             , viewportHeight = 768
             , roomCodeInput = ""
+            , language = SailsI18n.fromFlag flags.language
             }
 
         hasPayload =
@@ -174,7 +184,7 @@ personalBest model =
 
 newSail : Maybe Multiplayer.RoomState -> Model -> Sail.SailModel
 newSail room model =
-    Sail.initSail model.boat model.course model.audioMuted (personalBest model) room model.tilt model.viewportWidth model.viewportHeight
+    Sail.initSail model.language model.boat model.course model.audioMuted (personalBest model) room model.tilt model.viewportWidth model.viewportHeight
 
 
 silenceAudio : Cmd msg
@@ -330,6 +340,20 @@ update msg model =
         ReturnToShipyard ->
             ( { model | viewMode = ViewShipyard, sailModel = Nothing }
             , Cmd.batch [ GamePorts.leaveMultiplayerRoom (), silenceAudio ]
+            )
+
+        ToggleLanguage ->
+            let
+                next =
+                    case model.language of
+                        Fi ->
+                            En
+
+                        En ->
+                            Fi
+            in
+            ( { model | language = next }
+            , GamePorts.storeLanguage (SailsI18n.toCode next)
             )
 
         ToggleMute ->
@@ -661,6 +685,7 @@ view model =
                 , viewportWidth = model.viewportWidth
                 , viewportHeight = model.viewportHeight
                 , roomCode = model.roomCodeInput
+                , language = model.language
                 , actions =
                     { onSelectBoat = SelectBoat
                     , onStartSailing = StartSailing
@@ -671,5 +696,6 @@ view model =
                     , onPasteChanged = PasteChanged
                     , onLoadPasted = LoadPasted
                     , onOpenFile = OpenFile
+                    , onToggleLanguage = ToggleLanguage
                     }
                 }

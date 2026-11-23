@@ -17,11 +17,11 @@ import FeatherIcons
 import Game.Audio as GameAudio
 import Game.Grid as Grid
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
-import Game.MultiplayerUI as MultiplayerUI
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
+import I18n exposing (Language)
 import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
@@ -29,6 +29,7 @@ import Ports
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
+import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.ShipMesh exposing (ShipMesh)
@@ -83,6 +84,7 @@ type alias SailModel =
     , viewportHeight : Int
     , hull : Hull
     , debris : List Wreck.Piece
+    , language : Language
     }
 
 
@@ -115,7 +117,8 @@ cannonReload =
 
 
 initSail :
-    Boat
+    Language
+    -> Boat
     -> Course
     -> Bool
     -> Maybe LeaderboardEntry
@@ -124,7 +127,7 @@ initSail :
     -> Int
     -> Int
     -> SailModel
-initSail boat course audioMuted pb maybeMulti tilt width height =
+initSail language boat course audioMuted pb maybeMulti tilt width height =
     let
         state =
             Physics.initSailingState course
@@ -176,6 +179,7 @@ initSail boat course audioMuted pb maybeMulti tilt width height =
     , viewportHeight = height
     , hull = Hull.fresh
     , debris = []
+    , language = language
     }
 
 
@@ -411,7 +415,7 @@ update msg model =
         RestartCourse ->
             let
                 fresh =
-                    initSail model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
+                    initSail model.language model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
             in
             ( { fresh
                 | multiplayer = model.multiplayer
@@ -450,13 +454,13 @@ update msg model =
                         -- The host started the race: everyone back to the start line.
                         let
                             fresh =
-                                initSail model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
+                                initSail model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
                         ( { fresh | phase = WaitingForRoom }, GamePorts.calibrateTilt () )
 
                 ( InRace, _ ) ->
                     if model.phase == WaitingForRoom then
-                        ( { model | multiplayer = Just room, phase = Racing, toast = Just ( "GO!", 0.8 ) }, sfx GameAudio.Horn )
+                        ( { model | multiplayer = Just room, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
 
                     else
                         ( { model | multiplayer = Just room }, Cmd.none )
@@ -478,7 +482,7 @@ tick dt model =
             case model.phase of
                 Countdown t ->
                     if t - dt <= 0 then
-                        ( Racing, sfx GameAudio.Horn, Just ( "GO!", 0.8 ) )
+                        ( Racing, sfx GameAudio.Horn, Just ( T.goBanner model.language, 0.8 ) )
 
                     else
                         ( Countdown (t - dt), Cmd.none, Nothing )
@@ -593,33 +597,33 @@ tick dt model =
                 Nothing
 
             else
-                Just ( "Treasure! −" ++ String.fromInt (round treasureBonus) ++ " s", 1.6 )
+                Just ( T.treasureToast model.language (round treasureBonus), 1.6 )
 
         passToast =
             case passed of
                 Just i ->
                     if progress.finished then
-                        Just ( "FINISH!", 1.5 )
+                        Just ( T.finishToast model.language, 1.5 )
 
                     else
-                        Just ( "Buoy " ++ String.fromInt (i + 1) ++ "/" ++ String.fromInt progress.totalWaypoints, 1.0 )
+                        Just ( T.buoyToast model.language (i + 1) progress.totalWaypoints, 1.0 )
 
                 Nothing ->
                     Nothing
 
         hitToast =
             if countedHits > 0 then
-                Just ( "Hit! −" ++ String.fromInt (round (Physics.bonusPerHit * toFloat countedHits)) ++ " s", 1.0 )
+                Just ( T.hitToast model.language (round (Physics.bonusPerHit * toFloat countedHits)), 1.0 )
 
             else
                 Nothing
 
         hullToast =
             if justWrecked then
-                Just ( "Shipwrecked!", 2.0 )
+                Just ( T.shipwrecked model.language, 2.0 )
 
             else if knocked then
-                Just ( "Hull damaged: " ++ String.fromInt (Hull.percent hull) ++ "%", 1.2 )
+                Just ( T.hullDamagedToast model.language (Hull.percent hull), 1.2 )
 
             else
                 Nothing
@@ -918,7 +922,7 @@ viewRace model callbacks maybeRoom =
             text ""
 
           else if wrecked then
-            HUD.viewWrecked { onRestart = callbacks.onRestartCourse, onExit = callbacks.onReturnToShipyard }
+            HUD.viewWrecked model.language { onRestart = callbacks.onRestartCourse, onExit = callbacks.onReturnToShipyard }
 
           else
             HUD.viewHud
@@ -938,6 +942,7 @@ viewRace model callbacks maybeRoom =
                 , flash = (Weather.conditions model.course.wind model.weather).flash
                 , hull = model.hull
                 , courseBearing = backToCourse model
+                , language = model.language
                 , actions =
                     { onSteer = Steer
                     , onFire = FireCannons
@@ -948,8 +953,8 @@ viewRace model callbacks maybeRoom =
                     , onExit = callbacks.onReturnToShipyard
                     }
                 }
-        , hostHeader maybeRoom
-        , lobbyRoster maybeRoom
+        , hostHeader model.language maybeRoom
+        , lobbyRoster model.language maybeRoom
         , case maybeRoom of
             Just room ->
                 div [ Attr.class "absolute bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
@@ -961,15 +966,11 @@ viewRace model callbacks maybeRoom =
 
                       else
                         span [ Attr.class "text-xs font-bold text-amber-300", Attr.attribute "data-testid" "loading-ships" ]
-                            [ text
-                                ("Loading "
-                                    ++ String.join ", " (List.map (\p -> "P" ++ String.fromInt p.slot) loadingShips)
-                                    ++ " ship…"
-                                )
-                            ]
+                            [ text (T.loadingShips model.language (List.map .slot loadingShips)) ]
                     , button
                         [ onClick CopyShareUrl
-                        , Attr.title "Copy room link"
+                        , Attr.title (T.copyRoomLink model.language)
+                        , Attr.attribute "aria-label" (T.copyRoomLink model.language)
                         , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg bg-slate-800 text-slate-300"
                         ]
                         [ FeatherIcons.share2 |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
@@ -983,6 +984,7 @@ viewRace model callbacks maybeRoom =
                 , progress = model.progress
                 , boatName = model.boat.name
                 , personalBest = model.personalBest
+                , language = model.language
                 , actions =
                     { onSailAgain = callbacks.onRestartCourse
                     , onReturnToShipyard = callbacks.onReturnToShipyard
@@ -1023,17 +1025,14 @@ viewBoatGrid renderFrom shape width height room model =
         tile p =
             div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
                 [ renderFrom (CameraRig.followView (followOf p)) tileW tileH
-                , MultiplayerUI.viewPlayerBadge
-                    { slot = p.slot
-                    , name =
-                        if p.slot == room.mySlot then
-                            p.name ++ " (you)"
+                , playerBadge model.language
+                    "top-2 left-2"
+                    (if p.slot == room.mySlot then
+                        { p | name = p.name ++ " " ++ T.you model.language }
 
-                        else
-                            p.name
-                    , speedLabel = String.fromInt (round (p.speed * 1.94)) ++ " kn"
-                    , finished = p.finished
-                    }
+                     else
+                        p
+                    )
                 ]
     in
     div
@@ -1045,20 +1044,50 @@ viewBoatGrid renderFrom shape width height room model =
         (List.map tile (Grid.selfFirst .slot room.mySlot room.players))
 
 
-{-| Commentator controls (player count, copy link, start) for the host of a room.
+{-| Commentator controls (room code, player count, copy link, start) for the
+host of a room.
 -}
-hostHeader : Maybe RoomState -> Html SailMsg
-hostHeader maybeRoom =
+hostHeader : Language -> Maybe RoomState -> Html SailMsg
+hostHeader language maybeRoom =
     case maybeRoom of
         Just room ->
             case room.role of
                 HostCommentator ->
-                    MultiplayerUI.viewCommentatorHeader
-                        { room = room
-                        , startLabel = "START RACE"
-                        , onCopyShareLink = CopyShareUrl
-                        , onStartCountdown = StartMultiplayerCountdown
-                        }
+                    div
+                        [ Attr.class "absolute top-3 inset-x-0 mx-auto w-fit z-30 flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
+                        , Attr.attribute "data-testid" "host-header"
+                        ]
+                        [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 whitespace-nowrap" ]
+                            [ text (T.roomLabel language room.roomId) ]
+                        , span [ Attr.class "text-xs font-bold text-slate-300 tabular-nums whitespace-nowrap" ]
+                            [ text (T.playerCount language (List.length room.players) room.maxPlayers) ]
+                        , button
+                            [ Attr.type_ "button"
+                            , onClick CopyShareUrl
+                            , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 whitespace-nowrap border border-white/10"
+                            ]
+                            [ text (T.copyLink language) ]
+                        , case room.status of
+                            Lobby ->
+                                button
+                                    [ Attr.type_ "button"
+                                    , onClick StartMultiplayerCountdown
+                                    , Attr.class "text-xs font-black px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 active:scale-95 text-slate-950 shadow-lg shadow-emerald-500/25 whitespace-nowrap"
+                                    ]
+                                    [ text (T.startRace language) ]
+
+                            Multiplayer.Countdown n ->
+                                statusChip "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                                    (T.raceStatus language { countdown = Just n, finished = False })
+
+                            InRace ->
+                                statusChip "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                                    (T.raceStatus language { countdown = Nothing, finished = False })
+
+                            Finished ->
+                                statusChip "text-purple-400 bg-purple-500/10 border-purple-500/20"
+                                    (T.raceStatus language { countdown = Nothing, finished = True })
+                        ]
 
                 JoinedPlayer ->
                     text ""
@@ -1067,19 +1096,77 @@ hostHeader maybeRoom =
             text ""
 
 
-{-| Who is in the room, while it waits in its lobby.
+statusChip : String -> String -> Html msg
+statusChip colours label =
+    span [ Attr.class ("text-xs font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-lg border whitespace-nowrap " ++ colours) ]
+        [ text label ]
+
+
+{-| Who is in the room, while it waits in its lobby: every seat, with the
+name of the player in it or an open seat.
 -}
-lobbyRoster : Maybe RoomState -> Html SailMsg
-lobbyRoster maybeRoom =
+lobbyRoster : Language -> Maybe RoomState -> Html SailMsg
+lobbyRoster language maybeRoom =
     case maybeRoom of
         Just room ->
             case room.status of
                 Lobby ->
-                    div [ Attr.class "absolute bottom-3 inset-x-0 z-30 px-3 pointer-events-none" ]
-                        [ MultiplayerUI.viewRoster room ]
+                    div
+                        [ Attr.class "absolute bottom-3 inset-x-0 z-30 px-3 pointer-events-none"
+                        , Attr.attribute "data-testid" "lobby-roster"
+                        ]
+                        [ div [ Attr.class "flex flex-wrap items-center justify-center gap-1.5" ]
+                            (List.map (rosterSeat language room) (List.range 1 room.maxPlayers))
+                        ]
 
                 _ ->
                     text ""
 
         Nothing ->
             text ""
+
+
+rosterSeat : Language -> RoomState -> Int -> Html msg
+rosterSeat language room slot =
+    case List.filter (\p -> p.slot == slot) room.players |> List.head of
+        Just p ->
+            span
+                [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-bold border truncate max-w-[9rem] bg-slate-950/70 " ++ Multiplayer.slotBadgeClass slot)
+                , Attr.title (T.slotLabel language slot)
+                ]
+                [ text
+                    (if slot == room.mySlot then
+                        p.name ++ " " ++ T.you language
+
+                     else
+                        p.name
+                    )
+                ]
+
+        Nothing ->
+            span
+                [ Attr.class "px-2 py-0.5 rounded-lg text-xs font-semibold border border-dashed border-slate-700 bg-slate-950/60 text-slate-400"
+                , Attr.title (T.slotLabel language slot)
+                ]
+                [ text (T.slotOpen language slot) ]
+
+
+{-| Name tag of another player's tile: slot, name, speed and whether they
+finished, in the given corner of the tile.
+-}
+playerBadge : Language -> String -> Multiplayer.RemotePlayer -> Html msg
+playerBadge language corner p =
+    div
+        [ Attr.class ("absolute z-10 flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg " ++ corner)
+        , Attr.attribute "data-testid" "player-badge"
+        ]
+        [ span [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black uppercase " ++ Multiplayer.slotBadgeClass p.slot) ]
+            [ text ("P" ++ String.fromInt p.slot) ]
+        , span [ Attr.class "text-xs font-bold text-white truncate max-w-[110px]" ] [ text p.name ]
+        , span [ Attr.class "text-xs font-mono font-bold text-sky-400" ] [ text (String.fromInt (round (p.speed * 1.94)) ++ " kn") ]
+        , if p.finished then
+            span [ Attr.class "text-xs font-black text-emerald-400" ] [ text (T.finishedBadge language) ]
+
+          else
+            text ""
+        ]

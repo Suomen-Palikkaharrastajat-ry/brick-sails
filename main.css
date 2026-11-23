@@ -61,10 +61,10 @@
     font-weight: 600;
   }
 
-  .rotate-hint p[lang='en'] {
-    font-size: 0.95rem;
-    font-weight: 400;
-    color: rgb(255 255 255 / 0.72);
+  /* Only the page's language: Finnish, or English when the game is in English. */
+  html:not([lang='en']) .rotate-hint p[lang='en'],
+  html[lang='en'] .rotate-hint p[lang='fi'] {
+    display: none;
   }
 }
 

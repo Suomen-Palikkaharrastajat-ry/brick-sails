@@ -1,7 +1,14 @@
 import './main.css'
 import { bootGame } from './vendor/packages/brick-frame-game/runtime/game-boot.js'
+import { readLanguage } from './vendor/packages/brick-frame-game/runtime/language.js'
 import { createAudioEngine } from './audio.js'
 import { Elm } from './src/Main.elm'
+
+// The page language follows the game's (Finnish unless a ?lang= link or a
+// saved choice says English), so the rotate hint in index.html shows only the
+// player's language. The game's FI / EN switch saves its choice through
+// `storeLanguage`; the page follows it there too.
+document.documentElement.lang = readLanguage()
 
 // Phones play in landscape. On the first touch, ask for fullscreen and lock the
 // screen to landscape where the browser allows it (fullscreen and a user gesture
@@ -30,11 +37,15 @@ if (window.matchMedia?.('(pointer: coarse)').matches) {
 
 // A build link in the page URL (`#b/...` or `#model=...`) is loaded as the
 // player's own ship; without one the four built-in boats are offered.
-bootGame({
+const { ports } = bootGame({
   elm: Elm.Main,
   env: import.meta.env,
   storagePrefix: 'sails',
   createAudioEngine,
   playerPrefix: 'Sailor ',
   tiltSteer: { storageKey: 'sails.steerMode' },
+})
+
+ports?.storeLanguage?.subscribe((lang) => {
+  document.documentElement.lang = lang
 })

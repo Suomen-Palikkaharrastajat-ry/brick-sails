@@ -26,8 +26,10 @@ import Game.Leaderboard as Leaderboard
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events as Events
+import I18n exposing (Language)
 import Json.Decode as Decode
 import Sails.Hull as Hull exposing (Hull)
+import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, CourseProgress, SailingState, Wind)
 
@@ -65,6 +67,7 @@ viewHud :
     , flash : Float
     , hull : Hull
     , courseBearing : Maybe Float
+    , language : Language
     , actions : HudActions msg
     }
     -> Html msg
@@ -80,14 +83,14 @@ viewHud cfg =
                 , viewTopButtons cfg
                 ]
             , viewToast cfg.toast
-            , viewCountdown cfg.countdown
-            , viewBackToCourse cfg.cameraYaw cfg.courseBearing
+            , viewCountdown cfg.language cfg.countdown
+            , viewBackToCourse cfg.language cfg.cameraYaw cfg.courseBearing
             , div [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto" ]
-                [ tiltButton cfg.tilt
+                [ tiltButton cfg.language cfg.tilt
                 , if showSteerButtons cfg.tilt then
                     div [ Attr.class "flex gap-3" ]
-                        [ steerButton cfg.actions Left
-                        , steerButton cfg.actions Right
+                        [ steerButton cfg.language cfg.actions Left
+                        , steerButton cfg.language cfg.actions Right
                         ]
 
                   else
@@ -114,9 +117,10 @@ viewStatus :
         , wind : Wind
         , weather : Maybe String
         , hull : Hull
+        , language : Language
     }
     -> Html msg
-viewStatus { progress, state, cameraYaw, wind, weather, hull } =
+viewStatus { progress, state, cameraYaw, wind, weather, hull, language } =
     let
         total =
             progress.totalWaypoints
@@ -142,34 +146,43 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull } =
         windRotation =
             cameraYaw - wind.direction
 
+        point =
+            pointOfSail wind state.heading
+
         powerLabel =
-            case pointOfSail wind state.heading of
+            ( T.pointOfSailText language
+                { inIrons = point == InIrons
+                , closeHauled = point == CloseHauled
+                , reaching = point == Reaching
+                }
+            , case point of
                 InIrons ->
-                    ( "Into wind: turn away", "text-amber-300" )
+                    "text-amber-300"
 
                 CloseHauled ->
-                    ( "Close-hauled", "text-sky-300" )
+                    "text-sky-300"
 
                 Reaching ->
-                    ( "Reach: fastest", "text-emerald-300" )
+                    "text-emerald-300"
 
                 Running ->
-                    ( "Running", "text-sky-300" )
+                    "text-sky-300"
+            )
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
         [ span [ Attr.class "font-mono text-2xl font-black tracking-wide text-amber-300 leading-none" ]
             [ text (Leaderboard.formatRaceTime progress.elapsedSeconds) ]
-        , viewHealth hull
-        , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" "Buoys" ]
+        , viewHealth language hull
+        , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" (T.buoyAria language) ]
             (span [ Attr.class "text-[11px] font-bold text-slate-300 mr-0.5" ]
-                [ text ("Buoy " ++ String.fromInt (min total (progress.currentWaypointIndex + 1)) ++ "/" ++ String.fromInt total) ]
+                [ text (T.buoyCount language (min total (progress.currentWaypointIndex + 1)) total) ]
                 :: List.map dot (List.range 0 (total - 1))
             )
         , div [ Attr.class "flex items-center gap-2 text-[11px] font-bold" ]
             [ span
                 [ Attr.class "inline-flex text-sky-300"
                 , Attr.style "transform" ("rotate(" ++ String.fromFloat windRotation ++ "deg)")
-                , Attr.title "Wind direction"
+                , Attr.title (T.windDirection language)
                 ]
                 [ FeatherIcons.arrowUp |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
             , span [ Attr.class (Tuple.second powerLabel), Attr.attribute "data-testid" "point-of-sail" ] [ text (Tuple.first powerLabel) ]
@@ -178,15 +191,15 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull } =
 
               else
                 span [ Attr.class "text-amber-300", Attr.attribute "data-testid" "treasure" ]
-                    [ text ("Treasure " ++ String.fromInt (List.length progress.treasureFound) ++ " (-" ++ String.fromInt (round progress.treasureBonus) ++ "s)") ]
+                    [ text (T.treasureLabel language (List.length progress.treasureFound) (round progress.treasureBonus)) ]
             , if progress.targetsHit > 0 then
                 span [ Attr.class "text-rose-300" ]
-                    [ text ("Targets " ++ String.fromInt progress.targetsHit ++ " (-" ++ String.fromInt (round (Physics.bonusPerHit * toFloat progress.targetsHit)) ++ "s)") ]
+                    [ text (T.targetsLabel language progress.targetsHit (round (Physics.bonusPerHit * toFloat progress.targetsHit))) ]
 
               else
                 text ""
             ]
-        , viewHeel state.heel
+        , viewHeel language state.heel
         , case weather of
             Just name ->
                 div
@@ -204,7 +217,7 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull } =
                       )
                         |> FeatherIcons.withSize 14
                         |> FeatherIcons.toHtml []
-                    , text name
+                    , text (T.weatherName language name)
                     , span [ Attr.class "text-slate-300 normal-case font-bold" ]
                         [ text (String.fromInt (round (wind.speed * 1.94)) ++ " kn") ]
                     ]
@@ -244,26 +257,22 @@ iconButton attrs label icon =
 viewTopButtons :
     { a
         | audioMuted : Bool
+        , language : Language
         , actions : HudActions msg
     }
     -> Html msg
-viewTopButtons { audioMuted, actions } =
+viewTopButtons { audioMuted, language, actions } =
     div [ Attr.class "flex flex-wrap justify-end gap-1.5 pointer-events-auto shrink-0 max-w-[100px] sm:max-w-none" ]
         [ iconButton [ Events.onClick actions.onToggleMute ]
-            (if audioMuted then
-                "Unmute"
-
-             else
-                "Mute"
-            )
+            (T.muteLabel language audioMuted)
             (if audioMuted then
                 FeatherIcons.volumeX
 
              else
                 FeatherIcons.volume2
             )
-        , iconButton [ Events.onClick actions.onRestart ] "Restart race" FeatherIcons.rotateCcw
-        , iconButton [ Events.onClick actions.onExit ] "Back to boats" FeatherIcons.anchor
+        , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
+        , iconButton [ Events.onClick actions.onExit ] (T.backToBoats language) FeatherIcons.anchor
         ]
 
 
@@ -278,20 +287,14 @@ showSteerButtons tilt =
 {-| Small corner button switching between tilt and button steering.
 Handled in tilt-steer.js so the iOS permission prompt runs inside the tap.
 -}
-tiltButton : { available : Bool, enabled : Bool } -> Html msg
-tiltButton tilt =
+tiltButton : Language -> { available : Bool, enabled : Bool } -> Html msg
+tiltButton language tilt =
     if tilt.available then
         button
             [ Attr.attribute "data-tilt-toggle" ""
             , Attr.attribute "data-testid" "tilt-toggle"
-            , Attr.title
-                (if tilt.enabled then
-                    "Tilt steering on (tap for buttons)"
-
-                 else
-                    "Tilt steering off (tap to tilt)"
-                )
-            , Attr.attribute "aria-label" "Tilt steering"
+            , Attr.title (T.tiltSteeringTitle language tilt.enabled)
+            , Attr.attribute "aria-label" (T.tiltSteeringLabel language)
             , Attr.attribute "aria-pressed"
                 (if tilt.enabled then
                     "true"
@@ -310,7 +313,7 @@ tiltButton tilt =
                 )
             ]
             [ FeatherIcons.smartphone |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-            , text "Tilt"
+            , text (T.tiltLabel language True)
             ]
 
     else
@@ -332,16 +335,16 @@ holdEvents press release =
     ]
 
 
-steerButton : HudActions msg -> Side -> Html msg
-steerButton actions side =
+steerButton : Language -> HudActions msg -> Side -> Html msg
+steerButton language actions side =
     let
         ( label, icon ) =
             case side of
                 Left ->
-                    ( "Steer left", FeatherIcons.chevronLeft )
+                    ( T.steerLabel language True, FeatherIcons.chevronLeft )
 
                 Right ->
-                    ( "Steer right", FeatherIcons.chevronRight )
+                    ( T.steerLabel language False, FeatherIcons.chevronRight )
     in
     button
         ([ Attr.title label
@@ -362,11 +365,11 @@ steerButton actions side =
         [ icon |> FeatherIcons.withSize 40 |> FeatherIcons.toHtml [] ]
 
 
-fireButton : { a | cannonReady : Bool, targetInRange : Bool, actions : HudActions msg } -> Html msg
-fireButton { cannonReady, targetInRange, actions } =
+fireButton : { a | cannonReady : Bool, targetInRange : Bool, language : Language, actions : HudActions msg } -> Html msg
+fireButton { cannonReady, targetInRange, language, actions } =
     button
-        [ Attr.title "Fire cannons (Space)"
-        , Attr.attribute "aria-label" "Fire cannons"
+        [ Attr.title (T.fireTitle language ++ " (" ++ T.spaceKey language ++ ")")
+        , Attr.attribute "aria-label" (T.fireTitle language)
         , Attr.attribute "data-fire" ""
         , Attr.style "touch-action" "none"
         , Events.preventDefaultOn "pointerdown" (Decode.succeed ( actions.onFire, True ))
@@ -384,13 +387,7 @@ fireButton { cannonReady, targetInRange, actions } =
             )
         ]
         [ FeatherIcons.target |> FeatherIcons.withSize 28 |> FeatherIcons.toHtml []
-        , text
-            (if cannonReady then
-                "FIRE"
-
-             else
-                "LOAD"
-            )
+        , text (T.fireButton language cannonReady)
         ]
 
 
@@ -407,8 +404,8 @@ viewToast toast =
             text ""
 
 
-viewCountdown : Maybe Int -> Html msg
-viewCountdown countdown =
+viewCountdown : Language -> Maybe Int -> Html msg
+viewCountdown language countdown =
     case countdown of
         Just n ->
             -- The number above the boat and the hint below it, so the boat
@@ -421,13 +418,13 @@ viewCountdown countdown =
                                 String.fromInt n
 
                              else
-                                "GO!"
+                                T.goBanner language
                             )
                         ]
                     ]
                 , div [ Attr.class "absolute inset-x-0 bottom-[104px] landscape:bottom-1 flex justify-center" ]
                     [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-slate-950/70 text-sm font-bold max-w-[280px] text-center" ]
-                        [ text "Sail through the glowing buoys in order. Get close to a target and FIRE for -2 s." ]
+                        [ text (T.countdownHint language) ]
                     ]
                 ]
 
@@ -439,8 +436,8 @@ viewCountdown countdown =
 level shows as a row of pips with its name; an overpowered sail flashes a
 warning to reef.
 -}
-sailControl : { a | sailLevel : Int, state : SailingState, wind : Wind, actions : HudActions msg } -> Html msg
-sailControl { sailLevel, state, wind, actions } =
+sailControl : { a | sailLevel : Int, state : SailingState, wind : Wind, language : Language, actions : HudActions msg } -> Html msg
+sailControl { sailLevel, state, wind, language, actions } =
     let
         levels =
             List.length Physics.sailLevels
@@ -490,7 +487,7 @@ sailControl { sailLevel, state, wind, actions } =
                 []
     in
     div [ Attr.class "flex flex-col items-center gap-1", Attr.attribute "data-testid" "sail-control" ]
-        [ tap "Raise sail" "W" FeatherIcons.chevronsUp actions.onRaiseSail (sailLevel < levels - 1)
+        [ tap (T.sailStep language True) "W" FeatherIcons.chevronsUp actions.onRaiseSail (sailLevel < levels - 1)
         , div
             [ Attr.class
                 ("w-[60px] px-1 py-1 rounded-lg flex flex-col items-center gap-0.5 border "
@@ -503,32 +500,32 @@ sailControl { sailLevel, state, wind, actions } =
                 )
             , Attr.title
                 (if overpowered then
-                    "Overpowered: lower the sail"
+                    T.overpoweredTitle language
 
                  else
-                    "Sail: " ++ name
+                    T.sailLevelTitle language name
                 )
             ]
             [ span [ Attr.class "flex gap-0.5 items-end" ] (List.map pip (List.range 1 (levels - 1)))
             , span [ Attr.class "text-[10px] font-black uppercase tracking-wide leading-none" ]
                 [ text
                     (if overpowered then
-                        "Reef!"
+                        T.reefWarning language
 
                      else
-                        name
+                        T.sailLevelName language name
                     )
                 ]
             ]
-        , tap "Lower sail" "S" FeatherIcons.chevronsDown actions.onLowerSail (sailLevel > 0)
+        , tap (T.sailStep language False) "S" FeatherIcons.chevronsDown actions.onLowerSail (sailLevel > 0)
         ]
 
 
 {-| The hull's health as a bar with its percentage, green while sound,
 amber when damaged and red when critical.
 -}
-viewHealth : Hull -> Html msg
-viewHealth hull =
+viewHealth : Language -> Hull -> Html msg
+viewHealth language hull =
     let
         pct =
             Hull.percent hull
@@ -547,10 +544,10 @@ viewHealth hull =
     div
         [ Attr.class "flex items-center gap-1.5 text-[11px] font-black"
         , Attr.attribute "data-testid" "hull"
-        , Attr.attribute "aria-label" ("Hull " ++ String.fromInt pct ++ " %")
-        , Attr.title "Hull: rocks, cannonballs and storm waves wear it down; it mends when left alone"
+        , Attr.attribute "aria-label" (T.hullLabel language ++ " " ++ String.fromInt pct ++ " %")
+        , Attr.title (T.hullTitle language)
         ]
-        [ span [ Attr.class "text-slate-300 uppercase tracking-wide" ] [ text "Hull" ]
+        [ span [ Attr.class "text-slate-300 uppercase tracking-wide" ] [ text (T.hullLabel language) ]
         , span [ Attr.class "relative w-20 h-2.5 rounded-full bg-slate-700 overflow-hidden" ]
             [ span
                 [ Attr.class ("absolute inset-y-0 left-0 rounded-full " ++ barColour)
@@ -565,8 +562,8 @@ viewHealth hull =
 {-| How far the boat heels, as a level that leans with it: green while it
 sails upright, amber when pressed, red when the sail is overpowering it.
 -}
-viewHeel : Float -> Html msg
-viewHeel heel =
+viewHeel : Language -> Float -> Html msg
+viewHeel language heel =
     let
         a =
             abs heel
@@ -584,24 +581,14 @@ viewHeel heel =
     div
         [ Attr.class ("flex items-center gap-1.5 text-[11px] font-bold " ++ colour)
         , Attr.attribute "data-testid" "heel"
-        , Attr.title "Heel: lower the sail if the boat leans over hard"
+        , Attr.title (T.heelTitle language)
         ]
         [ span
             [ Attr.class "inline-block w-6 h-1 rounded-full bg-current"
             , Attr.style "transform" ("rotate(" ++ String.fromFloat (clamp -40 40 heel) ++ "deg)")
             ]
             []
-        , text
-            ("Heel "
-                ++ String.fromInt (round a)
-                ++ "°"
-                ++ (if a >= 22 then
-                        " · ease the sail"
-
-                    else
-                        ""
-                   )
-            )
+        , text (T.heelLabel language (round a) (a >= 22))
         ]
 
 
@@ -640,8 +627,8 @@ pointOfSail wind heading =
 {-| An arrow back to the course, while the boat is far off it (the current
 carries it back too, see `Sails.Physics.courseCurrent`).
 -}
-viewBackToCourse : Float -> Maybe Float -> Html msg
-viewBackToCourse cameraYaw bearing =
+viewBackToCourse : Language -> Float -> Maybe Float -> Html msg
+viewBackToCourse language cameraYaw bearing =
     case bearing of
         Just b ->
             div [ Attr.class "absolute left-0 right-0 top-[24%] flex justify-center" ]
@@ -654,7 +641,7 @@ viewBackToCourse cameraYaw bearing =
                         , Attr.style "transform" ("rotate(" ++ String.fromFloat (cameraYaw - b) ++ "deg)")
                         ]
                         [ FeatherIcons.arrowUp |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
-                    , text "Back to the course"
+                    , text (T.backToCourse language)
                     ]
                 ]
 
@@ -664,29 +651,29 @@ viewBackToCourse cameraYaw bearing =
 
 {-| The boat broke up: the run is lost. Sail again or pick another boat.
 -}
-viewWrecked : { onRestart : msg, onExit : msg } -> Html msg
-viewWrecked actions =
+viewWrecked : Language -> { onRestart : msg, onExit : msg } -> Html msg
+viewWrecked language actions =
     div
         [ Attr.class "absolute inset-0 z-30 flex items-center justify-center bg-slate-950/45 pointer-events-auto select-none"
         , Attr.attribute "data-testid" "wrecked"
         , Attr.attribute "role" "alertdialog"
-        , Attr.attribute "aria-label" "Shipwrecked"
+        , Attr.attribute "aria-label" (T.shipwrecked language)
         ]
         [ div [ Attr.class (panel ++ " mx-4 px-5 py-4 flex flex-col items-center gap-3 text-center text-white max-w-sm") ]
-            [ span [ Attr.class "text-3xl font-black text-rose-300" ] [ text "Shipwrecked!" ]
+            [ span [ Attr.class "text-3xl font-black text-rose-300" ] [ text (T.shipwrecked language) ]
             , span [ Attr.class "text-sm font-bold text-slate-200" ]
-                [ text "Your ship broke apart into its bricks. This run is lost: steer clear of the rocks and ease into big waves." ]
+                [ text (T.shipwreckedText language) ]
             , div [ Attr.class "flex gap-2" ]
                 [ button
                     [ Events.onClick actions.onRestart
                     , Attr.class "px-4 h-11 rounded-xl bg-sky-500 text-slate-950 font-black"
                     ]
-                    [ text "Sail again" ]
+                    [ text (T.sailAgain language) ]
                 , button
                     [ Events.onClick actions.onExit
                     , Attr.class "px-4 h-11 rounded-xl bg-slate-800 border border-white/10 text-white font-bold"
                     ]
-                    [ text "Back to boats" ]
+                    [ text (T.backToBoats language) ]
                 ]
             ]
         ]
