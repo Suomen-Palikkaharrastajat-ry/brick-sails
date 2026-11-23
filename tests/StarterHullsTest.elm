@@ -1,7 +1,7 @@
 module StarterHullsTest exposing (suite)
 
 {-| Checks of the starter hulls in `starters/sails/` (embedded in
-`StarterBases` by `node starters/embed-starters.mjs`):
+`Sails.StarterBases` by `node starters/embed-starters.mjs`):
 
   - each file is one grouped hull: the main model holds a single reference to
     the hull submodel, and the part count in its header is the real count,
@@ -22,8 +22,8 @@ import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Ingest as Ingest
+import Sails.StarterBases as StarterBases exposing (Starter)
 import Set exposing (Set)
-import StarterBases exposing (Starter)
 import Studio.Health as Health
 import Test exposing (Test, describe, test)
 
