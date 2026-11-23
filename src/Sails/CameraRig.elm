@@ -16,19 +16,20 @@ module Sails.CameraRig exposing
 into those values.
 
 The game camera is a close chase camera, framed like Brick Racer's chase
-camera: it sits a few boat lengths behind the boat and a little above the
-masthead, looking down at about 24 degrees (0.42 rad, inside the racer's
+camera: it sits about one and a half boat lengths behind the boat, looking
+down at about 24 degrees (0.42 rad, inside the racer's
 0.16 to 0.45 rad chase range), a little round to one side (a three-quarter
 view) so the tall brick masts are seen from the side rather than end-on. It
-aims at the boat a little under mid-mast height, half a metre ahead as the
-racer aims just ahead of the car, follows the boat quickly, turns towards
+aims at the boat at mid-mast height, half a metre ahead as the racer aims
+just ahead of the car, follows the boat quickly, turns towards
 the next buoy and pulls back only a few metres when the buoy is far (the
 on-water arrow points at it before it comes into view). It stays centred on
 the boat (it no longer slides towards the buoy), so the close camera keeps
-the hull and the masthead on screen.
-It is close enough for the player's own build to fill a good part of a
-phone screen, and far enough that the tallest brick masthead (9 m, see
-`Sails.ShipMesh`) and the whole hull stay in the 45 degree view.
+the hull on screen.
+It is close enough for the player's own build to fill most of a phone
+screen. At this range the tip of the tallest brick masthead (9 m, see
+`Sails.ShipMesh`) and the stern corner nearest the camera reach the edges of
+the 45 degree view.
 
 -}
 
@@ -79,13 +80,13 @@ sideDegrees =
     18.0
 
 
-{-| Height above the water the camera aims at: a little under half a brick
-mast, so from close in the hull stays clear of the bottom of the screen and
-the masthead stays on it.
+{-| Height above the water the camera aims at: mid-mast (half of the 9 m
+brick masthead), so the boat sits in the middle of the view as the racer's
+car does.
 -}
 lookHeight : Float
 lookHeight =
-    3.2
+    4.0
 
 
 initFollow : Vec3 -> Float -> Follow
@@ -93,13 +94,13 @@ initFollow boat heading =
     { yaw = heading, distance = chaseDistance, focus = boat }
 
 
-{-| Resting follow distance in metres, about two boat lengths (a brick
-boat is scaled to about 8.4 m long): close, so the player sees their own
-build well.
+{-| Resting follow distance in metres, about one and a half boat lengths (a
+brick boat is scaled to about 8.4 m long): close, so the player sees their
+own build well.
 -}
 chaseDistance : Float
 chaseDistance =
-    17.0
+    13.0
 
 
 {-| The most the camera pulls back past `chaseDistance` for a far buoy.

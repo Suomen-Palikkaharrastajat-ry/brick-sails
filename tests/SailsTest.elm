@@ -617,7 +617,7 @@ suite =
                             Vec3.toRecord view.eye
                     in
                     Expect.all
-                        [ \_ -> Expect.greaterThan 10 eye.y
+                        [ \_ -> Expect.greaterThan 8 eye.y
                         , \_ -> Expect.lessThan 10 eye.x
                         ]
                         ()
@@ -634,9 +634,9 @@ suite =
                             Vec3.toRecord view.target
                     in
                     Expect.all
-                        [ \_ -> Expect.greaterThan 9.5 eye.y
-                        , \_ -> Expect.within (Expect.Absolute 1.5) 3.5 target.y
-                        , \_ -> Expect.lessThan -14 eye.z
+                        [ \_ -> Expect.greaterThan 8 eye.y
+                        , \_ -> Expect.within (Expect.Absolute 1.0) 4.0 target.y
+                        , \_ -> Expect.lessThan -10 eye.z
                         , \_ -> Expect.notWithin (Expect.Absolute 3) 0 eye.x
                         ]
                         ()
@@ -671,8 +671,8 @@ suite =
                             sqrt (eye.x * eye.x + eye.z * eye.z)
                     in
                     Expect.all
-                        [ \_ -> Expect.atMost 26 (horizontal (settle Nothing))
-                        , \_ -> Expect.atMost 34 (horizontal (settle (Just (vec3 0 0 300))))
+                        [ \_ -> Expect.atMost 13 (horizontal (settle Nothing))
+                        , \_ -> Expect.atMost 16 (horizontal (settle (Just (vec3 0 0 300))))
                         ]
                         ()
             ]
