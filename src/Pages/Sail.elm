@@ -904,7 +904,7 @@ viewRace model callbacks maybeRoom =
             maybeRoom |> Maybe.map (\r -> List.length r.players) |> Maybe.withDefault 1
     in
     div
-        [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 select-none font-sans"
+        [ Attr.class "is-racing relative w-full h-full overflow-hidden bg-brand select-none font-sans"
 
         -- A tap anywhere in the race starts tilt steering where the phone
         -- still has to ask for the sensor (iOS), see tilt-steer.js.
@@ -959,7 +959,7 @@ viewRace model callbacks maybeRoom =
             Just room ->
                 -- In portrait the pill sits above the steering and sail
                 -- buttons, which it would cover lower down.
-                div [ Attr.class "absolute bottom-[152px] landscape:bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
+                div [ Attr.class "absolute bottom-[152px] landscape:bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-brand/80 border border-white/10 pointer-events-auto" ]
                     [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
                         [ text ("P" ++ String.fromInt room.mySlot) ]
                     , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
@@ -967,7 +967,7 @@ viewRace model callbacks maybeRoom =
                         text ""
 
                       else
-                        span [ Attr.class "text-xs font-bold text-amber-300", Attr.attribute "data-testid" "loading-ships" ]
+                        span [ Attr.class "text-xs font-bold text-brand-yellow", Attr.attribute "data-testid" "loading-ships" ]
                             [ text (T.loadingShips model.language (List.map .slot loadingShips)) ]
                     , button
                         [ onClick CopyShareUrl
@@ -1029,7 +1029,7 @@ viewBoatGrid renderFrom shape width height room model =
         -- player. Other tiles in the top row of a grid with more rows show
         -- theirs at the bottom, clear of the HUD's top corners.
         tile index p =
-            div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
+            div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-brand" ]
                 [ renderFrom (CameraRig.followView (followOf p)) tileW tileH
                 , if p.slot == room.mySlot then
                     text ""
@@ -1065,7 +1065,7 @@ hostHeader language maybeRoom =
             case room.role of
                 HostCommentator ->
                     div
-                        [ Attr.class "absolute top-[200px] landscape:top-3 inset-x-0 mx-auto w-fit max-w-[calc(100%-16px)] z-30 flex flex-wrap justify-center items-center gap-2 landscape:gap-3 px-3 landscape:px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
+                        [ Attr.class "absolute top-[200px] landscape:top-3 inset-x-0 mx-auto w-fit max-w-[calc(100%-16px)] z-30 flex flex-wrap justify-center items-center gap-2 landscape:gap-3 px-3 landscape:px-4 py-2 rounded-2xl bg-brand/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
                         , Attr.attribute "data-testid" "host-header"
                         ]
                         [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 whitespace-nowrap" ]

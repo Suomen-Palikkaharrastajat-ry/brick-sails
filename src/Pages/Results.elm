@@ -53,7 +53,7 @@ viewResults { course, progress, boatName, personalBest, language, actions } =
             span
                 [ Attr.class
                     (if i <= stars then
-                        "text-amber-300 drop-shadow-[0_2px_6px_rgba(251,191,36,0.6)]"
+                        "text-brand-yellow drop-shadow-[0_2px_6px_rgba(250,200,10,0.6)]"
 
                      else
                         "text-slate-700"
@@ -71,15 +71,15 @@ viewResults { course, progress, boatName, personalBest, language, actions } =
             else
                 ""
     in
-    div [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm select-none overflow-y-auto" ]
-        [ div [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 shadow-2xl text-white flex flex-col landscape:flex-row items-center text-center gap-3 landscape:gap-5" ]
+    div [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-3 bg-brand/80 backdrop-blur-sm select-none overflow-y-auto" ]
+        [ div [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-brand border border-white/10 rounded-3xl p-4 sm:p-5 shadow-2xl text-white flex flex-col landscape:flex-row items-center text-center gap-3 landscape:gap-5" ]
             [ div [ Attr.class "flex flex-col items-center gap-1" ]
                 [ div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language stars) ] (List.map star [ 1, 2, 3 ])
-                , h1 [ Attr.class "text-2xl font-black uppercase tracking-wider text-amber-300 whitespace-nowrap" ] [ text headline ]
+                , h1 [ Attr.class "text-2xl font-black uppercase tracking-wider text-brand-yellow whitespace-nowrap" ] [ text headline ]
                 , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.courseTitle language course.title ++ " · " ++ T.boatName language boatName) ]
                 ]
             , div [ Attr.class "w-full flex flex-col gap-3" ]
-                [ div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-slate-950/60 border border-white/10 flex flex-col items-center" ]
+                [ div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center" ]
                     [ span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider" ] [ text (Leaderboard.formatRaceTime score) ]
                     , span [ Attr.class "text-xs text-slate-400" ]
                         [ text
@@ -97,7 +97,7 @@ viewResults { course, progress, boatName, personalBest, language, actions } =
                             )
                         ]
                     , if isNewRecord then
-                        span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase border border-amber-500/30" ]
+                        span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-brand-yellow/20 text-brand-yellow text-xs font-bold uppercase border border-brand-yellow/30" ]
                             [ text (T.newPersonalBest language) ]
 
                       else
@@ -113,7 +113,7 @@ viewResults { course, progress, boatName, personalBest, language, actions } =
                     [ button
                         [ onClick actions.onSailAgain
                         , Attr.attribute "data-retry" ""
-                        , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-sky-500 active:bg-sky-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2"
+                        , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-sm uppercase tracking-wider shadow-lg shadow-brand-yellow/25 flex items-center justify-center gap-2"
                         ]
                         [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
                         , text (T.sailAgain language)

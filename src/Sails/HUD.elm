@@ -106,7 +106,7 @@ viewHud cfg =
 
 panel : String
 panel =
-    "bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg rounded-2xl"
+    "bg-brand/85 backdrop-blur-md border border-white/10 shadow-lg rounded-2xl"
 
 
 viewStatus :
@@ -133,7 +133,7 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, language } =
                                 "bg-emerald-400"
 
                             else if i == progress.currentWaypointIndex then
-                                "bg-amber-300 ring-2 ring-amber-200/60"
+                                "bg-brand-yellow ring-2 ring-brand-yellow/60"
 
                             else
                                 "bg-slate-600"
@@ -305,10 +305,10 @@ tiltButton language tilt =
             , Attr.class
                 ("h-9 px-2.5 flex items-center gap-1 rounded-full border text-[10px] font-black uppercase tracking-wide backdrop-blur-md shadow "
                     ++ (if tilt.enabled then
-                            "bg-sky-500/90 border-sky-200/60 text-slate-950"
+                            "bg-brand-yellow/90 border-brand-yellow/60 text-brand"
 
                         else
-                            "bg-slate-900/75 border-white/15 text-slate-200"
+                            "bg-brand/75 border-white/15 text-slate-200"
                        )
                 )
             ]
@@ -379,10 +379,10 @@ fireButton { cannonReady, targetInRange, language, actions } =
                         "bg-slate-800/90 border-slate-600 text-slate-400"
 
                     else if targetInRange then
-                        "bg-rose-500 border-amber-300 text-white animate-pulse"
+                        "bg-brand-red border-brand-yellow text-white animate-pulse"
 
                     else
-                        "bg-rose-600/90 border-rose-300/60 text-white"
+                        "bg-brand-red/90 border-brand-red/60 text-white"
                    )
             )
         ]
@@ -396,7 +396,7 @@ viewToast toast =
     case toast of
         Just msg ->
             div [ Attr.class "absolute left-0 right-0 top-[38%] flex justify-center" ]
-                [ span [ Attr.class "px-4 py-1.5 rounded-full bg-slate-950/70 text-amber-300 font-black text-lg tracking-wide shadow-lg" ]
+                [ span [ Attr.class "px-4 py-1.5 rounded-full bg-brand/80 text-brand-yellow font-black text-lg tracking-wide shadow-lg" ]
                     [ text msg ]
                 ]
 
@@ -537,10 +537,10 @@ viewHealth language hull =
                     ( "bg-emerald-400", "text-emerald-200" )
 
                 Hull.Damaged ->
-                    ( "bg-amber-400", "text-amber-200" )
+                    ( "bg-brand-yellow", "text-brand-yellow" )
 
                 Hull.Critical ->
-                    ( "bg-rose-500 animate-pulse", "text-rose-200" )
+                    ( "bg-brand-red animate-pulse", "text-brand-red" )
     in
     div
         [ Attr.class "flex items-center gap-1.5 text-[11px] font-black"
@@ -634,7 +634,7 @@ viewBackToCourse language cameraYaw bearing =
         Just b ->
             div [ Attr.class "absolute left-0 right-0 top-[24%] flex justify-center" ]
                 [ span
-                    [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-400/90 text-slate-950 font-black text-sm shadow-lg"
+                    [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-yellow/90 text-brand font-black text-sm shadow-lg"
                     , Attr.attribute "data-testid" "back-to-course"
                     ]
                     [ span
@@ -667,7 +667,7 @@ viewWrecked language actions =
             , div [ Attr.class "flex gap-2" ]
                 [ button
                     [ Events.onClick actions.onRestart
-                    , Attr.class "px-4 h-11 rounded-xl bg-sky-500 text-slate-950 font-black"
+                    , Attr.class "px-4 h-11 rounded-xl bg-brand-yellow text-brand font-black"
                     ]
                     [ text (T.sailAgain language) ]
                 , button

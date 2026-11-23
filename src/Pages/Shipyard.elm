@@ -69,7 +69,7 @@ viewShipyard :
     }
     -> Html msg
 viewShipyard cfg =
-    div [ Attr.class "relative w-full h-full overflow-hidden bg-slate-950 font-sans select-none" ]
+    div [ Attr.class "relative w-full h-full overflow-hidden bg-brand font-sans select-none" ]
         [ div [ Attr.class "absolute inset-0 z-0" ]
             [ Render.renderShipyard cfg.mesh cfg.time cfg.viewportWidth cfg.viewportHeight ]
         , viewHeader cfg
@@ -83,7 +83,7 @@ viewLoading lang mesh loading =
     case ( mesh, loading ) of
         ( Nothing, Just l ) ->
             div [ Attr.class "absolute z-10 left-0 right-0 top-1/4 flex justify-center pointer-events-none" ]
-                [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-slate-900/80 text-sky-100 text-xs font-bold" ]
+                [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-brand/80 text-sky-100 text-xs font-bold" ]
                     [ text (T.loadingBricks lang l.loaded (max l.loaded l.total)) ]
                 ]
 
@@ -94,17 +94,17 @@ viewLoading lang mesh loading =
 viewHeader : { a | audioMuted : Bool, tilt : { available : Bool, enabled : Bool }, language : Language, actions : ShipyardActions msg } -> Html msg
 viewHeader { audioMuted, tilt, language, actions } =
     div
-        [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-slate-950/70 to-transparent pointer-events-none"
+        [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-brand/70 to-transparent pointer-events-none"
         , Attr.style "padding-top" "max(12px, env(safe-area-inset-top))"
         , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
         , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
         ]
         [ div [ Attr.class "flex items-center gap-2.5" ]
-            [ div [ Attr.class "w-10 h-10 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-lg" ]
+            [ div [ Attr.class "w-10 h-10 rounded-2xl bg-brand-yellow flex items-center justify-center text-brand shadow-lg" ]
                 [ FeatherIcons.navigation |> FeatherIcons.toHtml [] ]
             , div []
                 [ h1 [ Attr.class "text-lg font-black tracking-wider text-white uppercase leading-tight" ] [ text (T.title language) ]
-                , p [ Attr.class "text-xs text-sky-200" ] [ text (T.subtitle language) ]
+                , p [ Attr.class "text-xs text-brand-yellow" ] [ text (T.subtitle language) ]
                 ]
             ]
         , div [ Attr.class "flex gap-1.5 pointer-events-auto" ]
@@ -115,10 +115,10 @@ viewHeader { audioMuted, tilt, language, actions } =
                     , Attr.class
                         ("h-11 px-3 flex items-center gap-1.5 rounded-xl border border-white/10 text-xs font-bold "
                             ++ (if tilt.enabled then
-                                    "bg-sky-500 text-slate-950"
+                                    "bg-brand-yellow text-brand"
 
                                 else
-                                    "bg-slate-900/80 text-white"
+                                    "bg-brand/80 text-white"
                                )
                         )
                     ]
@@ -133,14 +133,14 @@ viewHeader { audioMuted, tilt, language, actions } =
                 , Attr.title (T.languageToggleTitle language)
                 , Attr.attribute "aria-label" (T.languageToggleTitle language)
                 , Attr.attribute "data-language-toggle" ""
-                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900/80 border border-white/10 text-white text-xs font-black"
+                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-brand/80 border border-white/10 text-white text-xs font-black"
                 ]
                 [ text (T.languageToggle language) ]
             , button
                 [ onClick actions.onToggleMute
                 , Attr.title (T.muteLabel language audioMuted)
                 , Attr.attribute "aria-label" (T.muteLabel language audioMuted)
-                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900/80 border border-white/10 text-white"
+                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-brand/80 border border-white/10 text-white"
                 ]
                 [ (if audioMuted then
                     FeatherIcons.volumeX
@@ -189,10 +189,10 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
         , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
         , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
         ]
-        [ div [ Attr.class "w-full max-w-md mx-auto bg-slate-900/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
+        [ div [ Attr.class "w-full max-w-md mx-auto bg-brand/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
             [ div [ Attr.class "flex justify-between items-baseline gap-2" ]
                 [ span [ Attr.class "text-sm font-black" ] [ text (T.courseTitle language course.title) ]
-                , span [ Attr.class "text-xs text-amber-300 font-bold" ] [ text bestLine ]
+                , span [ Attr.class "text-xs text-brand-yellow font-bold" ] [ text bestLine ]
                 ]
             , div [ Attr.class "grid grid-cols-4 gap-1.5" ]
                 (List.map (boatChip language boat actions) Boats.all
@@ -212,7 +212,7 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
             , button
                 [ onClick actions.onStartSailing
                 , Attr.attribute "data-tilt-start" ""
-                , Attr.class "w-full min-h-[52px] px-4 rounded-2xl bg-gradient-to-r from-sky-500 to-teal-400 active:brightness-110 text-slate-950 font-black text-base uppercase tracking-widest shadow-xl shadow-sky-500/30 flex items-center justify-center gap-2"
+                , Attr.class "w-full min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-base uppercase tracking-widest shadow-xl shadow-brand-yellow/30 flex items-center justify-center gap-2"
                 ]
                 [ FeatherIcons.play |> FeatherIcons.toHtml []
                 , text (T.setSail language)
@@ -257,7 +257,7 @@ viewBuildShip : Language -> List { id : String, name : String } -> Bool -> Shipy
 viewBuildShip language hulls canEditShip actions =
     div [ Attr.class "flex flex-col gap-1" ]
         [ div [ Attr.class "flex items-center justify-between gap-2" ]
-            [ span [ Attr.class "text-xs font-bold text-amber-300 flex items-center gap-1" ]
+            [ span [ Attr.class "text-xs font-bold text-brand-yellow flex items-center gap-1" ]
                 [ FeatherIcons.tool |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
                 , text (T.buildShipHeading language)
                 ]
@@ -265,7 +265,7 @@ viewBuildShip language hulls canEditShip actions =
                 button
                     [ onClick actions.onEditShip
                     , Attr.attribute "data-ship-edit" ""
-                    , Attr.class "min-h-[32px] px-3 rounded-xl bg-amber-400 active:brightness-110 text-slate-950 font-bold text-xs"
+                    , Attr.class "min-h-[32px] px-3 rounded-xl bg-brand-yellow active:brightness-110 text-brand font-bold text-xs"
                     ]
                     [ text (T.editShipButton language) ]
 
@@ -279,7 +279,7 @@ viewBuildShip language hulls canEditShip actions =
                         [ onClick (actions.onStartBuild hull.id)
                         , Attr.attribute "data-hull" hull.id
                         , Attr.title (T.buildOnHullTitle language hull.name)
-                        , Attr.class "min-h-[44px] px-1 rounded-xl text-[11px] font-bold leading-tight bg-slate-800 active:bg-slate-700 text-amber-200 border border-amber-400/30"
+                        , Attr.class "min-h-[44px] px-1 rounded-xl text-[11px] font-bold leading-tight bg-slate-800 active:bg-slate-700 text-brand-yellow border border-brand-yellow/30"
                         ]
                         [ text hull.name ]
                 )
@@ -342,7 +342,7 @@ boatChip language selected actions b =
         , Attr.class
             ("min-h-[44px] px-1 rounded-xl text-[11px] sm:text-xs font-bold tracking-tight leading-tight overflow-hidden "
                 ++ (if b.name == selected.name then
-                        "bg-sky-500 text-slate-950"
+                        "bg-brand-yellow text-brand"
 
                     else
                         "bg-slate-800 active:bg-slate-700 text-slate-200"

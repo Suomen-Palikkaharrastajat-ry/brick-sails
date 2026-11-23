@@ -10,7 +10,7 @@
      bars left and right. The HUD and the menus keep their buttons inside
      the safe-area insets. */
   html, body {
-    background: #020617;
+    background: var(--color-bg-dark, #05131D);
   }
 
   html, body, #app {
@@ -24,6 +24,7 @@
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+    background-color: var(--color-bg-dark, #05131D);
   }
 }
 
@@ -44,16 +45,16 @@
     justify-content: center;
     gap: 1rem;
     padding: 0 16px;
-    background: #0c4a6e;
-    color: #ffffff;
-    font-family: system-ui, sans-serif;
+    background: var(--color-brand, #05131D);
+    color: var(--color-text-on-dark, #FFFFFF);
+    font-family: var(--font-sans, system-ui, sans-serif);
     text-align: center;
   }
 
   .rotate-hint__icon {
     width: 64px;
     height: 64px;
-    color: #38bdf8;
+    color: var(--color-brand-yellow, #FAC80A);
     animation: rotate-hint-turn 2.4s ease-in-out infinite;
   }
 
@@ -70,9 +71,8 @@
   }
 }
 
-/* The ship editor works in portrait too: building is easier with the parts
-   dock under the ship, so the hint stays away while it is open. */
-body:has(.brick-editor) .rotate-hint {
+/* Only gameplay requires landscape on mobile. The shipyard and builder work in portrait too. */
+body:not(:has(.is-racing)) .rotate-hint {
   display: none;
 }
 
