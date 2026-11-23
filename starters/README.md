@@ -2,8 +2,8 @@
 
 Four alternative boat hulls a player can start a Brick Sails build from. Each
 hull has a bow, a flat plate deck with studs to build on, and a keel. There is
-no mast or sail: the player adds those. They are the samples a later ship
-editor's fixed parts list will be drawn from.
+no mast or sail: the player adds those. The ship editor (`Pages.Build`,
+"Build a ship on a hull" in the shipyard) starts every ship from one of them.
 
 | File | Name | Parts | Bounds in LDU (x / y / z) | Character |
 |---|---|---|---|---|
@@ -46,10 +46,22 @@ title the game shows ("Your build: Round Bow Hull").
   `validateShip` accepts it, with only the no-sail advisory; it has a keel
   below the hull and plates on top; `Studio.Health` finds no misaligned or
   overlapping part; every part is joined to the rest of the hull by studs.
-- `tests/StarterBases.elm` embeds the files for the test. Regenerate it after
-  changing a file: `node starters/embed-starters.mjs`.
+- `src/Sails/StarterBases.elm` embeds the files for the ship editor and the
+  tests. Regenerate it after changing a file: `node starters/embed-starters.mjs`.
 - Each hull was also loaded into the game with a `#model=` link and the real
   catalog parts: it appears as "Your ship" with its title, ready to sail.
+
+## In the ship editor
+
+The editor (`src/Pages/Build.elm`, rules in `src/Sails/Editor.elm`) opens a
+hull as it is: it stays one grouped submodel. The player adds parts from a
+fixed list of 43 parts in 8 colours (hull bricks, plates and slopes, deck
+tiles, the antenna mast, the flag sail, a cannon); a flag added while a mast
+is selected hangs on the mast. The hull can be moved and turned as a whole
+but never ungrouped, deleted, recoloured or copied (every edit that would
+split it is dropped). "Use ship" loads the build like a build link, as "Your
+ship", and puts its `#b/...` link in the URL; "Edit ship" opens it again.
+`tests/EditorTest.elm` and `tests/BuildPageTest.elm` check this.
 
 ## Regenerating
 

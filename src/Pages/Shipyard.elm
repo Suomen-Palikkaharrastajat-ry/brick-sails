@@ -4,8 +4,9 @@ module Pages.Shipyard exposing
     )
 
 {-| Start screen: pick one of four toy boats (or a ship loaded from a build
-link), see it bob on the water, and set sail. A build link can be pasted or a
-model file opened. Online play (host a split-screen room or join one) sits
+link or built here), see it bob on the water, and set sail. A ship can be
+built on one of the starter hulls in the ship editor ("Build a ship"), and a
+build link can be pasted or a model file opened. Online play (host a split-screen room or join one) sits
 below.
 -}
 
@@ -35,6 +36,8 @@ type alias ShipyardActions msg =
     , onLoadPasted : msg
     , onOpenFile : msg
     , onToggleLanguage : msg
+    , onStartBuild : String -> msg
+    , onEditShip : msg
     }
 
 
@@ -60,6 +63,8 @@ viewShipyard :
     , viewportHeight : Int
     , roomCode : String
     , language : Language
+    , hulls : List { id : String, name : String }
+    , canEditShip : Bool
     , actions : ShipyardActions msg
     }
     -> Html msg
@@ -160,10 +165,12 @@ viewPanel :
         , tilt : { available : Bool, enabled : Bool }
         , roomCode : String
         , language : Language
+        , hulls : List { id : String, name : String }
+        , canEditShip : Bool
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, roomCode, language, actions } =
+viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, roomCode, language, hulls, canEditShip, actions } =
     let
         bestLine =
             case personalBest of
@@ -211,6 +218,7 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
                 , text (T.setSail language)
                 ]
             , p [ Attr.class "text-[11px] text-slate-400 text-center landscape:hidden lg:landscape:block" ] [ text controlsHint ]
+            , viewBuildShip language hulls canEditShip actions
             , viewLoadShip language pasteText loadError actions
             , div [ Attr.class "flex flex-col gap-1.5 pt-1 border-t border-slate-800" ]
                 [ div [ Attr.class "flex gap-1.5" ]
@@ -239,6 +247,44 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
                     ]
                 ]
             ]
+        ]
+
+
+{-| Build a ship in the ship editor on one of the starter hulls, or edit
+"Your ship" again when it stands on one.
+-}
+viewBuildShip : Language -> List { id : String, name : String } -> Bool -> ShipyardActions msg -> Html msg
+viewBuildShip language hulls canEditShip actions =
+    div [ Attr.class "flex flex-col gap-1" ]
+        [ div [ Attr.class "flex items-center justify-between gap-2" ]
+            [ span [ Attr.class "text-xs font-bold text-amber-300 flex items-center gap-1" ]
+                [ FeatherIcons.tool |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+                , text (T.buildShipHeading language)
+                ]
+            , if canEditShip then
+                button
+                    [ onClick actions.onEditShip
+                    , Attr.attribute "data-ship-edit" ""
+                    , Attr.class "min-h-[32px] px-3 rounded-xl bg-amber-400 active:brightness-110 text-slate-950 font-bold text-xs"
+                    ]
+                    [ text (T.editShipButton language) ]
+
+              else
+                text ""
+            ]
+        , div [ Attr.class "grid grid-cols-4 gap-1.5" ]
+            (List.map
+                (\hull ->
+                    button
+                        [ onClick (actions.onStartBuild hull.id)
+                        , Attr.attribute "data-hull" hull.id
+                        , Attr.title (T.buildOnHullTitle language hull.name)
+                        , Attr.class "min-h-[44px] px-1 rounded-xl text-[11px] font-bold leading-tight bg-slate-800 active:bg-slate-700 text-amber-200 border border-amber-400/30"
+                        ]
+                        [ text hull.name ]
+                )
+                hulls
+            )
         ]
 
 

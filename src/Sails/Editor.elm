@@ -40,11 +40,12 @@ import Set exposing (Set)
 -- ── Colours ──────────────────────────────────────────────────────────────────
 
 
-{-| A palette colour: its LDraw code and its name.
+{-| A palette colour: its LDraw code and its English and Finnish names.
 -}
 type alias Swatch =
     { code : Int
-    , name : String
+    , nameEn : String
+    , nameFi : String
     }
 
 
@@ -53,14 +54,14 @@ hull and stand out from the blue sea and sky; no blue, green or grey.
 -}
 palette : List Swatch
 palette =
-    [ { code = 15, name = "White" }
-    , { code = 19, name = "Tan" }
-    , { code = 70, name = "Reddish Brown" }
-    , { code = 320, name = "Dark Red" }
-    , { code = 4, name = "Red" }
-    , { code = 25, name = "Orange" }
-    , { code = 14, name = "Yellow" }
-    , { code = 0, name = "Black" }
+    [ { code = 15, nameEn = "White", nameFi = "Valkoinen" }
+    , { code = 19, nameEn = "Tan", nameFi = "Hiekka" }
+    , { code = 70, nameEn = "Reddish Brown", nameFi = "Punaruskea" }
+    , { code = 320, nameEn = "Dark Red", nameFi = "Tummanpunainen" }
+    , { code = 4, nameEn = "Red", nameFi = "Punainen" }
+    , { code = 25, nameEn = "Orange", nameFi = "Oranssi" }
+    , { code = 14, nameEn = "Yellow", nameFi = "Keltainen" }
+    , { code = 0, nameEn = "Black", nameFi = "Musta" }
     ]
 
 
@@ -75,11 +76,12 @@ defaultColour =
 -- ── Parts ────────────────────────────────────────────────────────────────────
 
 
-{-| A part of the editor's dock: its file and its name.
+{-| A part of the editor's dock: its file and its English and Finnish names.
 -}
 type alias PartEntry =
     { file : String
-    , name : String
+    , nameEn : String
+    , nameFi : String
     }
 
 
@@ -93,76 +95,77 @@ the flag as a sail and the 1L bar with round plate as a cannon.
 parts : List PartEntry
 parts =
     [ -- Hull bricks
-      part "3005.dat" "Brick 1 x 1"
-    , part "3004.dat" "Brick 1 x 2"
-    , part "3622.dat" "Brick 1 x 3"
-    , part "3010.dat" "Brick 1 x 4"
-    , part "3009.dat" "Brick 1 x 6"
-    , part "3008.dat" "Brick 1 x 8"
-    , part "3003.dat" "Brick 2 x 2"
-    , part "3002.dat" "Brick 2 x 3"
-    , part "3001.dat" "Brick 2 x 4"
-    , part "3062b.dat" "Round brick 1 x 1"
-    , part "3941.dat" "Round brick 2 x 2"
+      part "3005.dat" "Brick 1 x 1" "Palikka 1 x 1"
+    , part "3004.dat" "Brick 1 x 2" "Palikka 1 x 2"
+    , part "3622.dat" "Brick 1 x 3" "Palikka 1 x 3"
+    , part "3010.dat" "Brick 1 x 4" "Palikka 1 x 4"
+    , part "3009.dat" "Brick 1 x 6" "Palikka 1 x 6"
+    , part "3008.dat" "Brick 1 x 8" "Palikka 1 x 8"
+    , part "3003.dat" "Brick 2 x 2" "Palikka 2 x 2"
+    , part "3002.dat" "Brick 2 x 3" "Palikka 2 x 3"
+    , part "3001.dat" "Brick 2 x 4" "Palikka 2 x 4"
+    , part "3062b.dat" "Round brick 1 x 1" "Pyöreä palikka 1 x 1"
+    , part "3941.dat" "Round brick 2 x 2" "Pyöreä palikka 2 x 2"
 
     -- Plates
-    , part "3024.dat" "Plate 1 x 1"
-    , part "3023b.dat" "Plate 1 x 2"
-    , part "3623.dat" "Plate 1 x 3"
-    , part "3710.dat" "Plate 1 x 4"
-    , part "3666.dat" "Plate 1 x 6"
-    , part "3460.dat" "Plate 1 x 8"
-    , part "3022.dat" "Plate 2 x 2"
-    , part "3021.dat" "Plate 2 x 3"
-    , part "3020.dat" "Plate 2 x 4"
-    , part "3795.dat" "Plate 2 x 6"
-    , part "3034.dat" "Plate 2 x 8"
-    , part "3031.dat" "Plate 4 x 4"
-    , part "4032b.dat" "Round plate 2 x 2"
+    , part "3024.dat" "Plate 1 x 1" "Levy 1 x 1"
+    , part "3023b.dat" "Plate 1 x 2" "Levy 1 x 2"
+    , part "3623.dat" "Plate 1 x 3" "Levy 1 x 3"
+    , part "3710.dat" "Plate 1 x 4" "Levy 1 x 4"
+    , part "3666.dat" "Plate 1 x 6" "Levy 1 x 6"
+    , part "3460.dat" "Plate 1 x 8" "Levy 1 x 8"
+    , part "3022.dat" "Plate 2 x 2" "Levy 2 x 2"
+    , part "3021.dat" "Plate 2 x 3" "Levy 2 x 3"
+    , part "3020.dat" "Plate 2 x 4" "Levy 2 x 4"
+    , part "3795.dat" "Plate 2 x 6" "Levy 2 x 6"
+    , part "3034.dat" "Plate 2 x 8" "Levy 2 x 8"
+    , part "3031.dat" "Plate 4 x 4" "Levy 4 x 4"
+    , part "4032b.dat" "Round plate 2 x 2" "Pyöreä levy 2 x 2"
 
     -- Hull slopes
-    , part "3040b.dat" "Slope 45° 2 x 1"
-    , part "3039.dat" "Slope 45° 2 x 2"
-    , part "3298.dat" "Slope 33° 3 x 2"
-    , part "85984.dat" "Slope 1 x 2 (cheese)"
-    , part "3665b.dat" "Inverted slope 2 x 1"
-    , part "3660b.dat" "Inverted slope 2 x 2"
-    , part "24201.dat" "Inverted curve 2 x 1"
-    , part "51739.dat" "Wing plate 2 x 4 (bow)"
+    , part "3040b.dat" "Slope 45° 2 x 1" "Viiste 45° 2 x 1"
+    , part "3039.dat" "Slope 45° 2 x 2" "Viiste 45° 2 x 2"
+    , part "3298.dat" "Slope 33° 3 x 2" "Viiste 33° 3 x 2"
+    , part "85984.dat" "Slope 1 x 2 (cheese)" "Viiste 1 x 2"
+    , part "3665b.dat" "Inverted slope 2 x 1" "Käänteinen viiste 2 x 1"
+    , part "3660b.dat" "Inverted slope 2 x 2" "Käänteinen viiste 2 x 2"
+    , part "24201.dat" "Inverted curve 2 x 1" "Käänteinen kaari 2 x 1"
+    , part "51739.dat" "Wing plate 2 x 4 (bow)" "Siipilevy 2 x 4 (keula)"
 
     -- Deck tiles
-    , part "3070b.dat" "Tile 1 x 1"
-    , part "3069b.dat" "Tile 1 x 2"
-    , part "2431.dat" "Tile 1 x 4"
-    , part "3068b.dat" "Tile 2 x 2"
+    , part "3070b.dat" "Tile 1 x 1" "Laatta 1 x 1"
+    , part "3069b.dat" "Tile 1 x 2" "Laatta 1 x 2"
+    , part "2431.dat" "Tile 1 x 4" "Laatta 1 x 4"
+    , part "3068b.dat" "Tile 2 x 2" "Laatta 2 x 2"
 
     -- Masts, sails and fittings
-    , part "3957a.dat" "Mast (antenna 4H)"
-    , part "43888.dat" "Mast pillar 1 x 1 x 6"
-    , part "2335.dat" "Sail (flag 2 x 2)"
-    , part "32828.dat" "Cannon"
-    , part "3829c01.dat" "Ship's wheel"
-    , part "4589.dat" "Cone 1 x 1"
-    , part "6141.dat" "Round plate 1 x 1"
+    , part "3957a.dat" "Mast (antenna 4H)" "Masto (antenni 4H)"
+    , part "43888.dat" "Mast pillar 1 x 1 x 6" "Mastopylväs 1 x 1 x 6"
+    , part "2335.dat" "Sail (flag 2 x 2)" "Purje (lippu 2 x 2)"
+    , part "32828.dat" "Cannon" "Tykki"
+    , part "3829c01.dat" "Ship's wheel" "Ruori"
+    , part "4589.dat" "Cone 1 x 1" "Kartio 1 x 1"
+    , part "6141.dat" "Round plate 1 x 1" "Pyöreä levy 1 x 1"
     ]
 
 
-part : String -> String -> PartEntry
-part file name =
-    { file = file, name = name }
+part : String -> String -> String -> PartEntry
+part file nameEn nameFi =
+    { file = file, nameEn = nameEn, nameFi = nameFi }
 
 
 
 -- ── Bases ────────────────────────────────────────────────────────────────────
 
 
-{-| A starter hull: its file stem (`narrow-racer`), name, the hull submodel
+{-| A starter hull: its file stem (`narrow-racer`), names, the hull submodel
 the main model references (`narrow-racer-base.ldr`), how many parts that
 submodel holds, and the whole starter document.
 -}
 type alias Base =
     { id : String
-    , name : String
+    , nameEn : String
+    , nameFi : String
     , submodel : String
     , partCount : Int
     , document : Document
@@ -183,6 +186,16 @@ baseOrder =
     Dict.fromList [ ( "narrow-racer", 0 ), ( "wide-sturdy", 1 ), ( "long-cruiser", 2 ), ( "round-bow", 3 ) ]
 
 
+finnishNames : Dict String String
+finnishNames =
+    Dict.fromList
+        [ ( "narrow-racer", "Kapea kilparunko" )
+        , ( "wide-sturdy", "Leveä vakaa runko" )
+        , ( "long-cruiser", "Pitkä matkarunko" )
+        , ( "round-bow", "Pyöreäkeulainen runko" )
+        ]
+
+
 fromStarter : String -> String -> Maybe Base
 fromStarter file text =
     let
@@ -195,7 +208,7 @@ fromStarter file text =
     case Document.mainPlacements doc of
         [ ref ] ->
             let
-                name =
+                nameEn =
                     String.lines text
                         |> List.filterMap
                             (\l ->
@@ -210,7 +223,8 @@ fromStarter file text =
             in
             Just
                 { id = id
-                , name = name
+                , nameEn = nameEn
+                , nameFi = Maybe.withDefault nameEn (Dict.get id finnishNames)
                 , submodel = ref.part
                 , partCount = List.length (Document.placementsOf ref.part doc)
                 , document = doc

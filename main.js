@@ -1,6 +1,7 @@
 import './main.css'
 import { bootGame } from './vendor/packages/brick-frame-game/runtime/game-boot.js'
 import { readLanguage } from './vendor/packages/brick-frame-game/runtime/language.js'
+import { initThumbnails } from './vendor/packages/brick-frame-viewport/runtime/thumbnail-pipeline.js'
 import { createAudioEngine } from './audio.js'
 import { Elm } from './src/Main.elm'
 
@@ -49,3 +50,6 @@ const { ports } = bootGame({
 ports?.storeLanguage?.subscribe((lang) => {
   document.documentElement.lang = lang
 })
+// Part pictures for the ship editor's dock (`Pages.Build`), from the same
+// catalog the game loads its parts from.
+initThumbnails(ports, import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw')

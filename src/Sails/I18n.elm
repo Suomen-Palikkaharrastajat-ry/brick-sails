@@ -8,6 +8,8 @@ module Sails.I18n exposing
     , boatsButton
     , buildLinkLabel
     , buildLinkPlaceholder
+    , buildOnHullTitle
+    , buildShipHeading
     , buoyAria
     , buoyCount
     , buoyToast
@@ -16,6 +18,7 @@ module Sails.I18n exposing
     , copyRoomLink
     , countdownHint
     , courseTitle
+    , editShipButton
     , finishToast
     , finishedBadge
     , fireButton
@@ -1018,4 +1021,28 @@ allPhrases =
     , ( "slotOpen", \l -> slotOpen l 2 )
     , ( "you", you )
     , ( "finishedBadge", finishedBadge )
+    , ( "buildShipHeading", buildShipHeading )
+    , ( "buildOnHullTitle", \l -> buildOnHullTitle l "Runko" )
+    , ( "editShipButton", editShipButton )
     ]
+
+
+{-| Heading of the shipyard row that opens the ship editor on a hull.
+-}
+buildShipHeading : Language -> String
+buildShipHeading lang =
+    pick lang "Rakenna laiva rungolle" "Build a ship on a hull"
+
+
+{-| Tooltip of a hull button in that row.
+-}
+buildOnHullTitle : Language -> String -> String
+buildOnHullTitle lang hull =
+    pick lang ("Rakenna rungolle: " ++ hull) ("Build on the " ++ hull)
+
+
+{-| Button that opens "Your ship" in the ship editor again.
+-}
+editShipButton : Language -> String
+editShipButton lang =
+    pick lang "Muokkaa laivaa" "Edit ship"

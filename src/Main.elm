@@ -19,6 +19,12 @@ A ship built in the brick building apps can be loaded from a build link in
 the page URL, a pasted link or an opened model file (`Sails.Ingest`). It
 appears as an extra "Your ship" entry in the boat picker.
 
+A ship can also be built here, in the ship editor (`Pages.Build`, open while
+`builder` is set): the player picks one of the starter hulls and builds on
+it. "Use ship" loads the build exactly like a build link, as "Your ship", and
+puts its link in the URL; "Edit ship" opens a ship standing on a starter hull
+again.
+
 In a multiplayer room every player shares their ship once: a built-in boat by
 name, a loaded build as a `#b/...` build link. Room updates only name it by
 `vehicleId`; the JS runtime fetches each ship once and hands it over through
@@ -43,10 +49,12 @@ import Json.Decode as Decode
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
 import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
+import Pages.Build as Build
 import Pages.Sail as Sail
 import Pages.Shipyard as Shipyard
 import Ports
 import Sails.Boats as Boats
+import Sails.Editor as Editor
 import Sails.Handling as Handling
 import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
@@ -66,6 +74,7 @@ type alias Flags =
     , initialHash : String
     , predecodedInitialBytes : Maybe (List Int)
     , language : String
+    , supportsPointerEvents : Bool
     }
 
 
@@ -99,6 +108,10 @@ type alias Model =
     , viewportHeight : Int
     , roomCodeInput : String
     , language : Language
+    , ldrawBase : String
+    , ldrawFallbackBase : String
+    , supportsPointerEvents : Bool
+    , builder : Maybe Build.Model
     }
 
 
@@ -125,6 +138,9 @@ type Msg
     | FileLoadError String
     | HashChanged String
     | ToggleLanguage
+    | StartBuild String
+    | EditShip
+    | BuildMsg Build.Msg
 
 
 main : Program Flags Model Msg
@@ -165,6 +181,10 @@ init flags =
             , viewportHeight = 768
             , roomCodeInput = ""
             , language = SailsI18n.fromFlag flags.language
+            , ldrawBase = flags.ldrawBase
+            , ldrawFallbackBase = flags.ldrawFallbackBase
+            , supportsPointerEvents = flags.supportsPointerEvents
+            , builder = Nothing
             }
 
         hasPayload =
@@ -376,13 +396,72 @@ update msg model =
             ( { model | shipyardTime = model.shipyardTime + min 0.05 (dt / 1000) }, Cmd.none )
 
         ViewportResized dims ->
-            ( { model
-                | viewportWidth = dims.width
-                , viewportHeight = dims.height
-                , sailModel = model.sailModel |> Maybe.map (\s -> { s | viewportWidth = dims.width, viewportHeight = dims.height })
-              }
-            , Cmd.none
-            )
+            let
+                sized =
+                    { model
+                        | viewportWidth = dims.width
+                        , viewportHeight = dims.height
+                        , sailModel = model.sailModel |> Maybe.map (\s -> { s | viewportWidth = dims.width, viewportHeight = dims.height })
+                    }
+            in
+            case model.builder of
+                Just build ->
+                    let
+                        ( nextBuild, buildCmd ) =
+                            Build.resize dims.width dims.height build
+                    in
+                    ( { sized | builder = Just nextBuild }, Cmd.map BuildMsg buildCmd )
+
+                Nothing ->
+                    ( sized, Cmd.none )
+
+        StartBuild hullId ->
+            case List.filter (\b -> b.id == hullId) Editor.bases |> List.head of
+                Just base ->
+                    openBuilder base base.document model
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        EditShip ->
+            case editableShip model of
+                Just ( base, doc ) ->
+                    openBuilder base doc model
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        BuildMsg buildMsg ->
+            case model.builder of
+                Just build ->
+                    let
+                        ( nextBuild, buildCmd, outcome ) =
+                            Build.update buildMsg build
+                    in
+                    case outcome of
+                        Build.Stay ->
+                            ( { model | builder = Just nextBuild }, Cmd.map BuildMsg buildCmd )
+
+                        Build.Quit ->
+                            ( { model | builder = Nothing }, Cmd.none )
+
+                        Build.Finished doc ->
+                            let
+                                ( next, cmd ) =
+                                    useShip (Ingest.validateShip doc |> Result.map (\spec -> ( { document = doc, title = hullName model.language nextBuild.base }, spec ))) model
+                            in
+                            case next.loadError of
+                                Nothing ->
+                                    ( { next | builder = Nothing }
+                                    , Cmd.batch [ cmd, GamePorts.setUrlHash (Ingest.encodeShipLink doc) ]
+                                    )
+
+                                Just _ ->
+                                    -- Not a boat (cannot happen with a whole hull): stay in the editor.
+                                    ( { model | builder = Just nextBuild }, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         SailMessage Sail.ReturnToShipyard ->
             update ReturnToShipyard model
@@ -481,10 +560,19 @@ selected; an invalid one leaves the boats as they were and shows why.
 -}
 loadShip : Maybe (List Int) -> String -> Model -> ( Model, Cmd Msg )
 loadShip bytes input model =
-    case
-        Ingest.decodeShipInput bytes input
+    useShip
+        (Ingest.decodeShipInput bytes input
             |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\spec -> ( decoded, spec )))
-    of
+        )
+        model
+
+
+{-| Make a checked build "Your ship" and select it, or show why it is not a
+ship.
+-}
+useShip : Result String ( Ingest.DecodedShip, Sails.Types.ShipSpec ) -> Model -> ( Model, Cmd Msg )
+useShip checked model =
+    case checked of
         Ok ( decoded, spec ) ->
             let
                 ship =
@@ -501,6 +589,60 @@ loadShip bytes input model =
 
         Err err ->
             ( { model | loadError = Just err }, Cmd.none )
+
+
+{-| Open the ship editor on a build standing on `base`.
+-}
+openBuilder : Editor.Base -> Document -> Model -> ( Model, Cmd Msg )
+openBuilder base doc model =
+    let
+        ( build, buildCmd ) =
+            Build.init
+                { ldrawBase = model.ldrawBase
+                , ldrawFallbackBase = model.ldrawFallbackBase
+                , supportsPointerEvents = model.supportsPointerEvents
+                , language = model.language
+                , width = model.viewportWidth
+                , height = model.viewportHeight
+                }
+                base
+                doc
+    in
+    ( { model | builder = Just build, loadError = Nothing }, Cmd.map BuildMsg buildCmd )
+
+
+{-| A hull's name in the player's language.
+-}
+hullName : Language -> Editor.Base -> String
+hullName lang base =
+    case lang of
+        Fi ->
+            base.nameFi
+
+        En ->
+            base.nameEn
+
+
+{-| A hull's name on its shipyard button: without the word "hull".
+-}
+shortHullName : Language -> Editor.Base -> String
+shortHullName lang base =
+    hullName lang base
+        |> String.replace " Hull" ""
+        |> String.replace " runko" ""
+
+
+{-| "Your ship", when it is selected and stands on a starter hull, so the
+editor can open it again.
+-}
+editableShip : Model -> Maybe ( Editor.Base, Document )
+editableShip model =
+    if model.boat.kind == CustomShip then
+        Dict.get model.boat.name model.documents
+            |> Maybe.andThen (\doc -> Editor.baseOf doc |> Maybe.map (\base -> ( base, doc )))
+
+    else
+        Nothing
 
 
 {-| Fetch every part a boat, the island scenery or a course prop still needs,
@@ -646,8 +788,11 @@ subscriptions model =
         , GamePorts.fileContentReceived FileContentReceived
         , GamePorts.fileLoadError FileLoadError
         , GamePorts.hashChanged HashChanged
-        , case ( model.viewMode, model.sailModel ) of
-            ( ViewSailing, Just sModel ) ->
+        , case ( model.builder, model.viewMode, model.sailModel ) of
+            ( Just build, _, _ ) ->
+                Sub.map BuildMsg (Build.subscriptions build)
+
+            ( Nothing, ViewSailing, Just sModel ) ->
                 Sub.map SailMessage (Sail.subscriptions sModel)
 
             _ ->
@@ -657,8 +802,11 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    case ( model.viewMode, model.sailModel ) of
-        ( ViewSailing, Just sModel ) ->
+    case ( model.builder, model.viewMode, model.sailModel ) of
+        ( Just build, _, _ ) ->
+            Html.map BuildMsg (Build.view build)
+
+        ( Nothing, ViewSailing, Just sModel ) ->
             Html.map SailMessage
                 (Sail.viewSail sModel
                     { onReturnToShipyard = Sail.ReturnToShipyard
@@ -686,6 +834,8 @@ view model =
                 , viewportHeight = model.viewportHeight
                 , roomCode = model.roomCodeInput
                 , language = model.language
+                , hulls = List.map (\b -> { id = b.id, name = shortHullName model.language b }) Editor.bases
+                , canEditShip = editableShip model /= Nothing
                 , actions =
                     { onSelectBoat = SelectBoat
                     , onStartSailing = StartSailing
@@ -697,5 +847,7 @@ view model =
                     , onLoadPasted = LoadPasted
                     , onOpenFile = OpenFile
                     , onToggleLanguage = ToggleLanguage
+                    , onStartBuild = StartBuild
+                    , onEditShip = EditShip
                     }
                 }

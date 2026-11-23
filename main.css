@@ -68,6 +68,12 @@
   }
 }
 
+/* The ship editor works in portrait too: building is easier with the parts
+   dock under the ship, so the hint stays away while it is open. */
+body:has(.brick-editor) .rotate-hint {
+  display: none;
+}
+
 @keyframes rotate-hint-turn {
   0%, 20% { transform: rotate(0deg); }
   60%, 100% { transform: rotate(90deg); }
