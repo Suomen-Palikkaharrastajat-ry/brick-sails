@@ -1,0 +1,27 @@
+{
+  "name": "Brick Sails — Palikkapurjehdus",
+  "short_name": "Brick Sails",
+  "description": "Steer a little brick-built boat through the buoys, round the island and fire at floating targets. Touch, tilt or keyboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#fac80a",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

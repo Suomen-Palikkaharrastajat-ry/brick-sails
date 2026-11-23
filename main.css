@@ -1,5 +1,7 @@
 @import "tailwindcss";
+@import "./vendor/packages/brick-frame-ui/theme.css";
 @import "./vendor/packages/brick-frame-ui/game.css";
+@source "./packages/ui-components/src";
 @source "./src";
 
 @layer base {
