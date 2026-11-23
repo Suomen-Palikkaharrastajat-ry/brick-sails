@@ -294,7 +294,7 @@ boatChip language selected actions b =
                 "false"
             )
         , Attr.class
-            ("min-h-[44px] px-1 rounded-xl text-xs font-bold truncate "
+            ("min-h-[44px] px-1 rounded-xl text-[11px] sm:text-xs font-bold tracking-tight leading-tight overflow-hidden "
                 ++ (if b.name == selected.name then
                         "bg-sky-500 text-slate-950"
 

@@ -409,7 +409,8 @@ viewCountdown language countdown =
     case countdown of
         Just n ->
             -- The number above the boat and the hint below it, so the boat
-            -- itself stays in view at the start line.
+            -- itself stays in view at the start line. In portrait the hint
+            -- sits above the steering and sail buttons (and a room's pill).
             div []
                 [ div [ Attr.class "absolute inset-x-0 top-[14%] landscape:top-[4%] flex justify-center" ]
                     [ span [ Attr.class "text-7xl font-black text-amber-300 drop-shadow-[0_4px_8px_rgba(0,0,0,0.6)] font-mono" ]
@@ -422,7 +423,7 @@ viewCountdown language countdown =
                             )
                         ]
                     ]
-                , div [ Attr.class "absolute inset-x-0 bottom-[104px] landscape:bottom-1 flex justify-center" ]
+                , div [ Attr.class "absolute inset-x-0 bottom-[208px] landscape:bottom-1 flex justify-center" ]
                     [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-slate-950/70 text-sm font-bold max-w-[280px] text-center" ]
                         [ text (T.countdownHint language) ]
                     ]

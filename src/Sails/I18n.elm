@@ -199,7 +199,8 @@ boatName lang name =
                     "Kuunari"
 
                 "Catamaran" ->
-                    "Katamaraani"
+                    -- A soft hyphen lets the narrow boat button break it.
+                    "Kata\u{00AD}maraani"
 
                 "Your ship" ->
                     "Oma laiva"

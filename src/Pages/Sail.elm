@@ -957,7 +957,9 @@ viewRace model callbacks maybeRoom =
         , lobbyRoster model.language maybeRoom
         , case maybeRoom of
             Just room ->
-                div [ Attr.class "absolute bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
+                -- In portrait the pill sits above the steering and sail
+                -- buttons, which it would cover lower down.
+                div [ Attr.class "absolute bottom-[152px] landscape:bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/80 border border-white/10 pointer-events-auto" ]
                     [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
                         [ text ("P" ++ String.fromInt room.mySlot) ]
                     , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
@@ -1022,17 +1024,25 @@ viewBoatGrid renderFrom shape width height room model =
             else
                 { yaw = (Vec3.toRecord p.rotation).y, distance = CameraRig.chaseDistance, focus = p.position }
 
-        tile p =
+        -- The local player's own tile (always the first, top left) carries
+        -- no badge: the HUD covers that corner and the room pill names the
+        -- player. Other tiles in the top row of a grid with more rows show
+        -- theirs at the bottom, clear of the HUD's top corners.
+        tile index p =
             div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-slate-950" ]
                 [ renderFrom (CameraRig.followView (followOf p)) tileW tileH
-                , playerBadge model.language
-                    "top-2 left-2"
-                    (if p.slot == room.mySlot then
-                        { p | name = p.name ++ " " ++ T.you model.language }
+                , if p.slot == room.mySlot then
+                    text ""
 
-                     else
+                  else
+                    playerBadge model.language
+                        (if shape.rows > 1 && index < shape.cols then
+                            "bottom-2 left-2"
+
+                         else
+                            "top-2 left-2"
+                        )
                         p
-                    )
                 ]
     in
     div
@@ -1041,11 +1051,12 @@ viewBoatGrid renderFrom shape width height room model =
         , Attr.style "grid-template-columns" ("repeat(" ++ String.fromInt shape.cols ++ ", minmax(0, 1fr))")
         , Attr.style "grid-template-rows" ("repeat(" ++ String.fromInt shape.rows ++ ", minmax(0, 1fr))")
         ]
-        (List.map tile (Grid.selfFirst .slot room.mySlot room.players))
+        (List.indexedMap tile (Grid.selfFirst .slot room.mySlot room.players))
 
 
 {-| Commentator controls (room code, player count, copy link, start) for the
-host of a room.
+host of a room. In portrait it sits below the HUD's status panel and the
+countdown, which share the top of a narrow screen.
 -}
 hostHeader : Language -> Maybe RoomState -> Html SailMsg
 hostHeader language maybeRoom =
@@ -1054,7 +1065,7 @@ hostHeader language maybeRoom =
             case room.role of
                 HostCommentator ->
                     div
-                        [ Attr.class "absolute top-3 inset-x-0 mx-auto w-fit z-30 flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
+                        [ Attr.class "absolute top-[200px] landscape:top-3 inset-x-0 mx-auto w-fit max-w-[calc(100%-16px)] z-30 flex flex-wrap justify-center items-center gap-2 landscape:gap-3 px-3 landscape:px-4 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
                         , Attr.attribute "data-testid" "host-header"
                         ]
                         [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 whitespace-nowrap" ]
@@ -1103,7 +1114,9 @@ statusChip colours label =
 
 
 {-| Who is in the room, while it waits in its lobby: every seat, with the
-name of the player in it or an open seat.
+name of the player in it or an open seat. It sits above the start hint, and
+in landscape between the steering and the sail buttons; in portrait above
+the room pill too.
 -}
 lobbyRoster : Language -> Maybe RoomState -> Html SailMsg
 lobbyRoster language maybeRoom =
@@ -1112,7 +1125,7 @@ lobbyRoster language maybeRoom =
             case room.status of
                 Lobby ->
                     div
-                        [ Attr.class "absolute bottom-3 inset-x-0 z-30 px-3 pointer-events-none"
+                        [ Attr.class "absolute bottom-[296px] landscape:bottom-[84px] inset-x-0 z-30 px-3 landscape:px-[180px] pointer-events-none"
                         , Attr.attribute "data-testid" "lobby-roster"
                         ]
                         [ div [ Attr.class "flex flex-wrap items-center justify-center gap-1.5" ]
