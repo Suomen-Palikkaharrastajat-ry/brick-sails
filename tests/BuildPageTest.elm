@@ -3,7 +3,9 @@ module BuildPageTest exposing (suite)
 {-| The ship editor screen (`Pages.Build`) keeps the hull in one piece: with
 the hull selected, the keys and buttons that would ungroup, delete, cut,
 duplicate or regroup it leave the build as it was, while parts added from the
-dock can still be turned, copied, pasted and deleted.
+dock can still be turned, copied, pasted and deleted. The palette row keeps
+its order while the same card is tapped again, and the full catalog opens
+and closes from its button.
 -}
 
 import Expect
@@ -19,24 +21,80 @@ import Viewport
 
 suite : Test
 suite =
-    describe "Ship editor screen" (List.map baseTest Editor.bases)
+    describe "Ship editor screen" (paletteTests :: List.map baseTest Editor.bases)
+
+
+{-| The palette row and the full catalog, on the first starter hull.
+-}
+paletteTests : Test
+paletteTests =
+    case Editor.bases of
+        base :: _ ->
+            let
+                opened =
+                    open base
+
+                firstCard =
+                    List.head opened.recentParts
+            in
+            describe "palette and catalog"
+                [ test "tapping the same card again keeps the palette order" <|
+                    \_ ->
+                        let
+                            tapped =
+                                opened |> step (AddPart "3039.dat") |> step (AddPart "3039.dat") |> step (AddPart "3039.dat")
+                        in
+                        Expect.all
+                            [ \m -> Expect.equal opened.recentParts m.recentParts
+                            , \m -> Expect.equal "3039.dat" m.activePart
+                            , \m -> Expect.equal (partCount base.document + 3) (partCount (Build.document m))
+                            ]
+                            tapped
+                , test "the tapped card moves to the front once the player moves on" <|
+                    \_ ->
+                        let
+                            movedOn =
+                                opened |> step (AddPart "3039.dat") |> step PaletteLeft
+                        in
+                        Expect.equal (Just "3039.dat") (List.head movedOn.recentParts)
+                , test "the palette keeps its first card until then" <|
+                    \_ ->
+                        Expect.equal firstCard (List.head (step (AddPart "3039.dat") opened).recentParts)
+                , test "the catalog button opens the catalog and closes it again" <|
+                    \_ ->
+                        Expect.equal [ True, False ]
+                            [ (step ToggleCatalog opened).catalogOpen
+                            , (opened |> step ToggleCatalog |> step ToggleCatalog).catalogOpen
+                            ]
+                , test "adding a part from the catalog closes it" <|
+                    \_ ->
+                        Expect.equal False (opened |> step ToggleCatalog |> step (AddPart "2335.dat")).catalogOpen
+                ]
+
+        [] ->
+            test "has starter hulls" (\_ -> Expect.fail "no starter hulls")
+
+
+open : Base -> Build.Model
+open base =
+    Build.init
+        { ldrawBase = ""
+        , ldrawFallbackBase = ""
+        , supportsPointerEvents = True
+        , language = En
+        , width = 390
+        , height = 844
+        }
+        base
+        base.document
+        |> Tuple.first
 
 
 baseTest : Base -> Test
 baseTest base =
     let
         opened =
-            Build.init
-                { ldrawBase = ""
-                , ldrawFallbackBase = ""
-                , supportsPointerEvents = True
-                , language = En
-                , width = 390
-                , height = 844
-                }
-                base
-                base.document
-                |> Tuple.first
+            open base
 
         baseId =
             Document.mainPlacements base.document |> List.map .id |> List.head |> Maybe.withDefault -1

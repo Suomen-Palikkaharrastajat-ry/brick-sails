@@ -1,5 +1,6 @@
 module Sails.Editor exposing
     ( Base
+    , PartCategory
     , PartEntry
     , Swatch
     , baseIntact
@@ -9,6 +10,7 @@ module Sails.Editor exposing
     , dropMatrix
     , isBasePlacement
     , palette
+    , partCategories
     , parts
     )
 
@@ -85,8 +87,95 @@ type alias PartEntry =
     }
 
 
-{-| The fixed parts list of the ship editor, in dock order: hull bricks,
-plates, hull slopes, deck tiles, then masts, sails and fittings. Every part
+{-| A group of the parts list, as the full catalog of the editor shows it:
+its English and Finnish title and its parts, in dock order.
+-}
+type alias PartCategory =
+    { titleEn : String
+    , titleFi : String
+    , parts : List PartEntry
+    }
+
+
+{-| The parts of the ship editor in their groups: hull bricks, plates, hull
+slopes, deck tiles, then masts, sails and fittings. `parts` is these groups
+in order, so every part is in exactly one group.
+-}
+partCategories : List PartCategory
+partCategories =
+    [ { titleEn = "Hull bricks"
+      , titleFi = "Runkopalikat"
+      , parts =
+            [ part "3005.dat" "Brick 1 x 1" "Palikka 1 x 1"
+            , part "3004.dat" "Brick 1 x 2" "Palikka 1 x 2"
+            , part "3622.dat" "Brick 1 x 3" "Palikka 1 x 3"
+            , part "3010.dat" "Brick 1 x 4" "Palikka 1 x 4"
+            , part "3009.dat" "Brick 1 x 6" "Palikka 1 x 6"
+            , part "3008.dat" "Brick 1 x 8" "Palikka 1 x 8"
+            , part "3003.dat" "Brick 2 x 2" "Palikka 2 x 2"
+            , part "3002.dat" "Brick 2 x 3" "Palikka 2 x 3"
+            , part "3001.dat" "Brick 2 x 4" "Palikka 2 x 4"
+            , part "3062b.dat" "Round brick 1 x 1" "Pyöreä palikka 1 x 1"
+            , part "3941.dat" "Round brick 2 x 2" "Pyöreä palikka 2 x 2"
+            ]
+      }
+    , { titleEn = "Plates"
+      , titleFi = "Levyt"
+      , parts =
+            [ part "3024.dat" "Plate 1 x 1" "Levy 1 x 1"
+            , part "3023b.dat" "Plate 1 x 2" "Levy 1 x 2"
+            , part "3623.dat" "Plate 1 x 3" "Levy 1 x 3"
+            , part "3710.dat" "Plate 1 x 4" "Levy 1 x 4"
+            , part "3666.dat" "Plate 1 x 6" "Levy 1 x 6"
+            , part "3460.dat" "Plate 1 x 8" "Levy 1 x 8"
+            , part "3022.dat" "Plate 2 x 2" "Levy 2 x 2"
+            , part "3021.dat" "Plate 2 x 3" "Levy 2 x 3"
+            , part "3020.dat" "Plate 2 x 4" "Levy 2 x 4"
+            , part "3795.dat" "Plate 2 x 6" "Levy 2 x 6"
+            , part "3034.dat" "Plate 2 x 8" "Levy 2 x 8"
+            , part "3031.dat" "Plate 4 x 4" "Levy 4 x 4"
+            , part "4032b.dat" "Round plate 2 x 2" "Pyöreä levy 2 x 2"
+            ]
+      }
+    , { titleEn = "Hull slopes"
+      , titleFi = "Runkoviisteet"
+      , parts =
+            [ part "3040b.dat" "Slope 45° 2 x 1" "Viiste 45° 2 x 1"
+            , part "3039.dat" "Slope 45° 2 x 2" "Viiste 45° 2 x 2"
+            , part "3298.dat" "Slope 33° 3 x 2" "Viiste 33° 3 x 2"
+            , part "85984.dat" "Slope 1 x 2 (cheese)" "Viiste 1 x 2"
+            , part "3665b.dat" "Inverted slope 2 x 1" "Käänteinen viiste 2 x 1"
+            , part "3660b.dat" "Inverted slope 2 x 2" "Käänteinen viiste 2 x 2"
+            , part "24201.dat" "Inverted curve 2 x 1" "Käänteinen kaari 2 x 1"
+            , part "51739.dat" "Wing plate 2 x 4 (bow)" "Siipilevy 2 x 4 (keula)"
+            ]
+      }
+    , { titleEn = "Deck tiles"
+      , titleFi = "Kansilaatat"
+      , parts =
+            [ part "3070b.dat" "Tile 1 x 1" "Laatta 1 x 1"
+            , part "3069b.dat" "Tile 1 x 2" "Laatta 1 x 2"
+            , part "2431.dat" "Tile 1 x 4" "Laatta 1 x 4"
+            , part "3068b.dat" "Tile 2 x 2" "Laatta 2 x 2"
+            ]
+      }
+    , { titleEn = "Masts, sails and fittings"
+      , titleFi = "Mastot, purjeet ja varusteet"
+      , parts =
+            [ part "3957a.dat" "Mast (antenna 4H)" "Masto (antenni 4H)"
+            , part "43888.dat" "Mast pillar 1 x 1 x 6" "Mastopylväs 1 x 1 x 6"
+            , part "2335.dat" "Sail (flag 2 x 2)" "Purje (lippu 2 x 2)"
+            , part "32828.dat" "Cannon" "Tykki"
+            , part "3829c01.dat" "Ship's wheel" "Ruori"
+            , part "4589.dat" "Cone 1 x 1" "Kartio 1 x 1"
+            , part "6141.dat" "Round plate 1 x 1" "Pyöreä levy 1 x 1"
+            ]
+      }
+    ]
+
+
+{-| The fixed parts list of the ship editor, in dock order (the groups of
+`partCategories`, one after another). Every part
 has a hand-made `LDraw.Connectivity.knownCatalogPart` entry (so the editor can
 put it on studs), and `Sails.Ingest.validateShip` still accepts any hull with
 it added (`tests/EditorTest.elm`). `Sails.Ingest` reads the antenna as a mast,
@@ -94,59 +183,7 @@ the flag as a sail and the 1L bar with round plate as a cannon.
 -}
 parts : List PartEntry
 parts =
-    [ -- Hull bricks
-      part "3005.dat" "Brick 1 x 1" "Palikka 1 x 1"
-    , part "3004.dat" "Brick 1 x 2" "Palikka 1 x 2"
-    , part "3622.dat" "Brick 1 x 3" "Palikka 1 x 3"
-    , part "3010.dat" "Brick 1 x 4" "Palikka 1 x 4"
-    , part "3009.dat" "Brick 1 x 6" "Palikka 1 x 6"
-    , part "3008.dat" "Brick 1 x 8" "Palikka 1 x 8"
-    , part "3003.dat" "Brick 2 x 2" "Palikka 2 x 2"
-    , part "3002.dat" "Brick 2 x 3" "Palikka 2 x 3"
-    , part "3001.dat" "Brick 2 x 4" "Palikka 2 x 4"
-    , part "3062b.dat" "Round brick 1 x 1" "Pyöreä palikka 1 x 1"
-    , part "3941.dat" "Round brick 2 x 2" "Pyöreä palikka 2 x 2"
-
-    -- Plates
-    , part "3024.dat" "Plate 1 x 1" "Levy 1 x 1"
-    , part "3023b.dat" "Plate 1 x 2" "Levy 1 x 2"
-    , part "3623.dat" "Plate 1 x 3" "Levy 1 x 3"
-    , part "3710.dat" "Plate 1 x 4" "Levy 1 x 4"
-    , part "3666.dat" "Plate 1 x 6" "Levy 1 x 6"
-    , part "3460.dat" "Plate 1 x 8" "Levy 1 x 8"
-    , part "3022.dat" "Plate 2 x 2" "Levy 2 x 2"
-    , part "3021.dat" "Plate 2 x 3" "Levy 2 x 3"
-    , part "3020.dat" "Plate 2 x 4" "Levy 2 x 4"
-    , part "3795.dat" "Plate 2 x 6" "Levy 2 x 6"
-    , part "3034.dat" "Plate 2 x 8" "Levy 2 x 8"
-    , part "3031.dat" "Plate 4 x 4" "Levy 4 x 4"
-    , part "4032b.dat" "Round plate 2 x 2" "Pyöreä levy 2 x 2"
-
-    -- Hull slopes
-    , part "3040b.dat" "Slope 45° 2 x 1" "Viiste 45° 2 x 1"
-    , part "3039.dat" "Slope 45° 2 x 2" "Viiste 45° 2 x 2"
-    , part "3298.dat" "Slope 33° 3 x 2" "Viiste 33° 3 x 2"
-    , part "85984.dat" "Slope 1 x 2 (cheese)" "Viiste 1 x 2"
-    , part "3665b.dat" "Inverted slope 2 x 1" "Käänteinen viiste 2 x 1"
-    , part "3660b.dat" "Inverted slope 2 x 2" "Käänteinen viiste 2 x 2"
-    , part "24201.dat" "Inverted curve 2 x 1" "Käänteinen kaari 2 x 1"
-    , part "51739.dat" "Wing plate 2 x 4 (bow)" "Siipilevy 2 x 4 (keula)"
-
-    -- Deck tiles
-    , part "3070b.dat" "Tile 1 x 1" "Laatta 1 x 1"
-    , part "3069b.dat" "Tile 1 x 2" "Laatta 1 x 2"
-    , part "2431.dat" "Tile 1 x 4" "Laatta 1 x 4"
-    , part "3068b.dat" "Tile 2 x 2" "Laatta 2 x 2"
-
-    -- Masts, sails and fittings
-    , part "3957a.dat" "Mast (antenna 4H)" "Masto (antenni 4H)"
-    , part "43888.dat" "Mast pillar 1 x 1 x 6" "Mastopylväs 1 x 1 x 6"
-    , part "2335.dat" "Sail (flag 2 x 2)" "Purje (lippu 2 x 2)"
-    , part "32828.dat" "Cannon" "Tykki"
-    , part "3829c01.dat" "Ship's wheel" "Ruori"
-    , part "4589.dat" "Cone 1 x 1" "Kartio 1 x 1"
-    , part "6141.dat" "Round plate 1 x 1" "Pyöreä levy 1 x 1"
-    ]
+    List.concatMap .parts partCategories
 
 
 part : String -> String -> String -> PartEntry

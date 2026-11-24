@@ -15,8 +15,11 @@ module Pages.Build exposing
 
 It wraps the shared 3D builder `Studio.Core` as Brick Play does, with a
 fixed dock instead of Brick Play's tabs: a modelling toolbar (undo, redo,
-turn, raise, lower, copy, paste, delete) above one row of the 8 colours of
-`Sails.Editor.palette` and one strip of the parts of `Sails.Editor.parts`.
+turn, raise, lower, copy, paste, delete) above the palette row: the 8
+colours of `Sails.Editor.palette` in two rows of four, the full-catalog
+button and the parts used last, the active one starred. The full catalog
+(`Sails.Editor.partCategories`, with a filter by name or number) opens
+above the palette row; its button closes it again.
 The top bar holds only icons: "Use ship" (the check mark) on the left, then
 the hull's name, "Show the whole ship" and "Close".
 
@@ -38,10 +41,11 @@ import DesignTokens.Colors as Brand
 import Dict exposing (Dict)
 import FeatherIcons
 import Game.Ports as GamePorts
-import Html exposing (Html, button, div, span, text)
+import Html exposing (Html, button, div, input, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput, onMouseLeave)
 import I18n exposing (Language(..))
+import Json.Decode as Decode
 import LDraw.ColorData as ColorData
 import LDraw.Colors as Colors
 import LDraw.Document exposing (Document)
@@ -55,8 +59,10 @@ import UI.PartCard as PartCard
 import Viewport
 
 
-{-| Editor state: the studio, the hull it stands on, the colour for new parts
-and the part pictures received so far (by `PartCard.thumbnailKey`).
+{-| Editor state: the studio, the hull it stands on, the colour for new parts,
+the part pictures received so far (by `PartCard.thumbnailKey`), whether the
+full catalog is open and its filter, and the palette row: the part added
+last (`activePart`) and the parts used before it (`recentParts`).
 -}
 type alias Model =
     { studio : Core.Model
@@ -67,6 +73,10 @@ type alias Model =
     , height : Int
     , thumbnails : Dict String String
     , notice : Maybe String
+    , catalogOpen : Bool
+    , catalogFilter : String
+    , activePart : String
+    , recentParts : List String
     }
 
 
@@ -88,6 +98,10 @@ type Msg
     | Finish
     | Leave
     | ThumbnailLoaded { file : String, color : Int, url : String }
+    | ToggleCatalog
+    | CatalogFilterChanged String
+    | PaletteLeft
+    | CanvasTapped
 
 
 {-| What the editor asks `Main` to do after an update.
@@ -140,6 +154,10 @@ init config base doc =
             , height = config.height
             , thumbnails = Dict.empty
             , notice = Nothing
+            , catalogOpen = False
+            , catalogFilter = ""
+            , activePart = "3001.dat"
+            , recentParts = initialRecentParts
             }
 
         ( sized, sizeCmd ) =
@@ -178,10 +196,119 @@ setLanguage language model =
     { model | language = language }
 
 
-{-| Handle an editor message.
+{-| The parts of the palette row before the player adds any: a hull brick, a
+plate, a slope, a deck tile, a mast, a sail and a cannon.
+-}
+initialRecentParts : List String
+initialRecentParts =
+    [ "3001.dat", "3020.dat", "3039.dat", "3068b.dat", "3957a.dat", "2335.dat", "32828.dat" ]
+
+
+{-| How many parts the palette row shows.
+-}
+paletteSize : Int
+paletteSize =
+    7
+
+
+{-| Move the active part to the front of the palette row. The row keeps its
+order while the player taps the same card again, and this runs once the
+player has moved on.
+-}
+commitRecent : Model -> Model
+commitRecent model =
+    { model
+        | recentParts =
+            (model.activePart :: List.filter (\f -> f /= model.activePart) model.recentParts)
+                |> List.take paletteSize
+    }
+
+
+{-| Messages that mean the player has moved on from the palette card they
+tapped.
+-}
+endsPaletteTap : Msg -> Bool
+endsPaletteTap msg =
+    case msg of
+        ToggleCatalog ->
+            True
+
+        PaletteLeft ->
+            True
+
+        CanvasTapped ->
+            True
+
+        PickColour _ ->
+            True
+
+        Turn _ ->
+            True
+
+        Raise ->
+            True
+
+        Lower ->
+            True
+
+        DeleteSelected ->
+            True
+
+        CopySelected ->
+            True
+
+        PasteSelected ->
+            True
+
+        Undo ->
+            True
+
+        Redo ->
+            True
+
+        FitView ->
+            True
+
+        _ ->
+            False
+
+
+{-| Handle an editor message. Opening or closing the full catalog changes the
+height of the 3D view, so the studio is resized whenever it does.
 -}
 update : Msg -> Model -> ( Model, Cmd Msg, Outcome )
 update msg model =
+    let
+        shouldCommit =
+            case msg of
+                AddPart file ->
+                    file /= model.activePart
+
+                _ ->
+                    endsPaletteTap msg
+
+        ( next, cmd, outcome ) =
+            updateModel msg
+                (if shouldCommit then
+                    commitRecent model
+
+                 else
+                    model
+                )
+    in
+    if next.catalogOpen /= model.catalogOpen then
+        let
+            ( resized, resizeCmd ) =
+                runCore (Core.update (Core.ViewportMsg (Viewport.WindowResize next.width (canvasHeight next)))) next
+        in
+        ( resized, Cmd.batch [ cmd, resizeCmd ], outcome )
+
+    else
+        ( next, cmd, outcome )
+
+
+updateModel : Msg -> Model -> ( Model, Cmd Msg, Outcome )
+updateModel msg model =
     let
         stay ( m, c ) =
             ( m, c, Stay )
@@ -213,7 +340,7 @@ update msg model =
                 matrix =
                     Editor.dropMatrix (Core.getDocument model.studio) model.studio.selection file
             in
-            stay (runCore (Core.addPartAt file model.colour matrix) { model | notice = Nothing })
+            stay (runCore (Core.addPartAt file model.colour matrix) { model | notice = Nothing, activePart = file, catalogOpen = False })
 
         Turn direction ->
             stay (runCore (Core.turnSelected direction) model)
@@ -261,6 +388,18 @@ update msg model =
             , Cmd.none
             , Stay
             )
+
+        ToggleCatalog ->
+            ( { model | catalogOpen = not model.catalogOpen, notice = Nothing }, Cmd.none, Stay )
+
+        CatalogFilterChanged query ->
+            ( { model | catalogFilter = query }, Cmd.none, Stay )
+
+        PaletteLeft ->
+            ( model, Cmd.none, Stay )
+
+        CanvasTapped ->
+            ( model, Cmd.none, Stay )
 
 
 {-| Run a studio step, unless it would split the hull: then the step is
@@ -338,17 +477,48 @@ subscriptions model =
 -- ── View ─────────────────────────────────────────────────────────────────────
 
 
-{-| Height of the dock at the bottom: the modelling toolbar, the colour row
-and the parts strip.
+{-| Height of the dock at the bottom: the modelling toolbar and the palette
+row (without the full catalog).
 -}
 dockHeight : Int
 dockHeight =
-    182
+    126
+
+
+{-| Height of the full catalog, shown above the palette row while open. On a
+desktop-width screen it grows to nearly the full window; on a phone it is up
+to twice its compact height. Either way a strip of the 3D view stays above it.
+-}
+catalogHeight : Model -> Int
+catalogHeight model =
+    let
+        compact =
+            240
+
+        tallest =
+            if model.width >= 768 then
+                model.height
+
+            else
+                2 * compact
+    in
+    max 120 (min tallest (model.height - dockHeight - 120))
+
+
+{-| Height of the whole bottom panel: the dock, and the catalog while open.
+-}
+panelHeight : Model -> Int
+panelHeight model =
+    if model.catalogOpen then
+        dockHeight + 6 + catalogHeight model
+
+    else
+        dockHeight
 
 
 canvasHeight : Model -> Int
 canvasHeight model =
-    max 160 (model.height - dockHeight)
+    max 160 (model.height - panelHeight model)
 
 
 {-| The editor screen: the studio canvas, a top bar and the dock.
@@ -373,6 +543,7 @@ view model =
             , Attr.style "width" (px model.width)
             , Attr.style "height" (px (canvasHeight model))
             , Attr.style "touch-action" "none"
+            , Html.Events.on "pointerdown" (Decode.succeed CanvasTapped)
             ]
             [ Html.map StudioMsg (Core.view { width = model.width, height = canvasHeight model } model.studio) ]
         , topBar model
@@ -592,16 +763,23 @@ dock model =
         , Attr.style "left" "0"
         , Attr.style "right" "0"
         , Attr.style "bottom" "0"
-        , Attr.style "height" (px dockHeight)
+        , Attr.style "height" ("calc(" ++ px (panelHeight model) ++ " + env(safe-area-inset-bottom, 0px))")
         , Attr.style "box-sizing" "border-box"
         , Attr.style "display" "flex"
         , Attr.style "flex-direction" "column"
         , Attr.style "gap" "6px"
-        , Attr.style "padding" "8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
+        , Attr.style "padding" "6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
         , Attr.style "background" "rgba(15, 23, 42, 0.94)"
         , Attr.style "border-top" "1px solid rgba(148, 163, 184, 0.25)"
         ]
-        [ modellingControls model, colourRow model, partsStrip model ]
+        ((if model.catalogOpen then
+            [ catalogView model ]
+
+          else
+            []
+         )
+            ++ [ modellingControls model, paletteRow model ]
+        )
 
 
 colourRow : Model -> Html Msg
@@ -609,9 +787,11 @@ colourRow model =
     div
         [ Attr.attribute "role" "listbox"
         , Attr.attribute "aria-label" (tr model.language "Colour" "Väri")
-        , Attr.style "display" "flex"
-        , Attr.style "justify-content" "center"
-        , Attr.style "gap" "6px"
+        , Attr.style "display" "grid"
+        , Attr.style "grid-template-columns" "repeat(4, 26px)"
+        , Attr.style "grid-template-rows" "repeat(2, 26px)"
+        , Attr.style "gap" "4px"
+        , Attr.style "flex-shrink" "0"
         ]
         (List.map (swatchView model) Editor.palette)
 
@@ -643,23 +823,23 @@ swatchView model swatch =
             )
         , Attr.attribute "aria-label" name
         , Attr.title name
-        , Attr.style "width" "34px"
-        , Attr.style "height" "34px"
-        , Attr.style "flex" "0 0 34px"
+        , Attr.style "width" "26px"
+        , Attr.style "height" "26px"
+        , Attr.style "box-sizing" "border-box"
         , Attr.style "border-radius" "50%"
         , Attr.style "background" cssColour
         , Attr.style "cursor" "pointer"
         , Attr.style "touch-action" "manipulation"
         , Attr.style "border"
             (if selected then
-                "3px solid #facc15"
+                "2.5px solid " ++ Brand.legoYellow
 
              else
-                "2px solid rgba(255, 255, 255, 0.35)"
+                "1.5px solid rgba(255, 255, 255, 0.4)"
             )
         , Attr.style "box-shadow"
             (if selected then
-                "0 0 0 2px #0f172a inset"
+                "0 0 0 1.5px " ++ Brand.legoBlack ++ " inset"
 
              else
                 "none"
@@ -668,24 +848,230 @@ swatchView model swatch =
         []
 
 
-partsStrip : Model -> Html Msg
-partsStrip model =
+{-| The palette row: the colours, then the full-catalog button and the parts
+used last, centred while they fit and scrolling sideways when they do not.
+-}
+paletteRow : Model -> Html Msg
+paletteRow model =
+    let
+        shownParts =
+            (if List.member model.activePart model.recentParts then
+                model.recentParts
+
+             else
+                model.activePart :: model.recentParts
+            )
+                |> List.take paletteSize
+    in
     div
-        [ Attr.attribute "aria-label" (tr model.language "Parts" "Osat")
-        , Attr.class "palette-scroll-x"
-        , Attr.style "display" "flex"
-        , Attr.style "gap" "6px"
-        , Attr.style "overflow-x" "auto"
-        , Attr.style "overflow-y" "hidden"
-        , Attr.style "scrollbar-width" "thin"
-        , Attr.style "-webkit-overflow-scrolling" "touch"
-        , Attr.style "padding-bottom" "2px"
+        [ Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "gap" "8px"
+        , Attr.style "width" "100%"
+        , Attr.style "box-sizing" "border-box"
+        , onMouseLeave PaletteLeft
         ]
-        (List.map (partCard model) Editor.parts)
+        [ colourRow model
+        , div
+            [ Attr.style "width" "1px"
+            , Attr.style "height" "48px"
+            , Attr.style "background" "rgba(255, 255, 255, 0.18)"
+            , Attr.style "flex-shrink" "0"
+            ]
+            []
+        , div
+            [ Attr.attribute "aria-label" (tr model.language "Parts" "Osat")
+            , Attr.class "palette-scroll-x"
+            , Attr.style "display" "flex"
+            , Attr.style "align-items" "center"
+            , Attr.style "flex" "1"
+            , Attr.style "min-width" "0"
+            , Attr.style "overflow-x" "auto"
+            , Attr.style "overflow-y" "hidden"
+            , Attr.style "scrollbar-width" "thin"
+            , Attr.style "-webkit-overflow-scrolling" "touch"
+            , Attr.style "padding-bottom" "2px"
+            ]
+            [ div
+                [ Attr.style "display" "flex"
+                , Attr.style "align-items" "center"
+                , Attr.style "gap" "6px"
+                , Attr.style "flex-shrink" "0"
+                , Attr.style "margin" "0 auto"
+                ]
+                (catalogButton model :: List.filterMap (partCard model) shownParts)
+            ]
+        ]
 
 
-partCard : Model -> PartEntry -> Html Msg
-partCard model entry =
+{-| Opens the full catalog above the palette row, and closes it again.
+-}
+catalogButton : Model -> Html Msg
+catalogButton model =
+    button
+        [ Attr.type_ "button"
+        , onClick ToggleCatalog
+        , Attr.attribute "data-catalog-toggle" ""
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "width" "56px"
+        , Attr.style "height" "56px"
+        , Attr.style "padding" "0"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "border-radius" "10px"
+        , Attr.style "border" "2px dashed rgba(250, 200, 10, 0.6)"
+        , Attr.style "background"
+            (if model.catalogOpen then
+                "rgba(250, 200, 10, 0.35)"
+
+             else
+                "rgba(250, 200, 10, 0.15)"
+            )
+        , Attr.style "color" Brand.legoYellow
+        , Attr.style "cursor" "pointer"
+        , Attr.style "touch-action" "manipulation"
+        , Attr.attribute "aria-label" (tr model.language "All parts" "Kaikki osat")
+        , Attr.attribute "aria-pressed"
+            (if model.catalogOpen then
+                "true"
+
+             else
+                "false"
+            )
+        , Attr.title (tr model.language "Browse all parts" "Selaa kaikkia osia")
+        ]
+        [ FeatherIcons.box |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml [] ]
+
+
+{-| A part card of the palette row; the active part (added last) is starred.
+-}
+partCard : Model -> String -> Maybe (Html Msg)
+partCard model file =
+    Editor.parts
+        |> List.filter (\p -> p.file == file)
+        |> List.head
+        |> Maybe.map
+            (\entry ->
+                let
+                    isActive =
+                        file == model.activePart
+
+                    name =
+                        tr model.language entry.nameEn entry.nameFi
+
+                    number =
+                        String.replace ".dat" "" entry.file
+                in
+                PartCard.compactView
+                    { imageUrl = Dict.get (PartCard.thumbnailKey entry.file model.colour) model.thumbnails
+                    , tooltip = name ++ " (" ++ number ++ ")"
+                    , ariaLabel = tr model.language "Add " "Lisää " ++ name
+                    , badge =
+                        if isActive then
+                            Just { text = "★", muted = False }
+
+                        else
+                            Nothing
+                    , onClick = Just (AddPart entry.file)
+                    , attributes =
+                        if isActive then
+                            [ Attr.style "border" ("2px solid " ++ Brand.legoYellow)
+                            , Attr.style "box-shadow" "0 0 8px rgba(250, 200, 10, 0.4)"
+                            ]
+
+                        else
+                            []
+                    }
+            )
+
+
+{-| The full catalog: every part of the editor in its group, with a filter
+field that keeps to the top. Groups with no matching part are hidden.
+-}
+catalogView : Model -> Html Msg
+catalogView model =
+    let
+        lang =
+            model.language
+
+        matching category =
+            List.filter (matchesFilter model.catalogFilter) category.parts
+
+        section category =
+            div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "8px" ]
+                [ div
+                    [ Attr.style "font-size" "12px"
+                    , Attr.style "font-weight" "800"
+                    , Attr.style "color" Brand.legoYellow
+                    , Attr.style "text-transform" "uppercase"
+                    , Attr.style "letter-spacing" "0.5px"
+                    ]
+                    [ text (tr lang category.titleEn category.titleFi) ]
+                , div
+                    [ Attr.style "display" "grid"
+                    , Attr.style "grid-template-columns" "repeat(auto-fill, minmax(110px, 1fr))"
+                    , Attr.style "gap" "8px"
+                    ]
+                    (List.map (catalogCard model) (matching category))
+                ]
+    in
+    div
+        [ Attr.attribute "data-catalog" ""
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "height" (px (catalogHeight model))
+        , Attr.style "box-sizing" "border-box"
+        , Attr.style "overflow-y" "auto"
+        , Attr.style "padding" "10px 12px"
+        , Attr.style "border-radius" "12px"
+        , Attr.style "border" "1px solid rgba(255, 255, 255, 0.12)"
+        , Attr.style "background" "rgba(5, 19, 29, 0.96)"
+        ]
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "12px" ]
+            [ div
+                [ Attr.style "position" "sticky"
+                , Attr.style "top" "0"
+                , Attr.style "z-index" "1"
+                , Attr.style "display" "flex"
+                , Attr.style "justify-content" "center"
+                , Attr.style "padding-bottom" "2px"
+                , Attr.style "background" "rgba(5, 19, 29, 0.96)"
+                ]
+                [ input
+                    [ Attr.type_ "search"
+                    , Attr.value model.catalogFilter
+                    , onInput CatalogFilterChanged
+                    , Attr.placeholder (tr lang "Filter by name or number" "Suodata nimellä tai numerolla")
+                    , Attr.attribute "aria-label" (tr lang "Filter parts" "Suodata osia")
+                    , Attr.attribute "autocomplete" "off"
+                    , Attr.attribute "autocapitalize" "none"
+                    , Attr.attribute "spellcheck" "false"
+                    , Attr.style "width" "100%"
+                    , Attr.style "max-width" "280px"
+                    , Attr.style "box-sizing" "border-box"
+                    , Attr.style "padding" "8px 12px"
+                    , Attr.style "border-radius" "10px"
+                    , Attr.style "border" "1px solid rgba(255, 255, 255, 0.25)"
+                    , Attr.style "background" "rgba(15, 23, 42, 0.85)"
+                    , Attr.style "color" "#f8fafc"
+                    , Attr.style "font-size" "14px"
+                    ]
+                    []
+                ]
+            , div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "16px" ]
+                (Editor.partCategories
+                    |> List.filter (\category -> not (List.isEmpty (matching category)))
+                    |> List.map section
+                )
+            ]
+        ]
+
+
+{-| A part of the full catalog: its picture on the palette cards' light tile,
+its name and its number.
+-}
+catalogCard : Model -> PartEntry -> Html Msg
+catalogCard model entry =
     let
         name =
             tr model.language entry.nameEn entry.nameFi
@@ -693,14 +1079,71 @@ partCard model entry =
         number =
             String.replace ".dat" "" entry.file
     in
-    PartCard.compactView
-        { imageUrl = Dict.get (PartCard.thumbnailKey entry.file model.colour) model.thumbnails
-        , tooltip = name ++ " (" ++ number ++ ")"
-        , ariaLabel = tr model.language "Add " "Lisää " ++ name
-        , badge = Nothing
-        , onClick = Just (AddPart entry.file)
-        , attributes = []
-        }
+    button
+        [ Attr.type_ "button"
+        , onClick (AddPart entry.file)
+        , Attr.attribute "aria-label" (tr model.language "Add " "Lisää " ++ name)
+        , Attr.title (name ++ " (" ++ number ++ ")")
+        , Attr.style "display" "flex"
+        , Attr.style "flex-direction" "column"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "gap" "4px"
+        , Attr.style "padding" "8px 6px"
+        , Attr.style "border-radius" "10px"
+        , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+        , Attr.style "border" "1px solid rgba(255, 255, 255, 0.12)"
+        , Attr.style "color" "#f8fafc"
+        , Attr.style "cursor" "pointer"
+        , Attr.style "touch-action" "manipulation"
+        ]
+        [ div
+            [ Attr.style "width" "64px"
+            , Attr.style "height" "64px"
+            , Attr.style "box-sizing" "border-box"
+            , Attr.style "padding" "4px"
+            , Attr.style "display" "flex"
+            , Attr.style "align-items" "center"
+            , Attr.style "justify-content" "center"
+            , Attr.style "border-radius" "8px"
+            , Attr.style "background"
+                "radial-gradient(circle at 50% 45%, var(--color-bg-subtle) 0%, color-mix(in srgb, var(--color-border-default) 80%, var(--color-text-subtle)) 75%)"
+            , Attr.style "box-shadow" "inset 0 0 0 1px rgba(255, 255, 255, 0.35)"
+            ]
+            [ case Dict.get (PartCard.thumbnailKey entry.file model.colour) model.thumbnails of
+                Just url ->
+                    Html.img
+                        [ Attr.src url
+                        , Attr.alt name
+                        , Attr.style "max-width" "100%"
+                        , Attr.style "max-height" "100%"
+                        , Attr.style "object-fit" "contain"
+                        ]
+                        []
+
+                Nothing ->
+                    text ""
+            ]
+        , div [ Attr.style "font-size" "11px", Attr.style "font-weight" "700", Attr.style "text-align" "center", Attr.style "line-height" "1.2" ]
+            [ text name ]
+        , div [ Attr.style "font-size" "9px", Attr.style "color" "#94a3b8" ]
+            [ text ("#" ++ number) ]
+        ]
+
+
+{-| Whether a part matches the catalog filter: by its English or Finnish
+name, or by its number.
+-}
+matchesFilter : String -> PartEntry -> Bool
+matchesFilter query entry =
+    let
+        q =
+            String.toLower (String.trim query)
+    in
+    (q == "")
+        || String.contains q (String.toLower entry.nameEn)
+        || String.contains q (String.toLower entry.nameFi)
+        || String.contains q (String.replace ".dat" "" entry.file)
 
 
 iconButton : String -> FeatherIcons.Icon -> Maybe Msg -> Html Msg
