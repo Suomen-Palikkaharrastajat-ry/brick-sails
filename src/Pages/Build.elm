@@ -478,11 +478,12 @@ subscriptions model =
 
 
 {-| Height of the dock at the bottom: the modelling toolbar and the palette
-row (without the full catalog).
+row (without the full catalog): the 44 px tools, the palette cards and the
+gaps and padding around them.
 -}
 dockHeight : Int
 dockHeight =
-    126
+    144
 
 
 {-| Height of the full catalog, shown above the palette row while open. On a
