@@ -226,7 +226,7 @@ baseOrder =
 finnishNames : Dict String String
 finnishNames =
     Dict.fromList
-        [ ( "narrow-racer", "Kapea kilparunko" )
+        [ ( "narrow-racer", "Kapea salakuljettajan runko" )
         , ( "wide-sturdy", "Leveä vakaa runko" )
         , ( "long-cruiser", "Pitkä matkarunko" )
         , ( "round-bow", "Pyöreäkeulainen runko" )

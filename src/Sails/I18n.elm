@@ -170,14 +170,17 @@ title lang =
 
 subtitle : Language -> String
 subtitle lang =
-    pick lang "Leluveneiden poijukisa" "Toy boat buoy race"
+    pick lang "Leluveneiden Karibian seikkailu" "Toy boat Caribbean adventure"
 
 
 courseTitle : Language -> String -> String
 courseTitle lang name =
     case ( lang, name ) of
         ( Fi, "Island Loop" ) ->
-            "Saarikierros"
+            "Aarresaarten kierros"
+
+        ( En, "Island Loop" ) ->
+            "Treasure Isles Loop"
 
         _ ->
             name
@@ -287,13 +290,13 @@ controlsHint : Language -> Bool -> String
 controlsHint lang tilt =
     if tilt then
         pick lang
-            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta AMMU maalien lähellä."
-            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE near targets."
+            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta AMMU, kun olet lähellä maalitauluja."
+            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE when you're near the targets, captain."
 
     else
         pick lang
-            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). AMMU (välilyönti) maalien lähellä."
-            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) near targets."
+            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). AMMU (välilyönti) maalitaulujen lähellä."
+            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) to blast nearby targets."
 
 
 speedLabel : Language -> String
@@ -342,12 +345,12 @@ roomCodeLabel lang =
 
 joinRaceTitle : Language -> String
 joinRaceTitle lang =
-    pick lang "Liity avattuun kisaan" "Join a hosted race"
+    pick lang "Liity avattuun seikkailuun" "Join a hosted voyage"
 
 
 joinRace : Language -> String
 joinRace lang =
-    pick lang "Liity kisaan" "Join race"
+    pick lang "Liity miehistöön" "Join the crew"
 
 
 buildLinkPlaceholder : Language -> String
@@ -456,12 +459,12 @@ pointOfSailText lang p =
 
 buoyAria : Language -> String
 buoyAria lang =
-    pick lang "Poijut" "Buoys"
+    pick lang "Reittimerkit" "Waypoints"
 
 
 buoyCount : Language -> Int -> Int -> String
 buoyCount lang n total =
-    pick lang "Poiju " "Buoy " ++ String.fromInt n ++ "/" ++ String.fromInt total
+    pick lang "Merkki " "Waypoint " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
 windDirection : Language -> String
@@ -509,7 +512,7 @@ weatherName lang name =
 
 restartRace : Language -> String
 restartRace lang =
-    pick lang "Aloita kisa alusta" "Restart race"
+    pick lang "Aloita seikkailu alusta" "Restart voyage"
 
 
 backToBoats : Language -> String
@@ -558,14 +561,14 @@ fireButton lang ready =
 
 goBanner : Language -> String
 goBanner lang =
-    pick lang "LÄHTÖ!" "GO!"
+    pick lang "ANKKURIT YLÖS!" "ANCHORS AWEIGH!"
 
 
 countdownHint : Language -> String
 countdownHint lang =
     pick lang
-        "Purjehdi hehkuvien poijujen läpi järjestyksessä. Mene lähelle maalia ja AMMU: −2 s."
-        "Sail through the glowing buoys in order. Get close to a target and FIRE for -2 s."
+        "Seuraa pasaatituulta hehkuvien merkkien kautta riuttojen ja palmusaarten ohi. Mene lähelle maalitaulua ja AMMU: −2 s."
+        "Ride the trade winds through the glowing waypoints, past reefs and palm coves. Get close to a target and FIRE for -2 s."
 
 
 {-| The sail buttons: raise (True) or lower (False).
@@ -672,14 +675,14 @@ speedKnotsTitle lang =
 
 nextBuoyTitle : Language -> String
 nextBuoyTitle lang =
-    pick lang "Matka seuraavalle poijulle" "Distance to the next buoy"
+    pick lang "Matka seuraavalle merkille" "Distance to the next waypoint"
 
 
 {-| Tooltip of the buoy time that shows for a few seconds after a buoy.
 -}
 buoyTimeTitle : Language -> Int -> String
 buoyTimeTitle lang n =
-    pick lang ("Aika poijulla " ++ String.fromInt n) ("Time at buoy " ++ String.fromInt n)
+    pick lang ("Aika merkillä " ++ String.fromInt n) ("Time at waypoint " ++ String.fromInt n)
 
 
 heelTitle : Language -> String
@@ -689,7 +692,7 @@ heelTitle lang =
 
 backToCourse : Language -> String
 backToCourse lang =
-    pick lang "Takaisin radalle" "Back to the course"
+    pick lang "Takaisin reitille" "Back on course"
 
 
 shipwrecked : Language -> String
@@ -700,8 +703,8 @@ shipwrecked lang =
 shipwreckedText : Language -> String
 shipwreckedText lang =
     pick lang
-        "Laivasi hajosi palikoiksi. Tämä kierros meni: väistä kiviä ja ota isot aallot rauhallisesti."
-        "Your ship broke apart into its bricks. This run is lost: steer clear of the rocks and ease into big waves."
+        "Laivasi hajosi palikoiksi riutalla. Tämä seikkailu päättyi: väistä riuttoja ja ota isot aallot rauhallisesti."
+        "Your ship broke apart on the reef. This voyage is lost: steer clear of the reefs and ease into big waves."
 
 
 sailAgain : Language -> String
@@ -720,12 +723,12 @@ treasureToast lang bonus =
 
 finishToast : Language -> String
 finishToast lang =
-    pick lang "MAALI!" "FINISH!"
+    pick lang "SATAMASSA!" "LAND HO!"
 
 
 buoyToast : Language -> Int -> Int -> String
 buoyToast lang n total =
-    pick lang "Poiju " "Buoy " ++ String.fromInt n ++ "/" ++ String.fromInt total
+    pick lang "Merkki " "Waypoint " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
 hitToast : Language -> Int -> String
@@ -748,13 +751,13 @@ headline : Language -> Int -> String
 headline lang starCount =
     case starCount of
         3 ->
-            pick lang "Mallikasta!" "Ship-shape!"
+            pick lang "Merirosvokuninkaan arvoista!" "Fit for a pirate king!"
 
         2 ->
-            pick lang "Hienoa purjehdusta!" "Nice sailing!"
+            pick lang "Hienoa merimiestaitoa!" "Fine seamanship!"
 
         _ ->
-            pick lang "Perillä!" "Made it!"
+            pick lang "Satamassa!" "Safe in harbour!"
 
 
 starsAria : Language -> Int -> String
@@ -851,7 +854,7 @@ copyLink lang =
 
 startRace : Language -> String
 startRace lang =
-    pick lang "ALOITA KISA" "START RACE"
+    pick lang "LÄHDE SEIKKAILUUN" "SET SAIL"
 
 
 roomLabel : Language -> String -> String
@@ -871,14 +874,14 @@ raceStatus : Language -> { countdown : Maybe Int, finished : Bool } -> String
 raceStatus lang s =
     case s.countdown of
         Just n ->
-            pick lang "ALKAA " "STARTING IN " ++ String.fromInt n ++ "..."
+            pick lang "LÄHTÖ " "SAILING IN " ++ String.fromInt n ++ "..."
 
         Nothing ->
             if s.finished then
-                pick lang "KISA PÄÄTTYI" "RACE FINISHED"
+                pick lang "SEIKKAILU PÄÄTTYI" "VOYAGE OVER"
 
             else
-                pick lang "KISA KÄYNNISSÄ" "RACE IN PROGRESS"
+                pick lang "SEIKKAILU KÄYNNISSÄ" "VOYAGE UNDER WAY"
 
 
 slotLabel : Language -> Int -> String
@@ -900,7 +903,7 @@ you lang =
 
 finishedBadge : Language -> String
 finishedBadge lang =
-    pick lang "MAALISSA" "FINISHED"
+    pick lang "SATAMASSA" "IN PORT"
 
 
 

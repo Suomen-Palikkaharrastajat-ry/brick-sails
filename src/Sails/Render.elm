@@ -273,7 +273,7 @@ canvas width height entities =
         [ WebGL.alpha False
         , WebGL.antialias
         , WebGL.depth 1
-        , WebGL.clearColor 0.75 0.88 0.97 1
+        , WebGL.clearColor 0.62 0.86 0.95 1
         ]
         [ Attr.width width
         , Attr.height height

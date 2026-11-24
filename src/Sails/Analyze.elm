@@ -103,7 +103,7 @@ analyzeShip spec =
                             "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " naval cannons equipped. Press [Space] or tap FIRE to shoot!"
 
                         else
-                            "Unarmed vessel: swift racer with low displacement ballast."
+                            "Unarmed vessel: a swift smuggler's sloop with low displacement ballast."
                 in
                 ( Seaworthy, baseNotes ++ [ speedNote, cannonNote ] )
 

@@ -1,7 +1,7 @@
 {
   "name": "brick-sails",
   "version": "1.0.0",
-  "description": "Toy boat buoy race built with Elm, WebGL, and Brick Frame",
+  "description": "Toy boat Caribbean adventure built with Elm, WebGL, and Brick Frame",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native --host 0.0.0.0 --port 5177",
