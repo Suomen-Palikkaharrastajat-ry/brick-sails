@@ -172,6 +172,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
                 ++ List.concatMap (sprayEntities ctx draw scene.time) (List.take 1 scene.boats)
+                ++ List.concatMap (wakeEntities ctx draw scene.time) scene.boats
                 ++ boltEntities ctx scene.weather
                 ++ rainEntities ctx scene.time scene.weather
     in
@@ -953,6 +954,61 @@ sprayEntities ctx draw time rb =
     in
     if rough > 0.05 then
         puff 0 ++ puff 1
+
+    else
+        []
+
+
+{-| Dynamic LEGO brick foam wake trailing behind a boat's keel when moving.
+Emits flattened foam wash tiers along the boat's stern wake wash.
+-}
+wakeEntities : Ctx -> Draw -> Float -> RenderBoat -> List WebGL.Entity
+wakeEntities ctx draw time rb =
+    let
+        s =
+            rb.state
+
+        p =
+            Vec3.toRecord s.position
+
+        speed =
+            s.speed
+    in
+    if speed > 0.4 then
+        let
+            rad =
+                degrees s.heading
+
+            tier i =
+                let
+                    phase =
+                        fract (time * 1.3 + toFloat i * 0.33)
+
+                    dist =
+                        1.8 + toFloat i * 1.5 + phase * 0.5
+
+                    spread =
+                        0.35 + toFloat i * 0.3
+
+                    w =
+                        0.8 + toFloat i * 0.5
+
+                    h =
+                        0.06
+
+                    wakePuff side =
+                        draw.fitted "splash"
+                            (BrickProps.fitBox { width = w, height = h, depth = w })
+                            (Mat4.makeTranslate3
+                                (p.x - sin rad * dist + side * cos rad * spread)
+                                (p.y + 0.05)
+                                (p.z - cos rad * dist - side * sin rad * spread)
+                            )
+                            plain
+                in
+                wakePuff 1 ++ wakePuff -1
+        in
+        tier 0 ++ tier 1 ++ tier 2
 
     else
         []
