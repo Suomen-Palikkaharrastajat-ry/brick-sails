@@ -162,6 +162,7 @@ renderWorld cam scene width height =
             , Ocean.oceanEntity ctx
             ]
                 ++ islandEntities draw scene.course
+                ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
@@ -668,6 +669,23 @@ islandEntities draw course =
         |> List.concat
 
 
+{-| A sweeping lighthouse searchlight beam from the lantern on island 0.
+-}
+lighthouseBeamEntity : Ctx -> Float -> Course -> List WebGL.Entity
+lighthouseBeamEntity ctx time course =
+    case course.islands of
+        isl :: _ ->
+            let
+                model =
+                    Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height + 9.5) (isl.z + 0.1 * isl.radius)
+                        |> rotY (time * 0.75)
+            in
+            [ ocean ctx model (vec3 1.0 0.95 0.55) lighthouseBeamMesh ]
+
+        [] ->
+            []
+
+
 {-| A brick scenery piece standing at a point, its front facing `bearing`.
 Nothing is drawn until its parts are in.
 -}
@@ -901,6 +919,18 @@ arrowMesh =
     in
     WebGL.triangles
         (arm 1 ++ arm -1 ++ (arm 1 ++ arm -1 |> transformTris (Mat4.makeTranslate3 0 0 -1.4)))
+
+
+{-| Sweeping lighthouse beam mesh: 2 triangles extending from z = 0 to z = 160.
+-}
+lighthouseBeamMesh : WebGL.Mesh PropVertex
+lighthouseBeamMesh =
+    let
+        p =
+            vec3
+    in
+    WebGL.triangles
+        (face (p -0.5 -0.4 0) (p 0.5 0.4 0) (p 14 2.5 160) (p -14 -2.5 160) white)
 
 
 
