@@ -332,7 +332,7 @@ twoPlayerHost lang =
 
 gridHost : Language -> String
 gridHost lang =
-    pick lang "Ruudukko (8)" "Host grid (8)"
+    pick lang "Moninpeli (8)" "Host 8-player"
 
 
 {-| Tooltip of a host button.

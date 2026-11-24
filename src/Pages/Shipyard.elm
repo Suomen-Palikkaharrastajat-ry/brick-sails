@@ -6,8 +6,9 @@ module Pages.Shipyard exposing
 {-| Start screen: pick one of four toy boats (or a ship loaded from a build
 link or built here), see it bob on the water, and set sail. A ship can be
 built on one of the starter hulls in the ship editor ("Build a ship"), and a
-build link can be pasted or a model file opened. Online play (host a split-screen room or join one) sits
-below.
+build link can be pasted or a model file opened. Online play (host a room of
+two or eight, or join one) sits below; every player sails on their own
+screen.
 -}
 
 import FeatherIcons

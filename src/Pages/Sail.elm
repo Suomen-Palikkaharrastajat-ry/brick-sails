@@ -15,7 +15,6 @@ at the nearest floating target in range; each hit takes 2 s off the time.
 import Browser.Events
 import FeatherIcons
 import Game.Audio as GameAudio
-import Game.Grid as Grid
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
@@ -899,9 +898,6 @@ viewRace model callbacks maybeRoom =
             , props = callbacks.props
             , debris = model.debris
             }
-
-        playerCount =
-            maybeRoom |> Maybe.map (\r -> List.length r.players) |> Maybe.withDefault 1
     in
     div
         [ Attr.class "is-racing relative w-full h-full overflow-hidden bg-brand select-none font-sans"
@@ -910,14 +906,10 @@ viewRace model callbacks maybeRoom =
         -- still has to ask for the sensor (iOS), see tilt-steer.js.
         , Attr.attribute "data-tilt-start" ""
         ]
-        [ div [ Attr.class "absolute inset-0 z-0" ]
-            [ case ( Grid.layoutFor (Grid.orientation model.viewportWidth model.viewportHeight) playerCount, maybeRoom ) of
-                ( Grid.Tiles shape, Just room ) ->
-                    viewBoatGrid (\camera w h -> Render.renderWorld camera worldArgs w h) shape model.viewportWidth model.viewportHeight room model
-
-                _ ->
-                    Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight
-            ]
+        [ -- Alone or in an online room, the player's own follow view fills
+          -- the screen; the other players' boats sail in it.
+          div [ Attr.class "absolute inset-0 z-0" ]
+            [ Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight ]
         , if model.progress.finished then
             text ""
 
@@ -958,25 +950,18 @@ viewRace model callbacks maybeRoom =
         , case maybeRoom of
             Just room ->
                 -- In portrait the pill sits above the steering and sail
-                -- buttons, which it would cover lower down.
-                div [ Attr.class "absolute bottom-[152px] landscape:bottom-24 left-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-brand/80 border border-white/10 pointer-events-auto" ]
-                    [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
-                        [ text ("P" ++ String.fromInt room.mySlot) ]
-                    , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
-                    , if List.isEmpty loadingShips then
-                        text ""
+                -- buttons, which it would cover lower down. Once the race starts
+                -- the other players' name tags stack above it.
+                div [ Attr.class "absolute bottom-[152px] landscape:bottom-24 left-2 z-20 flex flex-col items-start gap-1.5 pointer-events-none" ]
+                    ((if room.status == Lobby then
+                        -- The lobby roster names everyone while the room waits.
+                        []
 
                       else
-                        span [ Attr.class "text-xs font-bold text-brand-yellow", Attr.attribute "data-testid" "loading-ships" ]
-                            [ text (T.loadingShips model.language (List.map .slot loadingShips)) ]
-                    , button
-                        [ onClick CopyShareUrl
-                        , Attr.title (T.copyRoomLink model.language)
-                        , Attr.attribute "aria-label" (T.copyRoomLink model.language)
-                        , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg bg-slate-800 text-slate-300"
-                        ]
-                        [ FeatherIcons.share2 |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
-                    ]
+                        List.map (playerBadge model.language) (List.sortBy .slot (remotePlayers model))
+                     )
+                        ++ [ roomPill model.language loadingShips room ]
+                    )
 
             Nothing ->
                 text ""
@@ -998,60 +983,29 @@ viewRace model callbacks maybeRoom =
         ]
 
 
-{-| One view per player on the grid, each following its own boat (the local
-player's from the local boat), the local player's first.
+{-| The room pill: this player's slot, the room code, the ships still
+loading and the copy-link button.
 -}
-viewBoatGrid :
-    ({ eye : Vec3, target : Vec3 } -> Int -> Int -> Html SailMsg)
-    -> Grid.GridShape
-    -> Int
-    -> Int
-    -> RoomState
-    -> SailModel
-    -> Html SailMsg
-viewBoatGrid renderFrom shape width height room model =
-    let
-        tileW =
-            max 160 (width // shape.cols)
+roomPill : Language -> List Multiplayer.RemotePlayer -> RoomState -> Html SailMsg
+roomPill language loadingShips room =
+    div [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-brand/80 border border-white/10 pointer-events-auto" ]
+        [ span [ Attr.class ("px-2 py-0.5 rounded-lg text-xs font-black uppercase " ++ Multiplayer.slotBadgeClass room.mySlot) ]
+            [ text ("P" ++ String.fromInt room.mySlot) ]
+        , span [ Attr.class "text-xs font-mono font-bold text-sky-300" ] [ text room.roomId ]
+        , if List.isEmpty loadingShips then
+            text ""
 
-        tileH =
-            max 120 (height // shape.rows)
-
-        followOf p =
-            if p.slot == room.mySlot then
-                { yaw = model.state.heading, distance = CameraRig.chaseDistance, focus = model.state.position }
-
-            else
-                { yaw = (Vec3.toRecord p.rotation).y, distance = CameraRig.chaseDistance, focus = p.position }
-
-        -- The local player's own tile (always the first, top left) carries
-        -- no badge: the HUD covers that corner and the room pill names the
-        -- player. Other tiles in the top row of a grid with more rows show
-        -- theirs at the bottom, clear of the HUD's top corners.
-        tile index p =
-            div [ Attr.class "relative w-full h-full overflow-hidden border border-slate-800 bg-brand" ]
-                [ renderFrom (CameraRig.followView (followOf p)) tileW tileH
-                , if p.slot == room.mySlot then
-                    text ""
-
-                  else
-                    playerBadge model.language
-                        (if shape.rows > 1 && index < shape.cols then
-                            "bottom-2 left-2"
-
-                         else
-                            "top-2 left-2"
-                        )
-                        p
-                ]
-    in
-    div
-        [ Attr.class "absolute inset-0"
-        , Attr.style "display" "grid"
-        , Attr.style "grid-template-columns" ("repeat(" ++ String.fromInt shape.cols ++ ", minmax(0, 1fr))")
-        , Attr.style "grid-template-rows" ("repeat(" ++ String.fromInt shape.rows ++ ", minmax(0, 1fr))")
+          else
+            span [ Attr.class "text-xs font-bold text-brand-yellow", Attr.attribute "data-testid" "loading-ships" ]
+                [ text (T.loadingShips language (List.map .slot loadingShips)) ]
+        , button
+            [ onClick CopyShareUrl
+            , Attr.title (T.copyRoomLink language)
+            , Attr.attribute "aria-label" (T.copyRoomLink language)
+            , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg bg-slate-800 text-slate-300"
+            ]
+            [ FeatherIcons.share2 |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
         ]
-        (List.indexedMap tile (Grid.selfFirst .slot room.mySlot room.players))
 
 
 {-| Commentator controls (room code, player count, copy link, start) for the
@@ -1164,13 +1118,13 @@ rosterSeat language room slot =
                 [ text (T.slotOpen language slot) ]
 
 
-{-| Name tag of another player's tile: slot, name, speed and whether they
-finished, in the given corner of the tile.
+{-| Name tag of another player in the room: slot, name, speed and whether
+they finished.
 -}
-playerBadge : Language -> String -> Multiplayer.RemotePlayer -> Html msg
-playerBadge language corner p =
+playerBadge : Language -> Multiplayer.RemotePlayer -> Html msg
+playerBadge language p =
     div
-        [ Attr.class ("absolute z-10 flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg " ++ corner)
+        [ Attr.class "flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-lg"
         , Attr.attribute "data-testid" "player-badge"
         ]
         [ span [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black uppercase " ++ Multiplayer.slotBadgeClass p.slot) ]
