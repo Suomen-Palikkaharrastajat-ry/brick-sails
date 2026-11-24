@@ -87,6 +87,7 @@ propSources =
     , ( "leafyTree", BrickModels.leafyTree )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
+    , ( "pennant", BrickModels.singlePart "2335.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     ]
@@ -167,7 +168,7 @@ renderWorld cam scene width height =
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
-                ++ List.concatMap (boatEntities ctx width height) scene.boats
+                ++ List.concatMap (boatEntities ctx width height (Dict.get "pennant" scene.props)) scene.boats
                 ++ List.concatMap (debrisEntities draw) scene.debris
                 ++ guideEntities ctx scene.guide
                 ++ List.concatMap (ballEntity draw) scene.balls
@@ -263,7 +264,7 @@ renderShipyard mesh time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height { mesh = mesh, state = state, sailTint = Nothing }
+            ++ boatEntities ctx width height Nothing { mesh = mesh, state = state, sailTint = Nothing }
         )
 
 
@@ -291,11 +292,11 @@ white =
     vec3 1 1 1
 
 
-{-| Draw one brick boat: the hull and rig, and the sails hoisted as far as
-the boat's sail setting.
+{-| Draw one brick boat: the hull and rig, the sails hoisted as far as
+the boat's sail setting, and the windvane masthead pennant streaming downwind.
 -}
-boatEntities : Ctx -> Int -> Int -> RenderBoat -> List WebGL.Entity
-boatEntities ctx width height rb =
+boatEntities : Ctx -> Int -> Int -> Maybe PropModel -> RenderBoat -> List WebGL.Entity
+boatEntities ctx width height pennantProp rb =
     case rb.mesh of
         Nothing ->
             []
@@ -338,9 +339,41 @@ boatEntities ctx width height rb =
                             |> Mat4.scale3 1 hoist 1
                             |> Mat4.translate3 0 -mesh.sailFoot 0
                         )
+
+                mastTopY =
+                    mesh.heightMeters * 0.96
+
+                apparentDrift =
+                    s.sailAngle * 0.35 / (1 + s.speed * 0.25)
+
+                flutter =
+                    0.15 * sin (ctx.time * 7 + ctx.sea * 4 + s.speed * 2)
+
+                flutterAngle =
+                    pi + degrees apparentDrift + flutter
+
+                pennantEntities =
+                    case pennantProp of
+                        Just prop ->
+                            let
+                                pennantMatrix =
+                                    Mat4.mul world
+                                        (Mat4.makeTranslate3 0 mastTopY 0
+                                            |> rotY flutterAngle
+                                            |> (\m -> Mat4.mul m (BrickProps.fitHeight 0.55 prop))
+                                        )
+
+                                pv =
+                                    Ocean.propView ctx width height
+                            in
+                            BrickProps.draw pv pennantMatrix (vec4 0.9 0.15 0.1 1) (edgeWidthAt ctx (Mat4.transform pennantMatrix (vec3 0 0 0))) prop
+
+                        Nothing ->
+                            []
             in
             brickPasses ctx width height distance tint model mesh.scene
                 ++ brickPasses ctx width height distance tint sailModel mesh.sails
+                ++ pennantEntities
 
 
 {-| Draw one brick scene: the plastic surface pass, then the brick edges
