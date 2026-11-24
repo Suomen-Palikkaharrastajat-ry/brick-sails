@@ -3,7 +3,7 @@ module BuildPageTest exposing (suite)
 {-| The ship editor screen (`Pages.Build`) keeps the hull in one piece: with
 the hull selected, the keys and buttons that would ungroup, delete, cut,
 duplicate or regroup it leave the build as it was, while parts added from the
-dock can still be turned and deleted.
+dock can still be turned, copied, pasted and deleted.
 -}
 
 import Expect
@@ -101,6 +101,28 @@ baseTest base =
                             , \_ -> Expect.equal True (Editor.baseIntact base (Build.document deleted))
                             ]
                             ()
+               , test "an added part can be copied and pasted" <|
+                    \_ ->
+                        let
+                            pasted =
+                                opened |> step (AddPart "3001.dat") |> step CopySelected |> step PasteSelected
+                        in
+                        Expect.all
+                            [ \d -> Expect.equal (partCount base.document + 2) (partCount d)
+                            , \d -> Expect.equal True (Editor.baseIntact base d)
+                            ]
+                            (Build.document pasted)
+               , test "pasting a copy of the hull leaves the hull in one piece" <|
+                    \_ ->
+                        let
+                            pasted =
+                                withBaseSelected |> step (key "c" False True) |> step PasteSelected
+                        in
+                        Expect.all
+                            [ \d -> Expect.equal (partCount base.document) (partCount d)
+                            , \d -> Expect.equal True (Editor.baseIntact base d)
+                            ]
+                            (Build.document pasted)
                , test "picking a colour recolours the selected part" <|
                     \_ ->
                         let

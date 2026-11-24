@@ -14,14 +14,17 @@ module Pages.Build exposing
 {-| The ship editor: a small Brick Play builder for one ship.
 
 It wraps the shared 3D builder `Studio.Core` as Brick Play does, with a
-fixed dock instead of Brick Play's tabs: one row of the 8 colours of
+fixed dock instead of Brick Play's tabs: a modelling toolbar (undo, redo,
+turn, raise, lower, copy, paste, delete) above one row of the 8 colours of
 `Sails.Editor.palette` and one strip of the parts of `Sails.Editor.parts`.
+The top bar holds only icons: "Use ship" (the check mark) on the left, then
+the hull's name, "Show the whole ship" and "Close".
 
 The ship starts from one of the starter hulls (`Sails.Editor.bases`): bow,
 deck and keel grouped as one submodel, so the hull is selected and moved as
 one piece. The player adds parts (each goes on free studs of the deck, a sail
 on the selected mast, `Sails.Editor.dropMatrix`), colours them, turns, raises,
-lowers and drags them, and deletes them. The hull itself cannot be deleted,
+lowers, drags, copies and pastes them, and deletes them. The hull itself cannot be deleted,
 recoloured or ungrouped: every studio update is checked with
 `Sails.Editor.baseIntact` and one that would split the hull is dropped. Brick
 Sails has no ungroup flow, so the hull stays fixed.
@@ -31,6 +34,7 @@ Sails has no ungroup flow, so the hull stays fixed.
 
 -}
 
+import DesignTokens.Colors as Brand
 import Dict exposing (Dict)
 import FeatherIcons
 import Game.Ports as GamePorts
@@ -76,6 +80,8 @@ type Msg
     | Raise
     | Lower
     | DeleteSelected
+    | CopySelected
+    | PasteSelected
     | Undo
     | Redo
     | FitView
@@ -122,7 +128,6 @@ init config base doc =
                         >> Core.setDragMode (Core.DragPartsOrPan Core.OneFingerPans)
                         >> Core.setTwoFingerOrbits True
                         >> Core.setGlueEditable False
-                        >> Core.setPasteEnabled False
                         >> Core.setNudgeSteps { horizontal = 20, vertical = 8 }
                     )
 
@@ -219,6 +224,12 @@ update msg model =
         Lower ->
             stay (runCore Core.lowerSelected model)
 
+        CopySelected ->
+            stay (runCore (\studio -> ( Core.copySelection studio, Cmd.none, [] )) model)
+
+        PasteSelected ->
+            stay (runCore Core.pasteClipboard model)
+
         DeleteSelected ->
             if baseSelected model then
                 ( { model | notice = Just (keepBaseText model.language) }, Cmd.none, Stay )
@@ -255,7 +266,7 @@ update msg model =
 {-| Run a studio step, unless it would split the hull: then the step is
 dropped (its model, commands and events) and the player is told why. This
 catches every path to the hull: the keyboard (Delete, Ctrl+X, Ctrl+D,
-Ctrl+G, Ctrl+Shift+G), the buttons and drags.
+Ctrl+V, Ctrl+G, Ctrl+Shift+G), the buttons and drags.
 -}
 runCore : (Core.Model -> ( Core.Model, Cmd Core.Msg, List Core.Event )) -> Model -> ( Model, Cmd Msg )
 runCore step model =
@@ -327,11 +338,12 @@ subscriptions model =
 -- ── View ─────────────────────────────────────────────────────────────────────
 
 
-{-| Height of the dock at the bottom: the colour row and the parts strip.
+{-| Height of the dock at the bottom: the modelling toolbar, the colour row
+and the parts strip.
 -}
 dockHeight : Int
 dockHeight =
-    132
+    182
 
 
 canvasHeight : Model -> Int
@@ -339,8 +351,7 @@ canvasHeight model =
     max 160 (model.height - dockHeight)
 
 
-{-| The editor screen: the studio canvas, a top bar, the selection tools and
-the dock.
+{-| The editor screen: the studio canvas, a top bar and the dock.
 -}
 view : Model -> Html Msg
 view model =
@@ -365,7 +376,6 @@ view model =
             ]
             [ Html.map StudioMsg (Core.view { width = model.width, height = canvasHeight model } model.studio) ]
         , topBar model
-        , selectionBar model
         , noticeView model
         , dock model
         ]
@@ -388,86 +398,168 @@ topBar model =
         , Attr.style "padding" "max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left))"
         , Attr.style "pointer-events" "none"
         ]
-        [ iconButton (tr lang "Back to the boats" "Takaisin veneisiin") FeatherIcons.arrowLeft (Just Leave)
+        [ button
+            (buttonStyle True
+                ++ [ onClick Finish
+                   , Attr.style "background" Brand.legoYellow
+                   , Attr.style "color" Brand.legoBlack
+                   , Attr.style "border" "none"
+                   , Attr.attribute "aria-label" (tr lang "Use this ship" "Käytä tätä laivaa")
+                   , Attr.title (tr lang "Use this ship" "Käytä tätä laivaa")
+                   ]
+            )
+            [ FeatherIcons.check |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
         , div
             [ Attr.style "flex" "1"
             , Attr.style "min-width" "0"
             , Attr.style "display" "flex"
-            , Attr.style "flex-direction" "column"
-            , Attr.style "padding" "4px 10px"
-            , Attr.style "border-radius" "12px"
-            , Attr.style "background" "rgba(15, 23, 42, 0.78)"
-            , Attr.style "pointer-events" "auto"
+            , Attr.style "justify-content" "center"
             ]
-            [ span [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "white-space" "nowrap", Attr.style "overflow" "hidden", Attr.style "text-overflow" "ellipsis" ]
-                [ text (tr lang "Build your ship" "Rakenna laivasi") ]
-            , span
-                [ Attr.style "font-size" "14px"
-                , Attr.style "font-weight" "700"
-                , Attr.style "white-space" "nowrap"
-                , Attr.style "overflow" "hidden"
-                , Attr.style "text-overflow" "ellipsis"
+            [ div
+                [ Attr.style "min-width" "0"
+                , Attr.style "display" "flex"
+                , Attr.style "flex-direction" "column"
+                , Attr.style "align-items" "center"
+                , Attr.style "padding" "4px 10px"
+                , Attr.style "border-radius" "12px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.78)"
+                , Attr.style "pointer-events" "auto"
                 ]
-                [ text (baseName lang model.base) ]
+                [ span [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "white-space" "nowrap", Attr.style "overflow" "hidden", Attr.style "text-overflow" "ellipsis", Attr.style "max-width" "100%" ]
+                    [ text (tr lang "Build your ship" "Rakenna laivasi") ]
+                , span
+                    [ Attr.style "font-size" "14px"
+                    , Attr.style "font-weight" "700"
+                    , Attr.style "white-space" "nowrap"
+                    , Attr.style "overflow" "hidden"
+                    , Attr.style "text-overflow" "ellipsis"
+                    , Attr.style "max-width" "100%"
+                    ]
+                    [ text (baseName lang model.base) ]
+                ]
             ]
-        , iconButton (tr lang "Undo" "Kumoa") FeatherIcons.cornerUpLeft (enabledIf (Core.canUndo model.studio) Undo)
-        , iconButton (tr lang "Redo" "Tee uudelleen") FeatherIcons.cornerUpRight (enabledIf (Core.canRedo model.studio) Redo)
         , iconButton (tr lang "Show the whole ship" "Näytä koko laiva") FeatherIcons.maximize (Just FitView)
-        , button
-            (buttonStyle True
-                ++ [ onClick Finish
-                   , Attr.style "background" "#facc15"
-                   , Attr.style "color" "#0f172a"
-                   , Attr.style "padding" "0 14px"
-                   , Attr.style "font-weight" "800"
-                   , Attr.style "gap" "6px"
-                   , Attr.attribute "aria-label" (tr lang "Use this ship" "Käytä tätä laivaa")
-                   ]
-            )
-            [ FeatherIcons.check |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-            , span [] [ text (tr lang "Use ship" "Valmis") ]
-            ]
+        , iconButton (tr lang "Close without using the ship" "Sulje käyttämättä laivaa") FeatherIcons.x (Just Leave)
         ]
 
 
-selectionBar : Model -> Html Msg
-selectionBar model =
+{-| The modelling toolbar above the palette: undo and redo, then the tools
+for the selected part. A tool is greyed out while it has nothing to work on.
+Copy and paste appear from 640 px wide, so they stay off a narrow phone in
+portrait; Ctrl+C, Ctrl+V and Ctrl+D work on a keyboard.
+-}
+modellingControls : Model -> Html Msg
+modellingControls model =
     let
         lang =
             model.language
 
+        hasSelection =
+            Core.hasSelection model.studio
+
         onBase =
             baseSelected model
+
+        wide =
+            model.width >= 640
     in
-    if Core.hasSelection model.studio then
-        div
-            [ Attr.style "position" "absolute"
-            , Attr.style "left" "50%"
-            , Attr.style "transform" "translateX(-50%)"
-            , Attr.style "bottom" (px (dockHeight + 10))
-            , Attr.style "display" "flex"
-            , Attr.style "gap" "6px"
-            , Attr.style "padding" "6px"
-            , Attr.style "border-radius" "14px"
-            , Attr.style "background" "rgba(15, 23, 42, 0.82)"
-            ]
-            [ iconButton (tr lang "Turn left" "Käännä vasemmalle") FeatherIcons.rotateCcw (Just (Turn TurnLeft))
-            , iconButton (tr lang "Turn right" "Käännä oikealle") FeatherIcons.rotateCw (Just (Turn TurnRight))
-            , iconButton (tr lang "Raise" "Nosta") FeatherIcons.arrowUp (Just Raise)
-            , iconButton (tr lang "Lower" "Laske") FeatherIcons.arrowDown (Just Lower)
-            , iconButton
-                (if onBase then
-                    tr lang "The hull cannot be deleted" "Runkoa ei voi poistaa"
+    div
+        [ Attr.attribute "role" "toolbar"
+        , Attr.attribute "aria-label" (tr lang "Part tools" "Osan työkalut")
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "gap" "6px"
+        , Attr.style "flex-shrink" "0"
+        ]
+        [ toolButton (tr lang "Undo" "Kumoa") FeatherIcons.cornerUpLeft (enabledIf (Core.canUndo model.studio) Undo)
+        , toolButton (tr lang "Redo" "Tee uudelleen") FeatherIcons.cornerUpRight (enabledIf (Core.canRedo model.studio) Redo)
+        , toolButton (tr lang "Turn left" "Käännä vasemmalle") FeatherIcons.rotateCcw (enabledIf hasSelection (Turn TurnLeft))
+        , toolButton (tr lang "Turn right" "Käännä oikealle") FeatherIcons.rotateCw (enabledIf hasSelection (Turn TurnRight))
+        , toolButton (tr lang "Raise" "Nosta") FeatherIcons.arrowUp (enabledIf hasSelection Raise)
+        , toolButton (tr lang "Lower" "Laske") FeatherIcons.arrowDown (enabledIf hasSelection Lower)
+        , if wide then
+            toolButton (tr lang "Copy" "Kopioi") FeatherIcons.copy (enabledIf (hasSelection && not onBase) CopySelected)
 
-                 else
-                    tr lang "Delete" "Poista"
-                )
-                FeatherIcons.trash2
-                (enabledIf (not onBase) DeleteSelected)
-            ]
+          else
+            text ""
+        , if wide then
+            toolButton (tr lang "Paste" "Liitä") FeatherIcons.clipboard (Just PasteSelected)
 
-    else
-        text ""
+          else
+            text ""
+        , toolButton
+            (if onBase then
+                tr lang "The hull cannot be deleted" "Runkoa ei voi poistaa"
+
+             else
+                tr lang "Delete" "Poista"
+            )
+            FeatherIcons.trash2
+            (enabledIf (hasSelection && not onBase) DeleteSelected)
+        ]
+
+
+{-| A 44 px touch target of the modelling toolbar.
+-}
+toolButton : String -> FeatherIcons.Icon -> Maybe Msg -> Html Msg
+toolButton label icon maybeMsg =
+    let
+        enabled =
+            maybeMsg /= Nothing
+    in
+    button
+        ([ Attr.type_ "button"
+         , Attr.attribute "aria-label" label
+         , Attr.title label
+         , Attr.disabled (not enabled)
+         , Attr.style "display" "inline-flex"
+         , Attr.style "align-items" "center"
+         , Attr.style "justify-content" "center"
+         , Attr.style "width" "44px"
+         , Attr.style "height" "44px"
+         , Attr.style "flex-shrink" "0"
+         , Attr.style "border-radius" "10px"
+         , Attr.style "border"
+            (if enabled then
+                "1px solid rgba(255, 255, 255, 0.25)"
+
+             else
+                "1px solid rgba(255, 255, 255, 0.08)"
+            )
+         , Attr.style "background"
+            (if enabled then
+                "rgba(30, 41, 59, 0.85)"
+
+             else
+                "rgba(15, 23, 42, 0.4)"
+            )
+         , Attr.style "color" "#f8fafc"
+         , Attr.style "cursor"
+            (if enabled then
+                "pointer"
+
+             else
+                "default"
+            )
+         , Attr.style "opacity"
+            (if enabled then
+                "1"
+
+             else
+                "0.35"
+            )
+         , Attr.style "touch-action" "manipulation"
+         ]
+            ++ (case maybeMsg of
+                    Just msg ->
+                        [ onClick msg ]
+
+                    Nothing ->
+                        []
+               )
+        )
+        [ icon |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
 
 
 noticeView : Model -> Html Msg
@@ -509,7 +601,7 @@ dock model =
         , Attr.style "background" "rgba(15, 23, 42, 0.94)"
         , Attr.style "border-top" "1px solid rgba(148, 163, 184, 0.25)"
         ]
-        [ colourRow model, partsStrip model ]
+        [ modellingControls model, colourRow model, partsStrip model ]
 
 
 colourRow : Model -> Html Msg
