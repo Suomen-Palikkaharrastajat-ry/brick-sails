@@ -1,4 +1,5 @@
-// Tilt steering is the default on phones, and a saved choice wins over it.
+// Tilt steering is the default on phones, and a saved choice wins over it
+// where the game lets the player choose; Brick Sails forces tilt on phones.
 // Brick Sails uses the shared calibrated tilt of brick-studio's
 // tilt-steer.js with its own storage key, which must not change (players'
 // saved choices live under it).
@@ -29,5 +30,10 @@ test('a saved choice wins over the default', () => {
 
 test('the game keeps its tilt storage key', () => {
   const main = readFileSync(new URL('./main.js', import.meta.url), 'utf8')
-  assert.match(main, /tiltSteer:\s*\{\s*storageKey:\s*'sails\.steerMode'\s*\}/)
+  assert.match(main, /tiltSteer:\s*\{\s*storageKey:\s*'sails\.steerMode'/)
+})
+
+test('phones always steer by tilt, with the buttons only as a fallback', () => {
+  const main = readFileSync(new URL('./main.js', import.meta.url), 'utf8')
+  assert.match(main, /tiltSteer:\s*\{[^}]*forceOnPhones:\s*true[^}]*\}/)
 })

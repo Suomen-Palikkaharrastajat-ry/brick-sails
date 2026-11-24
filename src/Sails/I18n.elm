@@ -12,6 +12,7 @@ module Sails.I18n exposing
     , buildShipHeading
     , buoyAria
     , buoyCount
+    , buoyTimeTitle
     , buoyToast
     , controlsHint
     , copyLink
@@ -19,6 +20,7 @@ module Sails.I18n exposing
     , countdownHint
     , courseTitle
     , editShipButton
+    , exitRace
     , finishToast
     , finishedBadge
     , fireButton
@@ -26,6 +28,8 @@ module Sails.I18n exposing
     , fromFlag
     , goBanner
     , gridHost
+    , hazardPounding
+    , hazardRocks
     , headline
     , heelLabel
     , heelTitle
@@ -43,6 +47,7 @@ module Sails.I18n exposing
     , loadingShips
     , muteLabel
     , newPersonalBest
+    , nextBuoyTitle
     , nextGoal
     , openModelFile
     , overpoweredTitle
@@ -68,16 +73,13 @@ module Sails.I18n exposing
     , slotLabel
     , slotOpen
     , spaceKey
+    , speedKnotsTitle
     , speedLabel
     , starsAria
     , startRace
     , steerLabel
     , subtitle
     , targetsLabel
-    , tiltLabel
-    , tiltSteeringLabel
-    , tiltSteeringTitle
-    , tiltToggleTitle
     , title
     , toCode
     , treasureLabel
@@ -251,22 +253,6 @@ loadingBricks lang loaded total =
         ++ String.fromInt loaded
         ++ " / "
         ++ String.fromInt total
-
-
-tiltToggleTitle : Language -> String
-tiltToggleTitle lang =
-    pick lang "Vaihda kallistus- ja nappiohjauksen välillä" "Switch between tilt and button steering"
-
-
-{-| Steering mode on the Shipyard switch: tilt or on-screen buttons.
--}
-tiltLabel : Language -> Bool -> String
-tiltLabel lang enabled =
-    if enabled then
-        pick lang "Kallistus" "Tilt"
-
-    else
-        pick lang "Napit" "Buttons"
 
 
 muteLabel : Language -> Bool -> String
@@ -531,18 +517,11 @@ backToBoats lang =
     pick lang "Takaisin veneisiin" "Back to boats"
 
 
-tiltSteeringTitle : Language -> Bool -> String
-tiltSteeringTitle lang enabled =
-    if enabled then
-        pick lang "Kallistusohjaus päällä (napauta: napit)" "Tilt steering on (tap for buttons)"
-
-    else
-        pick lang "Kallistusohjaus pois (napauta: kallistus)" "Tilt steering off (tap to tilt)"
-
-
-tiltSteeringLabel : Language -> String
-tiltSteeringLabel lang =
-    pick lang "Kallistusohjaus" "Tilt steering"
+{-| The button that leaves the race, shown once the boat has stopped.
+-}
+exitRace : Language -> String
+exitRace lang =
+    pick lang "Poistu" "Exit"
 
 
 steerLabel : Language -> Bool -> String
@@ -671,6 +650,36 @@ heelLabel lang degrees hard =
             else
                 ""
            )
+
+
+{-| Single-word hazard warnings under the hull bar: the boat has struck
+rock, or a storm sea is pounding the hull.
+-}
+hazardRocks : Language -> String
+hazardRocks lang =
+    pick lang "KARI" "ROCKS"
+
+
+hazardPounding : Language -> String
+hazardPounding lang =
+    pick lang "AALLOKKO" "POUNDING"
+
+
+speedKnotsTitle : Language -> String
+speedKnotsTitle lang =
+    pick lang "Nopeus solmuina" "Speed in knots"
+
+
+nextBuoyTitle : Language -> String
+nextBuoyTitle lang =
+    pick lang "Matka seuraavalle poijulle" "Distance to the next buoy"
+
+
+{-| Tooltip of the buoy time that shows for a few seconds after a buoy.
+-}
+buoyTimeTitle : Language -> Int -> String
+buoyTimeTitle lang n =
+    pick lang ("Aika poijulla " ++ String.fromInt n) ("Time at buoy " ++ String.fromInt n)
 
 
 heelTitle : Language -> String
@@ -920,9 +929,6 @@ allPhrases =
     , ( "boatDescription own", \l -> boatDescription l "Your own build." )
     , ( "boatDescription build", \l -> boatDescription l "Your build: Pole" )
     , ( "loadingBricks", \l -> loadingBricks l 1 2 )
-    , ( "tiltToggleTitle", tiltToggleTitle )
-    , ( "tiltLabel on", \l -> tiltLabel l True )
-    , ( "tiltLabel off", \l -> tiltLabel l False )
     , ( "muteLabel muted", \l -> muteLabel l True )
     , ( "muteLabel unmuted", \l -> muteLabel l False )
     , ( "personalBestLine", \l -> personalBestLine l "1:00.00" 2 )
@@ -965,9 +971,7 @@ allPhrases =
     , ( "weather Clearing", \l -> weatherName l "Clearing" )
     , ( "restartRace", restartRace )
     , ( "backToBoats", backToBoats )
-    , ( "tiltSteeringTitle on", \l -> tiltSteeringTitle l True )
-    , ( "tiltSteeringTitle off", \l -> tiltSteeringTitle l False )
-    , ( "tiltSteeringLabel", tiltSteeringLabel )
+    , ( "exitRace", exitRace )
     , ( "steerLabel left", \l -> steerLabel l True )
     , ( "steerLabel right", \l -> steerLabel l False )
     , ( "fireTitle", fireTitle )
@@ -990,6 +994,11 @@ allPhrases =
     , ( "hullTitle", hullTitle )
     , ( "heelLabel", \l -> heelLabel l 25 True )
     , ( "heelTitle", heelTitle )
+    , ( "hazardRocks", hazardRocks )
+    , ( "hazardPounding", hazardPounding )
+    , ( "speedKnotsTitle", speedKnotsTitle )
+    , ( "nextBuoyTitle", nextBuoyTitle )
+    , ( "buoyTimeTitle", \l -> buoyTimeTitle l 2 )
     , ( "backToCourse", backToCourse )
     , ( "shipwrecked", shipwrecked )
     , ( "shipwreckedText", shipwreckedText )

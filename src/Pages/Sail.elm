@@ -82,6 +82,8 @@ type alias SailModel =
     , viewportWidth : Int
     , viewportHeight : Int
     , hull : Hull
+    , rockTimer : Float
+    , seaStrain : Float
     , debris : List Wreck.Piece
     , language : Language
     }
@@ -93,7 +95,7 @@ type SailMsg
     | KeyUp String
     | Steer Side Bool
     | TiltSteer Float
-    | ReleaseControls
+    | VisibilityChanged Browser.Events.Visibility
     | FireCannons
     | RaiseSail
     | LowerSail
@@ -177,6 +179,8 @@ initSail language boat course audioMuted pb maybeMulti tilt width height =
     , viewportWidth = width
     , viewportHeight = height
     , hull = Hull.fresh
+    , rockTimer = 0
+    , seaStrain = 0
     , debris = []
     , language = language
     }
@@ -193,6 +197,48 @@ weatherSeed course room run =
 
         Nothing ->
             Weather.seedFrom (course.id ++ "/" ++ String.fromInt run)
+
+
+releaseControls : SailModel -> SailModel
+releaseControls model =
+    { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False }
+
+
+silenceAudio : Cmd msg
+silenceAudio =
+    Ports.updateAudioState
+        { active = False
+        , windGain = 0
+        , windHz = 0
+        , washGain = 0
+        , washHz = 0
+        , hullGain = 0
+        , toneHz = 0
+        , toneGain = 0
+        }
+
+
+{-| Seconds the ROCKS warning stays up after the boat strikes an island.
+-}
+rockWarningSeconds : Float
+rockWarningSeconds =
+    1.5
+
+
+{-| Rough-sea strain (see `Sails.Physics.roughSeaStrain`) above which the
+POUNDING warning shows.
+-}
+poundingStrain : Float
+poundingStrain =
+    0.25
+
+
+{-| Speed under which the boat counts as stopped, 1 km/h in m/s: the HUD
+then offers to leave or restart the race, as Brick Racer does.
+-}
+stoppedSpeed : Float
+stoppedSpeed =
+    1 / 3.6
 
 
 sfx : GameAudio.OneShotSound -> Cmd msg
@@ -314,8 +360,14 @@ update msg model =
         TiltSteer v ->
             ( { model | tiltSteer = clamp -1 1 v }, Cmd.none )
 
-        ReleaseControls ->
-            ( { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False }, Cmd.none )
+        VisibilityChanged Browser.Events.Hidden ->
+            -- A hidden tab gets no animation frames, so the last wind and
+            -- wash sound would keep playing: silence it (the race is not
+            -- paused; the next frame back in view sends the sound again).
+            ( releaseControls model, silenceAudio )
+
+        VisibilityChanged Browser.Events.Visible ->
+            ( releaseControls model, Cmd.none )
 
         FireCannons ->
             if model.cannonCooldown <= 0 && model.phase == Racing && not (Hull.wrecked model.hull) then
@@ -528,12 +580,18 @@ tick dt model =
             else
                 sailed
 
+        rock =
+            Physics.rockImpact model.course.islands model.state state
+
+        roughSea =
+            Physics.roughSeaStrain conditions.sea time model.boat state
+
         hull =
             Hull.step dt
                 racing
-                { rock = Physics.rockImpact model.course.islands model.state state
+                { rock = rock
                 , cannonHits = 0
-                , roughSea = Physics.roughSeaStrain conditions.sea time model.boat state
+                , roughSea = roughSea
                 }
                 model.hull
 
@@ -700,8 +758,25 @@ tick dt model =
         aspect =
             toFloat (max 1 model.viewportWidth) / toFloat (max 1 model.viewportHeight)
 
+        -- A hard knock on rock jolts the camera by how hard it was; the
+        -- boat breaking up jolts it fully. Nudges do not.
+        shake =
+            (if racing then
+                Maybe.withDefault 0 (Maybe.map CameraRig.knockShake rock)
+
+             else
+                0
+            )
+                + (if justWrecked then
+                    1
+
+                   else
+                    0
+                  )
+
         follow =
-            CameraRig.stepFollow dt aspect state.position state.heading next model.follow
+            CameraRig.stepFollow dt aspect state.position state.heading state.speed next model.follow
+                |> CameraRig.jolt shake
 
         audioCmd =
             if model.audioMuted then
@@ -750,6 +825,18 @@ tick dt model =
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
         , toast = toast
         , hull = hull
+        , rockTimer =
+            if racing && rock /= Nothing then
+                rockWarningSeconds
+
+            else
+                max 0 (model.rockTimer - dt)
+        , seaStrain =
+            if racing then
+                roughSea
+
+            else
+                0
         , debris = debris
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
@@ -762,7 +849,7 @@ subscriptions _ =
         [ Browser.Events.onAnimationFrameDelta Tick
         , Browser.Events.onKeyDown (Decode.map KeyDown (Decode.field "code" Decode.string))
         , Browser.Events.onKeyUp (Decode.map KeyUp (Decode.field "code" Decode.string))
-        , Browser.Events.onVisibilityChange (\_ -> ReleaseControls)
+        , Browser.Events.onVisibilityChange VisibilityChanged
         , GamePorts.tiltSteer TiltSteer
         ]
 
@@ -933,6 +1020,11 @@ viewRace model callbacks maybeRoom =
                 , weather = Weather.label model.weather
                 , flash = (Weather.conditions model.course.wind model.weather).flash
                 , hull = model.hull
+                , hazards = { rocks = model.rockTimer > 0, pounding = model.seaStrain > poundingStrain }
+                , stopped = abs model.state.speed < stoppedSpeed
+                , nextBuoyDistance =
+                    nextBuoy model
+                        |> Maybe.map (\n -> Vec3.distance (Vec3.setY 0 n) (Vec3.setY 0 model.state.position))
                 , courseBearing = backToCourse model
                 , language = model.language
                 , actions =

@@ -2,27 +2,32 @@ module Sails.HUD exposing
     ( HudActions
     , PointOfSail(..)
     , Side(..)
+    , formatCounter
     , pointOfSail
     , showSteerButtons
     , viewHud
     , viewWrecked
     )
 
-{-| Touch-first race HUD.
+{-| Touch-first race HUD, a glanceable dashboard as in Brick Racer.
 
-Top left: timer, buoy progress, the hull's health, the point of sail and
-how far the boat heels. Top right: small icon buttons. Bottom left: a small
-tilt button in the corner and, while tilt steering is off, big left/right
-steering buttons. Bottom right: the sail control (raise / lower, with the
-sail set shown between) and a big FIRE button. The middle of the screen
-stays clear for the boat in both portrait and landscape. Steering buttons
-react to pointer down/up so they can be held. A boat far off the course gets
-an arrow back to it.
+Top left: the race timer as a counter of digit tiles (`mm:ss.d`), the
+boat's speed in knots with the metres to the next buoy (for a few seconds
+after a buoy, that buoy's time in their place), buoy progress, the hull's
+health with single-word hazard warnings, the point of sail and how far the
+boat heels. Top right: the icon-only sound toggle; there is no pause. Once
+the boat has stopped (sails down, under 1 km/h), an Exit button and a
+restart button show under it, the way out of a race. Bottom left: while
+tilt steering is off (no sensor, permission refused, or not a phone), big
+left/right steering buttons; phones always steer by tilt. Bottom right: the
+sail control (raise / lower, with the sail set shown between) and a big
+FIRE button. The middle of the screen stays clear for the boat in both
+portrait and landscape. Steering buttons react to pointer down/up so they
+can be held. A boat far off the course gets an arrow back to it.
 
 -}
 
 import FeatherIcons
-import Game.Leaderboard as Leaderboard
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events as Events
@@ -66,6 +71,9 @@ viewHud :
     , weather : Maybe String
     , flash : Float
     , hull : Hull
+    , hazards : { rocks : Bool, pounding : Bool }
+    , stopped : Bool
+    , nextBuoyDistance : Maybe Float
     , courseBearing : Maybe Float
     , language : Language
     , actions : HudActions msg
@@ -86,8 +94,7 @@ viewHud cfg =
             , viewCountdown cfg.language cfg.countdown
             , viewBackToCourse cfg.language cfg.cameraYaw cfg.courseBearing
             , div [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto" ]
-                [ tiltButton cfg.language cfg.tilt
-                , if showSteerButtons cfg.tilt then
+                [ if showSteerButtons cfg.tilt then
                     div [ Attr.class "flex gap-3" ]
                         [ steerButton cfg.language cfg.actions Left
                         , steerButton cfg.language cfg.actions Right
@@ -117,10 +124,12 @@ viewStatus :
         , wind : Wind
         , weather : Maybe String
         , hull : Hull
+        , hazards : { rocks : Bool, pounding : Bool }
+        , nextBuoyDistance : Maybe Float
         , language : Language
     }
     -> Html msg
-viewStatus { progress, state, cameraYaw, wind, weather, hull, language } =
+viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextBuoyDistance, language } =
     let
         total =
             progress.totalWaypoints
@@ -170,9 +179,10 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, language } =
             )
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
-        [ span [ Attr.class "font-mono text-2xl font-black tracking-wide text-amber-300 leading-none" ]
-            [ text (Leaderboard.formatRaceTime progress.elapsedSeconds) ]
+        [ viewCounter (formatCounter progress.elapsedSeconds)
+        , viewMetrics language progress state nextBuoyDistance
         , viewHealth language hull
+        , viewHazards language hazards
         , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" (T.buoyAria language) ]
             (span [ Attr.class "text-[11px] font-bold text-slate-300 mr-0.5" ]
                 [ text (T.buoyCount language (min total (progress.currentWaypointIndex + 1)) total) ]
@@ -254,16 +264,21 @@ iconButton attrs label icon =
         [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
 
 
+{-| Top right: only the icon sound toggle while the boat sails. Once it has
+stopped, an Exit button (back to the boats) and a restart button show
+under it: there is no pause, so stopping is the way out of a race.
+-}
 viewTopButtons :
     { a
         | audioMuted : Bool
+        , stopped : Bool
         , language : Language
         , actions : HudActions msg
     }
     -> Html msg
-viewTopButtons { audioMuted, language, actions } =
-    div [ Attr.class "flex flex-wrap justify-end gap-1.5 pointer-events-auto shrink-0 max-w-[100px] sm:max-w-none" ]
-        [ iconButton [ Events.onClick actions.onToggleMute ]
+viewTopButtons { audioMuted, stopped, language, actions } =
+    div [ Attr.class "flex flex-col items-end gap-1.5 pointer-events-auto shrink-0" ]
+        (iconButton [ Events.onClick actions.onToggleMute ]
             (T.muteLabel language audioMuted)
             (if audioMuted then
                 FeatherIcons.volumeX
@@ -271,53 +286,182 @@ viewTopButtons { audioMuted, language, actions } =
              else
                 FeatherIcons.volume2
             )
-        , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
-        , iconButton [ Events.onClick actions.onExit ] (T.backToBoats language) FeatherIcons.anchor
-        ]
+            :: (if stopped then
+                    [ button
+                        [ Events.onClick actions.onExit
+                        , Attr.title (T.backToBoats language)
+                        , Attr.attribute "data-testid" "exit-race"
+                        , Attr.class "h-11 px-3 flex items-center gap-1.5 rounded-xl bg-brand-yellow text-brand font-black text-sm shadow-lg active:scale-95"
+                        ]
+                        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                        , text (T.exitRace language)
+                        ]
+                    , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
+                    ]
+
+                else
+                    []
+               )
+        )
 
 
 {-| The on-screen steering buttons show unless tilt steering is on (and
-the phone has the sensor for it).
+the phone has the sensor for it): phones always steer by tilt, and the
+buttons are the fallback when the sensor is missing or permission is
+refused.
 -}
 showSteerButtons : { available : Bool, enabled : Bool } -> Bool
 showSteerButtons tilt =
     not (tilt.available && tilt.enabled)
 
 
-{-| Small corner button switching between tilt and button steering.
-Handled in tilt-steer.js so the iOS permission prompt runs inside the tap.
+{-| The race time as the HUD's counter shows it, minutes, seconds and
+tenths: `mm:ss.d`.
 -}
-tiltButton : Language -> { available : Bool, enabled : Bool } -> Html msg
-tiltButton language tilt =
-    if tilt.available then
-        button
-            [ Attr.attribute "data-tilt-toggle" ""
-            , Attr.attribute "data-testid" "tilt-toggle"
-            , Attr.title (T.tiltSteeringTitle language tilt.enabled)
-            , Attr.attribute "aria-label" (T.tiltSteeringLabel language)
-            , Attr.attribute "aria-pressed"
-                (if tilt.enabled then
-                    "true"
+formatCounter : Float -> String
+formatCounter seconds =
+    let
+        tenths =
+            floor (max 0 seconds * 10)
 
-                 else
-                    "false"
-                )
-            , Attr.class
-                ("h-9 px-2.5 flex items-center gap-1 rounded-full border text-[10px] font-black uppercase tracking-wide backdrop-blur-md shadow "
-                    ++ (if tilt.enabled then
-                            "bg-brand-yellow/90 border-brand-yellow/60 text-brand"
+        pad2 n =
+            String.padLeft 2 '0' (String.fromInt n)
+    in
+    pad2 (tenths // 600) ++ ":" ++ pad2 (modBy 60 (tenths // 10)) ++ "." ++ String.fromInt (modBy 10 tenths)
 
-                        else
-                            "bg-brand/75 border-white/15 text-slate-200"
-                       )
-                )
+
+{-| The race timer as a mechanical counter: one dark tile per digit, as in
+Brick Racer.
+-}
+viewCounter : String -> Html msg
+viewCounter timeText =
+    div [ Attr.class "flex items-center gap-0.5", Attr.attribute "data-testid" "race-timer" ]
+        (List.map counterChar (String.toList timeText))
+
+
+counterChar : Char -> Html msg
+counterChar c =
+    if Char.isDigit c then
+        span
+            [ Attr.class "inline-block text-center font-mono font-bold text-amber-300 leading-tight"
+            , Attr.style "min-width" "1.05rem"
+            , Attr.style "padding" "0.05rem 0.2rem"
+            , Attr.style "border-radius" "0.3rem"
+            , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+            , Attr.style "background" "#020617"
+            , Attr.style "box-shadow" "inset 0 2px 4px rgba(0, 0, 0, 0.6)"
+            , Attr.style "font-size" "1.05rem"
             ]
-            [ FeatherIcons.smartphone |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-            , text (T.tiltLabel language True)
-            ]
+            [ text (String.fromChar c) ]
 
     else
+        span [ Attr.class "font-bold text-slate-400", Attr.style "font-size" "1.1rem" ]
+            [ text (String.fromChar c) ]
+
+
+{-| Seconds a buoy's time stays in place of the metres figure.
+-}
+buoyTimeSeconds : Float
+buoyTimeSeconds =
+    3
+
+
+{-| Under the counter: the boat's speed in knots and the metres to the next
+buoy; for a few seconds after a buoy, that buoy's time instead.
+-}
+viewMetrics : Language -> CourseProgress -> SailingState -> Maybe Float -> Html msg
+viewMetrics language progress state nextBuoyDistance =
+    let
+        lastSplit =
+            List.reverse progress.splits |> List.head
+
+        recentSplit =
+            lastSplit
+                |> Maybe.andThen
+                    (\t ->
+                        if progress.elapsedSeconds - t < buoyTimeSeconds then
+                            Just t
+
+                        else
+                            Nothing
+                    )
+
+        distanceSlot =
+            case recentSplit of
+                Just t ->
+                    span
+                        [ Attr.class "text-emerald-300"
+                        , Attr.title (T.buoyTimeTitle language (List.length progress.splits))
+                        , Attr.attribute "data-testid" "buoy-time"
+                        ]
+                        [ text (formatCounter t) ]
+
+                Nothing ->
+                    case nextBuoyDistance of
+                        Just d ->
+                            span
+                                [ Attr.class "text-slate-200"
+                                , Attr.title (T.nextBuoyTitle language)
+                                , Attr.attribute "data-testid" "buoy-distance"
+                                ]
+                                [ text (String.fromInt (round d) ++ " m") ]
+
+                        Nothing ->
+                            text ""
+    in
+    div [ Attr.class "flex items-center gap-2 text-[11px] font-black font-mono" ]
+        [ span
+            [ Attr.class "text-sky-300"
+            , Attr.title (T.speedKnotsTitle language)
+            , Attr.attribute "data-testid" "speed"
+            ]
+            [ text (knots state.speed) ]
+        , distanceSlot
+        ]
+
+
+{-| A speed in m/s as knots with one decimal, "4.2 kn".
+-}
+knots : Float -> String
+knots speed =
+    let
+        tenths =
+            round (abs speed * 1.94 * 10)
+    in
+    String.fromInt (tenths // 10) ++ "." ++ String.fromInt (modBy 10 tenths) ++ " kn"
+
+
+{-| Single-word warnings under the hull bar while something is hurting it.
+-}
+viewHazards : Language -> { rocks : Bool, pounding : Bool } -> Html msg
+viewHazards language hazards =
+    let
+        chip colour label =
+            span
+                [ Attr.class ("px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide text-slate-950 " ++ colour)
+                , Attr.attribute "data-testid" "hazard"
+                ]
+                [ text label ]
+
+        chips =
+            List.filterMap identity
+                [ if hazards.rocks then
+                    Just (chip "bg-rose-400" (T.hazardRocks language))
+
+                  else
+                    Nothing
+                , if hazards.pounding then
+                    Just (chip "bg-amber-400" (T.hazardPounding language))
+
+                  else
+                    Nothing
+                ]
+    in
+    if List.isEmpty chips then
         text ""
+
+    else
+        div [ Attr.class "flex flex-wrap items-center gap-1" ] chips
 
 
 holdEvents : msg -> msg -> List (Html.Attribute msg)

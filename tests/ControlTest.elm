@@ -318,6 +318,10 @@ suite =
                             , { available = False, enabled = False }
                             ]
                         )
+            , test "the race counter shows minutes, seconds and tenths" <|
+                \_ ->
+                    Expect.equal [ "00:00.0", "01:23.4", "10:05.9" ]
+                        (List.map HUD.formatCounter [ 0, 83.47, 605.99 ])
             , test "the point of sail tells into the wind, close-hauled, reach and run apart" <|
                 \_ ->
                     let

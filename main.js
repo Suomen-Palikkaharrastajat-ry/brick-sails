@@ -44,7 +44,10 @@ const { ports } = bootGame({
   storagePrefix: 'sails',
   createAudioEngine,
   playerPrefix: 'Sailor ',
-  tiltSteer: { storageKey: 'sails.steerMode' },
+  // Phones always steer by tilt (there is no toggle); the on-screen buttons
+  // are only the fallback when the sensor is missing or permission is
+  // refused. The iOS permission prompt runs on the first tap anywhere.
+  tiltSteer: { storageKey: 'sails.steerMode', forceOnPhones: true },
 })
 
 ports?.storeLanguage?.subscribe((lang) => {

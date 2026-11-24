@@ -647,7 +647,7 @@ suite =
                             vec3 0 0 0
 
                         stepped =
-                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.0 boat 120 Nothing f)
+                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.0 boat 120 0 Nothing f)
                                 (CameraRig.initFollow boat 0)
                                 (List.range 1 60)
                     in
@@ -659,7 +659,7 @@ suite =
                             vec3 0 0 0
 
                         settle next =
-                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.5 boat 0 next f)
+                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.5 boat 0 0 next f)
                                 (CameraRig.initFollow boat 0)
                                 (List.range 1 100)
 
@@ -673,6 +673,45 @@ suite =
                     Expect.all
                         [ \_ -> Expect.atMost 13 (horizontal (settle Nothing))
                         , \_ -> Expect.atMost 16 (horizontal (settle (Just (vec3 0 0 300))))
+                        ]
+                        ()
+            , test "the aim leads towards a turn to starboard, at most a metre and a half" <|
+                \_ ->
+                    let
+                        boat =
+                            vec3 0 0 0
+
+                        -- Bow swinging to starboard at 30 degrees a second, heading north.
+                        turning =
+                            List.foldl (\i f -> CameraRig.stepFollow 0.05 1.5 boat (toFloat i * 1.5 - 30) 6 Nothing f)
+                                (CameraRig.initFollow boat -30)
+                                (List.range 1 20)
+
+                        target =
+                            Vec3.toRecord (CameraRig.followView turning).target
+                    in
+                    Expect.all
+                        [ \_ -> Expect.greaterThan 0.3 turning.lead
+                        , \_ -> Expect.atMost 1.5 turning.lead
+                        , \_ -> Expect.greaterThan 0.2 target.x
+                        ]
+                        ()
+            , test "a nudge does not shake the camera, a hard knock does and it dies away" <|
+                \_ ->
+                    let
+                        boat =
+                            vec3 0 0 0
+
+                        knocked =
+                            CameraRig.jolt (CameraRig.knockShake 9) (CameraRig.initFollow boat 0)
+
+                        settled =
+                            List.foldl (\_ f -> CameraRig.stepFollow 0.05 1.5 boat 0 0 Nothing f) knocked (List.range 1 40)
+                    in
+                    Expect.all
+                        [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (CameraRig.knockShake 2)
+                        , \_ -> Expect.greaterThan 0.6 knocked.shake
+                        , \_ -> Expect.lessThan 0.01 settled.shake
                         ]
                         ()
             ]

@@ -93,8 +93,8 @@ viewLoading lang mesh loading =
             text ""
 
 
-viewHeader : { a | audioMuted : Bool, tilt : { available : Bool, enabled : Bool }, language : Language, actions : ShipyardActions msg } -> Html msg
-viewHeader { audioMuted, tilt, language, actions } =
+viewHeader : { a | audioMuted : Bool, language : Language, actions : ShipyardActions msg } -> Html msg
+viewHeader { audioMuted, language, actions } =
     div
         [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-brand/70 to-transparent pointer-events-none"
         , Attr.style "padding-top" "max(12px, env(safe-area-inset-top))"
@@ -110,27 +110,7 @@ viewHeader { audioMuted, tilt, language, actions } =
                 ]
             ]
         , div [ Attr.class "flex gap-1.5 pointer-events-auto" ]
-            [ if tilt.available then
-                button
-                    [ Attr.attribute "data-tilt-toggle" ""
-                    , Attr.title (T.tiltToggleTitle language)
-                    , Attr.class
-                        ("h-11 px-3 flex items-center gap-1.5 rounded-xl border border-white/10 text-xs font-bold "
-                            ++ (if tilt.enabled then
-                                    "bg-brand-yellow text-brand"
-
-                                else
-                                    "bg-brand/80 text-white"
-                               )
-                        )
-                    ]
-                    [ FeatherIcons.smartphone |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                    , text (T.tiltLabel language tilt.enabled)
-                    ]
-
-              else
-                text ""
-            , button
+            [ button
                 [ onClick actions.onToggleLanguage
                 , Attr.title (T.languageToggleTitle language)
                 , Attr.attribute "aria-label" (T.languageToggleTitle language)
