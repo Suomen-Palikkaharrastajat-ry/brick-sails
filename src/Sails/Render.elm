@@ -1,9 +1,12 @@
 module Sails.Render exposing
-    ( Props
+    ( Draw
+    , Props
     , RenderBoat
+    , ballEntity
     , propSources
     , renderShipyard
     , renderWorld
+    , sprayEntities
     )
 
 {-| Draws the sailing world: sea, sky, islands, buoys, the finish gate,
@@ -813,13 +816,41 @@ guideEntities ctx guide =
             []
 
 
+{-| A flying cannonball and its trailing broadside smoke puff when in flight.
+-}
 ballEntity : Draw -> Cannonball -> List WebGL.Entity
 ballEntity draw ball =
     let
         p =
             Vec3.toRecord ball.position
+
+        v =
+            Vec3.toRecord ball.velocity
+
+        ballEntities =
+            draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
+
+        smokeEntities =
+            if ball.age < 0.4 then
+                let
+                    smokeRadius =
+                        0.5 + ball.age * 2.2
+
+                    smokeHeight =
+                        0.4 + ball.age * 1.6
+
+                    smokeAlpha =
+                        clamp 0.0 1.0 (1.0 - ball.age / 0.4)
+                in
+                draw.fitted "splash"
+                    (BrickProps.fitBox { width = 2 * smokeRadius, height = smokeHeight, depth = 2 * smokeRadius })
+                    (Mat4.makeTranslate3 (p.x - v.x * 0.08) (p.y - 0.2) (p.z - v.z * 0.08))
+                    (vec4 0.92 0.93 0.96 smokeAlpha)
+
+            else
+                []
     in
-    draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
+    ballEntities ++ smokeEntities
 
 
 impactEntity : Draw -> CombatImpact -> List WebGL.Entity
@@ -985,6 +1016,13 @@ sprayEntities ctx draw time rb =
         rough =
             clamp 0 1 ((ctx.sea - 1.1) / 1.2) * clamp 0 1 ((s.speed - 2) / 5)
 
+        crestRough =
+            if ctx.sea > 1.2 then
+                max 0.05 (max rough (clamp 0 1 ((ctx.sea - 1.1) / 1.2) * 0.5))
+
+            else
+                rough
+
         rad =
             degrees s.heading
 
@@ -1001,10 +1039,10 @@ sprayEntities ctx draw time rb =
                         -1
 
                 r =
-                    (0.4 + phase * 1.4) * rough
+                    (0.4 + phase * 1.4) * crestRough
 
                 h =
-                    max 0.05 (sin (phase * pi)) * 1.6 * rough
+                    max 0.05 (sin (phase * pi)) * 1.6 * crestRough
             in
             draw.fitted "splash"
                 (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
@@ -1014,9 +1052,39 @@ sprayEntities ctx draw time rb =
                     (p.z + cos rad * 2.3 - side * sin rad * (0.6 + phase))
                 )
                 plain
+
+        crestPuff i =
+            let
+                phase =
+                    fract (time * 1.6 + toFloat i * 0.37)
+
+                side =
+                    if modBy 2 i == 0 then
+                        1
+
+                    else
+                        -1
+
+                distAlong =
+                    0.5 - toFloat (i // 2) * 1.1
+
+                r =
+                    (0.35 + phase * 1.1) * crestRough
+
+                h =
+                    max 0.04 (sin (phase * pi)) * 1.3 * crestRough
+            in
+            draw.fitted "splash"
+                (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
+                (Mat4.makeTranslate3
+                    (p.x + sin rad * distAlong + side * cos rad * (0.8 + phase * 0.4))
+                    (p.y + 0.15)
+                    (p.z + cos rad * distAlong - side * sin rad * (0.8 + phase * 0.4))
+                )
+                plain
     in
-    if rough > 0.05 then
-        puff 0 ++ puff 1
+    if rough > 0.03 || ctx.sea > 1.2 then
+        puff 0 ++ puff 1 ++ crestPuff 0 ++ crestPuff 1 ++ crestPuff 2 ++ crestPuff 3
 
     else
         []
