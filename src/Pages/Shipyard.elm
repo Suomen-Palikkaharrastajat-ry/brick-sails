@@ -4,7 +4,8 @@ module Pages.Shipyard exposing
     )
 
 {-| Start screen: pick one of four toy boats (or a ship loaded from a build
-link or built here), see it bob on the water, and set sail. A ship can be
+link or built here; each boat's description is its chip's hover help), see
+it bob on the water, and set sail. A ship can be
 built on one of the starter hulls in the ship editor ("Build a ship"), and a
 build link can be pasted or a model file opened. Online play (host a room of
 two or eight, or join one) sits below; every player sails on their own
@@ -205,9 +206,8 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
                                 []
                        )
                 )
-            , div [ Attr.class "flex items-center gap-3 text-[11px]" ]
-                [ span [ Attr.class "text-slate-300 flex-1 min-w-0" ] [ text (T.boatDescription language boat.description) ]
-                , statBar (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
+            , div [ Attr.class "flex items-center justify-end gap-3 text-[11px]" ]
+                [ statBar (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
                 , statBar (T.turnLabel language) ((boat.turnRate - 50) / 80)
                 ]
             , button
@@ -333,6 +333,7 @@ boatChip : Language -> Boat -> ShipyardActions msg -> Boat -> Html msg
 boatChip language selected actions b =
     button
         [ onClick (actions.onSelectBoat b.name)
+        , Attr.title (T.boatDescription language b.description)
         , Attr.attribute "aria-pressed"
             (if b.name == selected.name then
                 "true"
