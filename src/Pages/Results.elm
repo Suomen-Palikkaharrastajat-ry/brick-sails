@@ -1,5 +1,6 @@
 module Pages.Results exposing
-    ( ResultsActions
+    ( CrewResult
+    , ResultsActions
     , viewResults
     )
 
@@ -8,6 +9,12 @@ own look: while bricks burst over the boat (`Sails.Ending`), a card rises
 with a bobbing boat, "Land ho!", the stars popping in one by one, the
 headline, the final time with its sailing time, hits and treasure, the new
 record badge, and two ways on: sail again, or back to the main menu.
+
+In an online room (`crew`) the result is the crew's, not this player's:
+while crewmates are still at sea it says how many ships are in port and runs
+the crew clock; once the whole crew is in port it shows the crew's shared
+time and stars. There is no personal best, rank or winner in a room.
+
 -}
 
 import FeatherIcons
@@ -22,6 +29,17 @@ import Sails.Physics as Physics
 import Sails.Types exposing (Course, CourseProgress, LeaderboardEntry)
 
 
+{-| The crew's side of the result in an online room: ships in port of the
+crew's `total`, the crew clock, and the crew's time once all are in port.
+-}
+type alias CrewResult =
+    { inPort : Int
+    , total : Int
+    , clock : Float
+    , crewTime : Maybe Float
+    }
+
+
 type alias ResultsActions msg =
     { onSailAgain : msg
     , onBackToMenu : msg
@@ -34,21 +52,60 @@ viewResults :
     , boatName : String
     , personalBest : Maybe LeaderboardEntry
     , ending : Ending
+    , crew : Maybe CrewResult
     , language : Language
     , actions : ResultsActions msg
     }
     -> Html msg
-viewResults { course, progress, boatName, personalBest, ending, language, actions } =
+viewResults { course, progress, boatName, personalBest, ending, crew, language, actions } =
     let
         t =
             ending.timer
+
+        -- In a room the time and stars are the crew's: the running crew
+        -- clock until the whole crew is in port, then the crew's time.
+        score =
+            case crew of
+                Just c ->
+                    Maybe.withDefault c.clock c.crewTime
+
+                Nothing ->
+                    ending.score
+
+        stars =
+            case crew of
+                Just _ ->
+                    Physics.starRating course.targetSeconds score
+
+                Nothing ->
+                    ending.stars
+
+        crewWaiting =
+            case crew of
+                Just c ->
+                    c.crewTime == Nothing
+
+                Nothing ->
+                    False
+
+        headline =
+            case crew of
+                Just c ->
+                    if crewWaiting then
+                        T.crewWaiting language c.inPort c.total
+
+                    else
+                        T.crewHeadline language stars
+
+                Nothing ->
+                    T.headline language stars
 
         -- The card rises and fades in over the first 0.4 s.
         rise =
             clamp 0 1 (t / 0.4)
 
         shown =
-            Ending.starsShown ending
+            Ending.starsShown { ending | stars = stars }
 
         star i =
             let
@@ -87,7 +144,10 @@ viewResults { course, progress, boatName, personalBest, ending, language, action
                 [ FeatherIcons.star |> FeatherIcons.withSize 44 |> FeatherIcons.toHtml [ Attr.attribute "fill" "currentColor" ] ]
 
         nextGoal =
-            if ending.stars < 3 then
+            if crewWaiting then
+                ""
+
+            else if stars < 3 then
                 T.nextGoal language (Leaderboard.formatRaceTime course.targetSeconds)
 
             else
@@ -121,18 +181,35 @@ viewResults { course, progress, boatName, personalBest, ending, language, action
                 ]
                 [ text "⛵" ]
             , h1 [ Attr.class "text-3xl font-black uppercase tracking-wider text-brand-yellow" ] [ text (T.finishToast language) ]
-            , div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language ending.stars) ] (List.map star [ 1, 2, 3 ])
-            , p [ Attr.class "text-lg font-extrabold text-white" ] [ text (T.headline language ending.stars) ]
+            , if crewWaiting then
+                div [ Attr.class "flex gap-1 text-sky-300" ] [ FeatherIcons.anchor |> FeatherIcons.withSize 44 |> FeatherIcons.toHtml [] ]
+
+              else
+                div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language stars) ] (List.map star [ 1, 2, 3 ])
+            , p [ Attr.class "text-lg font-extrabold text-white text-balance" ] [ text headline ]
             , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.courseTitle language course.title ++ " · " ++ T.boatName language boatName) ]
             , div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center gap-2" ]
-                [ span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
-                , span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider", Attr.attribute "data-testid" "ending-time" ] [ text (Leaderboard.formatRaceTime ending.score) ]
-                , div [ Attr.class "w-full flex flex-wrap gap-2" ]
-                    [ statCard "🧭" (T.sailingStat language) (Leaderboard.formatRaceTime progress.elapsedSeconds)
-                    , statCard "🎯" (T.hitsStat language) (String.fromInt progress.targetsHit ++ " (−" ++ String.fromInt hitBonus ++ " s)")
-                    , statCard "💰" (T.treasureStat language) (String.fromInt (List.length progress.treasureFound) ++ " (−" ++ String.fromInt (round progress.treasureBonus) ++ " s)")
-                    ]
-                , if ending.isNewRecord then
+                [ if crew == Nothing then
+                    span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
+
+                  else
+                    text ""
+                , span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider", Attr.attribute "data-testid" "ending-time" ] [ text (Leaderboard.formatRaceTime score) ]
+                , case crew of
+                    Just c ->
+                        span [ Attr.class "text-xs text-slate-400" ] [ text (T.crewTimeLabel language c.inPort c.total) ]
+
+                    Nothing ->
+                        div [ Attr.class "w-full flex flex-wrap gap-2" ]
+                            [ statCard "🧭" (T.sailingStat language) (Leaderboard.formatRaceTime progress.elapsedSeconds)
+                            , statCard "🎯" (T.hitsStat language) (String.fromInt progress.targetsHit ++ " (−" ++ String.fromInt hitBonus ++ " s)")
+                            , statCard "💰" (T.treasureStat language) (String.fromInt (List.length progress.treasureFound) ++ " (−" ++ String.fromInt (round progress.treasureBonus) ++ " s)")
+                            ]
+                , if crew /= Nothing then
+                    -- A crew's result: no personal record to set or beat.
+                    text ""
+
+                  else if ending.isNewRecord then
                     span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-brand-yellow/20 text-brand-yellow text-xs font-bold uppercase border border-brand-yellow/30 animate-pulse" ]
                         [ text ("🏆 " ++ T.newPersonalBest language) ]
 

@@ -65,6 +65,7 @@ resultsFor model =
                 , boatName = model.boat.name
                 , personalBest = Nothing
                 , ending = ending
+                , crew = Nothing
                 , language = Fi
                 , actions = { onSailAgain = Again, onBackToMenu = Menu }
                 }

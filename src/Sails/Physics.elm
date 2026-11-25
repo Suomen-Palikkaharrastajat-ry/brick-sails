@@ -1436,8 +1436,8 @@ checkTargetHits balls targets =
     List.foldl step ( [], [], ( targets, 0 ) ) balls
 
 
-{-| Balls hitting other boats (multiplayer). Returns surviving balls, flashes
-and the slots hit.
+{-| Balls hitting ships: the pirate ships (`Sails.Pirates`), never a
+crewmate's ship in a room. Returns surviving balls, flashes and the slots hit.
 -}
 checkShipHits : List Cannonball -> List { slot : Int, position : Vec3 } -> ( List Cannonball, List CombatImpact, List Int )
 checkShipHits balls ships =
