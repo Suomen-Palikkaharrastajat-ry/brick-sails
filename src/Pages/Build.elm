@@ -21,7 +21,10 @@ button and the parts used last, the active one starred. The full catalog
 (`Sails.Editor.partCategories`, with a filter by name or number) opens
 above the palette row; its button closes it again.
 The top bar holds only icons: "Use ship" (the check mark) on the left, then
-the hull's name, "Show the whole ship" and "Close".
+the hull's name with the hulls button beside it, "Show the whole ship" and
+"Close". As in Brick Racer's bases drawer, the hulls button opens the
+starter hulls above the palette row; picking another one starts the ship
+again on that hull.
 
 The ship starts from one of the starter hulls (`Sails.Editor.bases`): bow,
 deck and keel grouped as one submodel, so the hull is selected and moved as
@@ -61,8 +64,9 @@ import Viewport
 
 {-| Editor state: the studio, the hull it stands on, the colour for new parts,
 the part pictures received so far (by `PartCard.thumbnailKey`), whether the
-full catalog is open and its filter, and the palette row: the part added
-last (`activePart`) and the parts used before it (`recentParts`).
+full catalog is open and its filter, whether the hulls drawer is open, and
+the palette row: the part added last (`activePart`) and the parts used
+before it (`recentParts`).
 -}
 type alias Model =
     { studio : Core.Model
@@ -74,6 +78,7 @@ type alias Model =
     , thumbnails : Dict String String
     , notice : Maybe String
     , catalogOpen : Bool
+    , hullsOpen : Bool
     , catalogFilter : String
     , activePart : String
     , recentParts : List String
@@ -99,6 +104,8 @@ type Msg
     | Leave
     | ThumbnailLoaded { file : String, color : Int, url : String }
     | ToggleCatalog
+    | ToggleHulls
+    | SelectHull Base
     | CatalogFilterChanged String
     | PaletteLeft
     | CanvasTapped
@@ -155,6 +162,7 @@ init config base doc =
             , thumbnails = Dict.empty
             , notice = Nothing
             , catalogOpen = False
+            , hullsOpen = False
             , catalogFilter = ""
             , activePart = "3001.dat"
             , recentParts = initialRecentParts
@@ -233,6 +241,12 @@ endsPaletteTap msg =
         ToggleCatalog ->
             True
 
+        ToggleHulls ->
+            True
+
+        SelectHull _ ->
+            True
+
         PaletteLeft ->
             True
 
@@ -273,8 +287,9 @@ endsPaletteTap msg =
             False
 
 
-{-| Handle an editor message. Opening or closing the full catalog changes the
-height of the 3D view, so the studio is resized whenever it does.
+{-| Handle an editor message. Opening or closing the full catalog or the
+hulls drawer changes the height of the 3D view, so the studio is resized
+whenever it does.
 -}
 update : Msg -> Model -> ( Model, Cmd Msg, Outcome )
 update msg model =
@@ -296,7 +311,7 @@ update msg model =
                     model
                 )
     in
-    if next.catalogOpen /= model.catalogOpen then
+    if next.catalogOpen /= model.catalogOpen || next.hullsOpen /= model.hullsOpen then
         let
             ( resized, resizeCmd ) =
                 runCore (Core.update (Core.ViewportMsg (Viewport.WindowResize next.width (canvasHeight next)))) next
@@ -390,7 +405,32 @@ updateModel msg model =
             )
 
         ToggleCatalog ->
-            ( { model | catalogOpen = not model.catalogOpen, notice = Nothing }, Cmd.none, Stay )
+            ( { model | catalogOpen = not model.catalogOpen, hullsOpen = False, notice = Nothing }, Cmd.none, Stay )
+
+        ToggleHulls ->
+            ( { model | hullsOpen = not model.hullsOpen, catalogOpen = False, notice = Nothing }, Cmd.none, Stay )
+
+        SelectHull base ->
+            if base.id == model.base.id then
+                ( { model | hullsOpen = False, notice = Nothing }, Cmd.none, Stay )
+
+            else
+                -- As Brick Racer's bases drawer: start again on the picked hull.
+                let
+                    ( resetStudio, resetCmd, events ) =
+                        Core.resetDocument base.document model.studio
+
+                    ( fittedStudio, fitCmd ) =
+                        Core.fitView resetStudio
+                in
+                ( { model | studio = fittedStudio, base = base, hullsOpen = False, notice = Nothing }
+                , Cmd.batch
+                    (Cmd.map StudioMsg resetCmd
+                        :: Cmd.map StudioMsg fitCmd
+                        :: List.map eventCmd events
+                    )
+                , Stay
+                )
 
         CatalogFilterChanged query ->
             ( { model | catalogFilter = query }, Cmd.none, Stay )
@@ -506,12 +546,24 @@ catalogHeight model =
     max 120 (min tallest (model.height - dockHeight - 120))
 
 
-{-| Height of the whole bottom panel: the dock, and the catalog while open.
+{-| Height of the hulls drawer, shown above the palette row while open: room
+for the hull cards, never taller than the catalog.
+-}
+hullsHeight : Model -> Int
+hullsHeight model =
+    min 220 (catalogHeight model)
+
+
+{-| Height of the whole bottom panel: the dock, and the catalog or the hulls
+drawer while open.
 -}
 panelHeight : Model -> Int
 panelHeight model =
     if model.catalogOpen then
         dockHeight + 6 + catalogHeight model
+
+    else if model.hullsOpen then
+        dockHeight + 6 + hullsHeight model
 
     else
         dockHeight
@@ -585,7 +637,9 @@ topBar model =
             [ Attr.style "flex" "1"
             , Attr.style "min-width" "0"
             , Attr.style "display" "flex"
+            , Attr.style "align-items" "center"
             , Attr.style "justify-content" "center"
+            , Attr.style "gap" "6px"
             ]
             [ div
                 [ Attr.style "min-width" "0"
@@ -609,10 +663,69 @@ topBar model =
                     ]
                     [ text (baseName lang model.base) ]
                 ]
+            , hullsButton model
             ]
         , iconButton (tr lang "Show the whole ship" "Näytä koko laiva") FeatherIcons.maximize (Just FitView)
         , iconButton (tr lang "Close without using the ship" "Sulje käyttämättä laivaa") FeatherIcons.x (Just Leave)
         ]
+
+
+{-| Opens the hulls drawer above the palette row, and closes it again; it is
+yellow while the drawer is open, like Brick Racer's drawer tabs.
+-}
+hullsButton : Model -> Html Msg
+hullsButton model =
+    let
+        label =
+            tr model.language "Change hull" "Vaihda runko"
+    in
+    button
+        [ Attr.type_ "button"
+        , onClick ToggleHulls
+        , Attr.attribute "data-hulls-toggle" ""
+        , Attr.attribute "aria-label" label
+        , Attr.attribute "aria-pressed"
+            (if model.hullsOpen then
+                "true"
+
+             else
+                "false"
+            )
+        , Attr.title label
+        , Attr.style "display" "inline-flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "width" "40px"
+        , Attr.style "height" "40px"
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "border-radius" "12px"
+        , Attr.style "border"
+            (if model.hullsOpen then
+                "2px solid " ++ Brand.legoYellow
+
+             else
+                "1px solid rgba(255, 255, 255, 0.18)"
+            )
+        , Attr.style "background"
+            (if model.hullsOpen then
+                Brand.legoYellow
+
+             else
+                "rgba(15, 23, 42, 0.82)"
+            )
+        , Attr.style "color"
+            (if model.hullsOpen then
+                Brand.legoBlack
+
+             else
+                "#e2e8f0"
+            )
+        , Attr.style "cursor" "pointer"
+        , Attr.style "pointer-events" "auto"
+        , Attr.style "touch-action" "manipulation"
+        , Attr.style "transition" "all 0.15s ease"
+        ]
+        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
 
 
 {-| The modelling toolbar above the palette: undo and redo, then the tools
@@ -775,6 +888,9 @@ dock model =
         ]
         ((if model.catalogOpen then
             [ catalogView model ]
+
+          else if model.hullsOpen then
+            [ hullsView model ]
 
           else
             []
@@ -1129,6 +1245,95 @@ catalogCard model entry =
             [ text name ]
         , div [ Attr.style "font-size" "9px", Attr.style "color" "#94a3b8" ]
             [ text ("#" ++ number) ]
+        ]
+
+
+{-| The hulls drawer, as Brick Racer's bases drawer: a card for each starter
+hull with its name and part count, the current one framed in yellow.
+Picking another hull starts the ship again on it.
+-}
+hullsView : Model -> Html Msg
+hullsView model =
+    let
+        lang =
+            model.language
+
+        hullCard base =
+            let
+                isCurrent =
+                    base.id == model.base.id
+            in
+            button
+                [ Attr.type_ "button"
+                , onClick (SelectHull base)
+                , Attr.attribute "data-hull" base.id
+                , Attr.attribute "aria-pressed"
+                    (if isCurrent then
+                        "true"
+
+                     else
+                        "false"
+                    )
+                , Attr.style "display" "flex"
+                , Attr.style "align-items" "center"
+                , Attr.style "gap" "10px"
+                , Attr.style "padding" "10px 12px"
+                , Attr.style "border-radius" "12px"
+                , Attr.style "border"
+                    (if isCurrent then
+                        "2px solid " ++ Brand.legoYellow
+
+                     else
+                        "1px solid rgba(255, 255, 255, 0.15)"
+                    )
+                , Attr.style "background"
+                    (if isCurrent then
+                        "rgba(250, 200, 10, 0.16)"
+
+                     else
+                        "rgba(15, 23, 42, 0.7)"
+                    )
+                , Attr.style "color" "#f8fafc"
+                , Attr.style "cursor" "pointer"
+                , Attr.style "text-align" "left"
+                , Attr.style "touch-action" "manipulation"
+                ]
+                [ span [ Attr.style "color" Brand.legoYellow, Attr.style "flex-shrink" "0", Attr.style "display" "inline-flex" ]
+                    [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+                , div [ Attr.style "min-width" "0" ]
+                    [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px", Attr.style "line-height" "1.2" ] [ text (baseName lang base) ]
+                    , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
+                        [ text (String.fromInt base.partCount ++ tr lang " parts · bow, deck and keel" " osaa · keula, kansi ja köli") ]
+                    ]
+                ]
+    in
+    div
+        [ Attr.attribute "data-hulls" ""
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "height" (px (hullsHeight model))
+        , Attr.style "box-sizing" "border-box"
+        , Attr.style "overflow-y" "auto"
+        , Attr.style "padding" "10px 12px"
+        , Attr.style "border-radius" "12px"
+        , Attr.style "border" "1px solid rgba(255, 255, 255, 0.12)"
+        , Attr.style "background" "rgba(5, 19, 29, 0.96)"
+        ]
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px" ]
+            [ div
+                [ Attr.style "font-size" "12px"
+                , Attr.style "font-weight" "800"
+                , Attr.style "color" Brand.legoYellow
+                , Attr.style "text-transform" "uppercase"
+                , Attr.style "letter-spacing" "0.5px"
+                ]
+                [ text (tr lang "Choose a starter hull" "Valitse aloitusrunko") ]
+            , div
+                [ Attr.style "display" "grid"
+                , Attr.style "grid-template-columns" "repeat(auto-fill, minmax(200px, 1fr))"
+                , Attr.style "gap" "10px"
+                ]
+                (List.map hullCard Editor.bases)
+            ]
         ]
 
 

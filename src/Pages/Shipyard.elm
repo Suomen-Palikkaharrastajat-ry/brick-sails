@@ -3,19 +3,22 @@ module Pages.Shipyard exposing
     , viewShipyard
     )
 
-{-| Start screen: pick one of four toy boats (or a ship loaded from a build
-link or built here; each boat's description is its chip's hover help), see
-it bob on the water, and set sail. A ship can be
-built on one of the starter hulls in the ship editor ("Build a ship"), and a
-build link can be pasted or a model file opened. Online play (host a room of
-two or eight, or join one) sits below; every player sails on their own
-screen.
+{-| Start screen, laid out like Brick Racer's setup screen: the shared app
+header (title, FI / EN switch and mute), a framed preview of the selected
+boat bobbing on the water with its name, loading state, description and
+stats, the two main buttons (open the ship editor, set sail), then cards:
+the course with its best time, the four toy boats (and a ship loaded from a
+build link or built here), the starter hulls to build on with the build link
+and model file loader, and online play (host a room of two or eight, or join
+one). Every player sails on their own screen.
 -}
 
+import Component.Navbar as Navbar
+import DesignTokens.Colors as Brand
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
 import Game.Multiplayer as Multiplayer exposing (SessionMode(..))
-import Html exposing (Html, button, div, h1, input, p, span, text)
+import Html exposing (Html, button, div, h2, input, p, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick, onInput, onSubmit)
 import I18n exposing (Language)
@@ -71,163 +74,238 @@ viewShipyard :
     }
     -> Html msg
 viewShipyard cfg =
-    div [ Attr.class "relative w-full h-full overflow-hidden bg-brand font-sans select-none" ]
-        [ div [ Attr.class "absolute inset-0 z-0" ]
-            [ Render.renderShipyard cfg.mesh cfg.time cfg.viewportWidth cfg.viewportHeight ]
-        , viewHeader cfg
-        , viewLoading cfg.language cfg.mesh cfg.loading
-        , viewPanel cfg
+    div
+        [ Attr.class "fixed inset-0 overflow-y-auto overflow-x-hidden text-white font-sans select-none"
+        , Attr.style "touch-action" "pan-y"
+        , Attr.style "background" ("linear-gradient(170deg, " ++ Brand.legoBlack ++ " 0%, #08263a 50%, " ++ Brand.legoBlack ++ " 100%)")
+        ]
+        [ viewHeader cfg
+        , div
+            [ Attr.class "w-full flex flex-col items-center px-4 py-4"
+            , Attr.style "padding-left" "max(16px, env(safe-area-inset-left))"
+            , Attr.style "padding-right" "max(16px, env(safe-area-inset-right))"
+            , Attr.style "padding-bottom" "max(16px, env(safe-area-inset-bottom))"
+            ]
+            [ div [ Attr.class "w-full max-w-5xl flex flex-col gap-5" ]
+                [ viewHero cfg
+                , viewActionButtons cfg
+                , p [ Attr.class "-mt-2 text-[11px] text-slate-400 text-center" ] [ text (T.controlsHint cfg.language cfg.tilt.enabled) ]
+                , viewCourse cfg
+                , viewBoats cfg
+                , viewBuildShip cfg.language cfg.hulls cfg.canEditShip cfg.actions
+                , viewLoadShip cfg.language cfg.pasteText cfg.loadError cfg.actions
+                , viewCrew cfg.language cfg.roomCode cfg.actions
+                ]
+            ]
         ]
 
 
-viewLoading : Language -> Maybe ShipMesh -> Maybe Loading -> Html msg
-viewLoading lang mesh loading =
-    case ( mesh, loading ) of
-        ( Nothing, Just l ) ->
-            div [ Attr.class "absolute z-10 left-0 right-0 top-1/4 flex justify-center pointer-events-none" ]
-                [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-brand/80 text-sky-100 text-xs font-bold" ]
-                    [ text (T.loadingBricks lang l.loaded (max l.loaded l.total)) ]
-                ]
-
-        _ ->
-            text ""
-
-
+{-| The shared app header (as Brick Racer's): the title, then the language
+switch and the mute button.
+-}
 viewHeader : { a | audioMuted : Bool, language : Language, actions : ShipyardActions msg } -> Html msg
 viewHeader { audioMuted, language, actions } =
     div
-        [ Attr.class "absolute top-0 left-0 right-0 z-10 flex justify-between items-start gap-2 p-3 bg-gradient-to-b from-brand/70 to-transparent pointer-events-none"
-        , Attr.style "padding-top" "max(12px, env(safe-area-inset-top))"
-        , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
-        , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
+        [ Attr.class "bg-brand"
+        , Attr.style "padding-top" "env(safe-area-inset-top)"
+        , Attr.style "padding-left" "env(safe-area-inset-left)"
+        , Attr.style "padding-right" "env(safe-area-inset-right)"
         ]
-        [ div [ Attr.class "flex items-center gap-2.5" ]
-            [ div [ Attr.class "w-10 h-10 rounded-2xl bg-brand-yellow flex items-center justify-center text-brand shadow-lg" ]
-                [ FeatherIcons.navigation |> FeatherIcons.toHtml [] ]
-            , div []
-                [ h1 [ Attr.class "text-lg font-black tracking-wider text-white uppercase leading-tight" ] [ text (T.title language) ]
-                , p [ Attr.class "text-xs text-brand-yellow" ] [ text (T.subtitle language) ]
-                ]
-            ]
-        , div [ Attr.class "flex gap-1.5 pointer-events-auto" ]
-            [ button
-                [ onClick actions.onToggleLanguage
-                , Attr.title (T.languageToggleTitle language)
-                , Attr.attribute "aria-label" (T.languageToggleTitle language)
-                , Attr.attribute "data-language-toggle" ""
-                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-brand/80 border border-white/10 text-white text-xs font-black"
-                ]
-                [ text (T.languageToggle language) ]
-            , button
-                [ onClick actions.onToggleMute
-                , Attr.title (T.muteLabel language audioMuted)
-                , Attr.attribute "aria-label" (T.muteLabel language audioMuted)
-                , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-brand/80 border border-white/10 text-white"
-                ]
-                [ (if audioMuted then
-                    FeatherIcons.volumeX
+        [ Navbar.viewAppHeader
+            { brand =
+                Navbar.viewBrand
+                    { href = "#"
+                    , iconSrc = "/favicon.svg"
+                    , title = T.title language
+                    , onClick = Nothing
+                    }
+            , navLabel = T.title language
+            , links = []
+            , trailing =
+                [ div [ Attr.class "flex gap-1.5" ]
+                    [ button
+                        [ Attr.type_ "button"
+                        , onClick actions.onToggleLanguage
+                        , Attr.title (T.languageToggleTitle language)
+                        , Attr.attribute "aria-label" (T.languageToggleTitle language)
+                        , Attr.attribute "data-language-toggle" ""
+                        , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg text-white text-xs font-black cursor-pointer hover:bg-brand-yellow hover:text-brand"
+                        ]
+                        [ text (T.languageToggle language) ]
+                    , button
+                        [ Attr.type_ "button"
+                        , onClick actions.onToggleMute
+                        , Attr.title (T.muteLabel language audioMuted)
+                        , Attr.attribute "aria-label" (T.muteLabel language audioMuted)
+                        , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg text-white cursor-pointer hover:bg-brand-yellow hover:text-brand"
+                        ]
+                        [ (if audioMuted then
+                            FeatherIcons.volumeX
 
-                   else
-                    FeatherIcons.volume2
-                  )
-                    |> FeatherIcons.toHtml []
+                           else
+                            FeatherIcons.volume2
+                          )
+                            |> FeatherIcons.withSize 20
+                            |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
+                        ]
+                    ]
                 ]
-            ]
+            , menuToggle = Nothing
+            , sticky = False
+            }
         ]
 
 
-viewPanel :
+{-| The framed preview of the selected boat on the water, with its name and
+loading state at the top left, its stats at the bottom left and its
+description at the bottom right.
+-}
+viewHero :
     { a
         | boat : Boat
-        , course : Course
-        , customShip : Maybe Boat
-        , pasteText : String
-        , loadError : Maybe String
-        , personalBest : Maybe LeaderboardEntry
-        , tilt : { available : Bool, enabled : Bool }
-        , roomCode : String
+        , mesh : Maybe ShipMesh
+        , loading : Maybe Loading
+        , time : Float
+        , viewportWidth : Int
+        , viewportHeight : Int
         , language : Language
+    }
+    -> Html msg
+viewHero { boat, mesh, loading, time, viewportWidth, viewportHeight, language } =
+    let
+        heroWidth =
+            clamp 288 1024 (viewportWidth - 32)
+
+        heroHeight =
+            clamp 240 500 (round (toFloat viewportHeight * 0.46))
+    in
+    div
+        [ Attr.class "relative w-full shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-brand"
+        , Attr.style "height" (String.fromInt heroHeight ++ "px")
+        ]
+        [ Render.renderShipyard mesh time heroWidth heroHeight
+        , div [ Attr.class "absolute top-3 left-3 flex items-center gap-2 pointer-events-none" ]
+            [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-brand/90 border border-white/20 text-xs font-bold" ]
+                [ text (T.boatName language boat.name) ]
+            , case ( mesh, loading ) of
+                ( Nothing, Just l ) ->
+                    span [ Attr.class "px-3 py-1.5 rounded-xl bg-sky-600/90 text-xs font-semibold" ]
+                        [ text (T.loadingBricks language l.loaded (max l.loaded l.total)) ]
+
+                _ ->
+                    text ""
+            ]
+        , div [ Attr.class "absolute bottom-2 left-2 flex items-center gap-3 px-2.5 py-1.5 rounded-lg bg-brand/70 text-[11px] pointer-events-none" ]
+            [ statBar (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
+            , statBar (T.turnLabel language) ((boat.turnRate - 50) / 80)
+            ]
+        , span [ Attr.class "absolute bottom-2 right-2 max-w-[50%] px-2.5 py-1 rounded-lg bg-brand/70 text-xs text-slate-300 text-right pointer-events-none" ]
+            [ text (T.boatDescription language boat.description) ]
+        ]
+
+
+{-| The two main buttons under the preview: open the ship editor (edit
+"Your ship" when it stands on a starter hull, else build on the first hull),
+and set sail.
+-}
+viewActionButtons :
+    { a
+        | language : Language
         , hulls : List { id : String, name : String }
         , canEditShip : Bool
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, roomCode, language, hulls, canEditShip, actions } =
+viewActionButtons { language, hulls, canEditShip, actions } =
     let
-        bestLine =
+        builderButton =
+            if canEditShip then
+                Just ( actions.onEditShip, T.editShipButton language )
+
+            else
+                List.head hulls |> Maybe.map (\hull -> ( actions.onStartBuild hull.id, T.buildOwnShip language ))
+    in
+    div [ Attr.class "flex flex-col sm:flex-row gap-3 w-full" ]
+        [ case builderButton of
+            Just ( msg, label ) ->
+                button
+                    [ Attr.type_ "button"
+                    , onClick msg
+                    , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-white/10 border border-white/25 text-white font-extrabold text-base cursor-pointer transition-all active:bg-white/20"
+                    ]
+                    [ FeatherIcons.tool |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml []
+                    , span [] [ text label ]
+                    ]
+
+            Nothing ->
+                text ""
+        , button
+            [ Attr.type_ "button"
+            , onClick actions.onStartSailing
+            , Attr.attribute "data-tilt-start" ""
+            , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-brand-yellow text-brand font-extrabold text-base uppercase tracking-widest cursor-pointer transition-all shadow-lg shadow-brand-yellow/30 active:brightness-110"
+            ]
+            [ FeatherIcons.play |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml []
+            , span [] [ text (T.setSail language) ]
+            ]
+        ]
+
+
+{-| The course card: its name and the best time with its stars, or the
+three-star goal while there is no best time yet.
+-}
+viewCourse :
+    { a
+        | course : Course
+        , personalBest : Maybe LeaderboardEntry
+        , language : Language
+    }
+    -> Html msg
+viewCourse { course, personalBest, language } =
+    let
+        ( bestLine, hasBest ) =
             case personalBest of
                 Just pb ->
-                    T.personalBestLine language (Leaderboard.formatRaceTime pb.timeSeconds) (Physics.starRating course.targetSeconds pb.timeSeconds)
+                    ( T.personalBestLine language (Leaderboard.formatRaceTime pb.timeSeconds) (Physics.starRating course.targetSeconds pb.timeSeconds), True )
 
                 Nothing ->
-                    T.bestLine language (Leaderboard.formatRaceTime course.targetSeconds)
-
-        controlsHint =
-            T.controlsHint language tilt.enabled
+                    ( T.bestLine language (Leaderboard.formatRaceTime course.targetSeconds), False )
     in
-    div
-        [ Attr.class "absolute z-10 left-0 right-0 bottom-0 p-3 landscape:left-auto landscape:top-0 landscape:pt-[68px] landscape:w-[360px] landscape:flex landscape:flex-col landscape:justify-end"
-        , Attr.style "padding-bottom" "max(12px, env(safe-area-inset-bottom))"
-        , Attr.style "padding-left" "max(12px, env(safe-area-inset-left))"
-        , Attr.style "padding-right" "max(12px, env(safe-area-inset-right))"
-        ]
-        [ div [ Attr.class "w-full max-w-md mx-auto bg-brand/90 backdrop-blur-md p-3 rounded-3xl border border-white/10 shadow-2xl text-white flex flex-col gap-2.5 max-h-full overflow-y-auto" ]
-            [ div [ Attr.class "flex justify-between items-baseline gap-2" ]
-                [ span [ Attr.class "text-sm font-black" ] [ text (T.courseTitle language course.title) ]
-                , span [ Attr.class "text-xs text-brand-yellow font-bold" ] [ text bestLine ]
-                ]
-            , div [ Attr.class "grid grid-cols-4 gap-1.5" ]
-                (List.map (boatChip language boat actions) Boats.all
-                    ++ (case customShip of
-                            Just c ->
-                                [ div [ Attr.class "col-span-4 grid" ] [ boatChip language boat actions c ] ]
+    div [ Attr.class "flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
+        [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
+            [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+            , text (T.courseTitle language course.title)
+            ]
+        , span
+            [ Attr.class
+                ("text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 "
+                    ++ (if hasBest then
+                            "text-brand-yellow"
 
-                            Nothing ->
-                                []
+                        else
+                            "text-slate-400"
                        )
                 )
-            , div [ Attr.class "flex items-center justify-end gap-3 text-[11px]" ]
-                [ statBar (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
-                , statBar (T.turnLabel language) ((boat.turnRate - 50) / 80)
-                ]
-            , button
-                [ onClick actions.onStartSailing
-                , Attr.attribute "data-tilt-start" ""
-                , Attr.class "w-full min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-base uppercase tracking-widest shadow-xl shadow-brand-yellow/30 flex items-center justify-center gap-2"
-                ]
-                [ FeatherIcons.play |> FeatherIcons.toHtml []
-                , text (T.setSail language)
-                ]
-            , p [ Attr.class "text-[11px] text-slate-400 text-center landscape:hidden lg:landscape:block" ] [ text controlsHint ]
-            , viewBuildShip language hulls canEditShip actions
-            , viewLoadShip language pasteText loadError actions
-            , div [ Attr.class "flex flex-col gap-1.5 pt-1 border-t border-slate-800" ]
-                [ div [ Attr.class "flex gap-1.5" ]
-                    [ hostButton language actions TwoPlayers (T.twoPlayerHost language)
-                    , hostButton language actions GridSession (T.gridHost language)
-                    ]
-                , div [ Attr.class "flex gap-1.5" ]
-                    [ input
-                        [ Attr.type_ "text"
-                        , Attr.value roomCode
-                        , onInput actions.onRoomCodeChanged
-                        , Attr.placeholder (T.roomCodePlaceholder language)
-                        , Attr.attribute "aria-label" (T.roomCodeLabel language)
-                        , Attr.attribute "autocomplete" "off"
-                        , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-xl bg-slate-800 border border-white/10 text-xs font-mono text-white placeholder:text-slate-500"
-                        ]
-                        []
-                    , button
-                        [ onClick (actions.onJoinMultiplayer roomCode)
-                        , Attr.title (T.joinRaceTitle language)
-                        , Attr.class "min-h-[44px] px-3 rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5"
-                        ]
-                        [ FeatherIcons.users |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-                        , text (T.joinRace language)
-                        ]
-                    ]
-                ]
             ]
+            [ text ("⏱ " ++ bestLine) ]
+        ]
+
+
+{-| The boat cards: the four toy boats and, when there is one, "Your ship".
+-}
+viewBoats :
+    { a
+        | boat : Boat
+        , customShip : Maybe Boat
+        , language : Language
+        , actions : ShipyardActions msg
+    }
+    -> Html msg
+viewBoats { boat, customShip, language, actions } =
+    div [ Attr.class "flex flex-col gap-3" ]
+        [ sectionHeading (T.boatsHeading language)
+        , div [ Attr.class "grid grid-cols-2 sm:grid-cols-4 gap-3" ]
+            (List.map (boatCard language boat actions) (Boats.all ++ Maybe.withDefault [] (Maybe.map List.singleton customShip)))
         ]
 
 
@@ -236,33 +314,34 @@ viewPanel { boat, course, customShip, pasteText, loadError, personalBest, tilt, 
 -}
 viewBuildShip : Language -> List { id : String, name : String } -> Bool -> ShipyardActions msg -> Html msg
 viewBuildShip language hulls canEditShip actions =
-    div [ Attr.class "flex flex-col gap-1" ]
+    div [ Attr.class "flex flex-col gap-3" ]
         [ div [ Attr.class "flex items-center justify-between gap-2" ]
-            [ span [ Attr.class "text-xs font-bold text-brand-yellow flex items-center gap-1" ]
-                [ FeatherIcons.tool |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
-                , text (T.buildShipHeading language)
-                ]
+            [ sectionHeading (T.buildShipHeading language)
             , if canEditShip then
                 button
-                    [ onClick actions.onEditShip
+                    [ Attr.type_ "button"
+                    , onClick actions.onEditShip
                     , Attr.attribute "data-ship-edit" ""
-                    , Attr.class "min-h-[32px] px-3 rounded-xl bg-brand-yellow active:brightness-110 text-brand font-bold text-xs"
+                    , Attr.class "min-h-[36px] px-3 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs cursor-pointer"
                     ]
                     [ text (T.editShipButton language) ]
 
               else
                 text ""
             ]
-        , div [ Attr.class "grid grid-cols-4 gap-1.5" ]
+        , div [ Attr.class "grid grid-cols-2 sm:grid-cols-4 gap-3" ]
             (List.map
                 (\hull ->
                     button
-                        [ onClick (actions.onStartBuild hull.id)
+                        [ Attr.type_ "button"
+                        , onClick (actions.onStartBuild hull.id)
                         , Attr.attribute "data-hull" hull.id
                         , Attr.title (T.buildOnHullTitle language hull.name)
-                        , Attr.class "min-h-[44px] px-1 rounded-xl text-[11px] font-bold leading-tight bg-slate-800 active:bg-slate-700 text-brand-yellow border border-brand-yellow/30"
+                        , Attr.class "min-h-[56px] flex items-center gap-2 p-3 rounded-xl text-left text-sm font-bold leading-tight bg-slate-900/65 border border-white/10 text-white cursor-pointer transition-all active:bg-slate-800 hover:border-brand-yellow/60"
                         ]
-                        [ text hull.name ]
+                        [ span [ Attr.class "shrink-0 text-brand-yellow" ] [ FeatherIcons.anchor |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
+                        , span [] [ text hull.name ]
+                        ]
                 )
                 hulls
             )
@@ -273,8 +352,12 @@ viewBuildShip language hulls canEditShip actions =
 -}
 viewLoadShip : Language -> String -> Maybe String -> ShipyardActions msg -> Html msg
 viewLoadShip language pasteText loadError actions =
-    div [ Attr.class "flex flex-col gap-1" ]
-        [ Html.form [ onSubmit actions.onLoadPasted, Attr.class "flex gap-1.5" ]
+    div [ Attr.class "flex flex-col gap-2 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
+        [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
+            [ FeatherIcons.download |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+            , text (T.loadShipHeading language)
+            ]
+        , Html.form [ onSubmit actions.onLoadPasted, Attr.class "flex gap-2" ]
             [ input
                 [ Attr.type_ "text"
                 , Attr.value pasteText
@@ -283,20 +366,21 @@ viewLoadShip language pasteText loadError actions =
                 , Attr.attribute "aria-label" (T.buildLinkLabel language)
                 , Attr.attribute "data-ship-link" ""
                 , Attr.attribute "autocomplete" "off"
-                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-xl bg-slate-800 border border-white/10 text-sm text-white placeholder:text-slate-500"
+                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-sm text-white placeholder:text-slate-500"
                 ]
                 []
             , button
                 [ Attr.type_ "submit"
                 , Attr.attribute "data-ship-load" ""
-                , Attr.class "min-h-[44px] px-3 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs"
+                , Attr.class "min-h-[44px] px-4 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs cursor-pointer"
                 ]
                 [ text (T.loadButton language) ]
             , button
                 [ Attr.type_ "button"
                 , onClick actions.onOpenFile
                 , Attr.title (T.openModelFile language)
-                , Attr.class "w-11 min-h-[44px] flex items-center justify-center rounded-xl bg-slate-800 active:bg-slate-700 text-slate-200"
+                , Attr.attribute "aria-label" (T.openModelFile language)
+                , Attr.class "w-11 min-h-[44px] flex items-center justify-center rounded-lg bg-white/10 border border-white/20 active:bg-white/20 text-white cursor-pointer"
                 ]
                 [ FeatherIcons.folder |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
             ]
@@ -309,29 +393,103 @@ viewLoadShip language pasteText loadError actions =
         ]
 
 
-boatChip : Language -> Boat -> ShipyardActions msg -> Boat -> Html msg
-boatChip language selected actions b =
+{-| Online play, as in Brick Racer: a card for each room size with its own
+host button, and a card to join a room by its code or link.
+-}
+viewCrew : Language -> String -> ShipyardActions msg -> Html msg
+viewCrew language roomCode actions =
+    div [ Attr.class "flex flex-col gap-3" ]
+        [ sectionHeading (T.crewHeading language)
+        , div [ Attr.class "grid grid-cols-1 sm:grid-cols-2 gap-3" ]
+            [ hostCard language actions TwoPlayers FeatherIcons.users (T.twoPlayerHost language) (T.twoPlayerHostDesc language)
+            , hostCard language actions GridSession FeatherIcons.tv (T.gridHost language) (T.gridHostDesc language)
+            ]
+        , div [ Attr.class "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
+            [ div [ Attr.class "flex flex-col gap-0.5 min-w-0" ]
+                [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
+                    [ FeatherIcons.logIn |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                    , text (T.joinRaceTitle language)
+                    ]
+                , p [ Attr.class "text-xs text-slate-400" ] [ text (T.joinRaceDesc language) ]
+                ]
+            , div [ Attr.class "flex items-center gap-2 w-full sm:w-auto" ]
+                [ input
+                    [ Attr.type_ "text"
+                    , Attr.value roomCode
+                    , onInput actions.onRoomCodeChanged
+                    , Attr.placeholder (T.roomCodePlaceholder language)
+                    , Attr.attribute "aria-label" (T.roomCodeLabel language)
+                    , Attr.attribute "autocomplete" "off"
+                    , Attr.class "flex-1 min-w-0 sm:min-w-[160px] min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
+                    ]
+                    []
+                , button
+                    [ Attr.type_ "button"
+                    , onClick (actions.onJoinMultiplayer roomCode)
+                    , Attr.title (T.joinRaceTitle language)
+                    , Attr.class "min-h-[44px] px-4 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs whitespace-nowrap cursor-pointer"
+                    ]
+                    [ text (T.joinRace language) ]
+                ]
+            ]
+        ]
+
+
+sectionHeading : String -> Html msg
+sectionHeading label =
+    h2 [ Attr.class "text-sm font-bold uppercase tracking-wider text-brand-yellow" ] [ text label ]
+
+
+{-| A boat card: its name, its description and its stats. The selected boat
+has the yellow frame.
+-}
+boatCard : Language -> Boat -> ShipyardActions msg -> Boat -> Html msg
+boatCard language selected actions b =
+    let
+        isSelected =
+            b.name == selected.name
+    in
     button
-        [ onClick (actions.onSelectBoat b.name)
+        [ Attr.type_ "button"
+        , onClick (actions.onSelectBoat b.name)
         , Attr.title (T.boatDescription language b.description)
         , Attr.attribute "aria-pressed"
-            (if b.name == selected.name then
+            (if isSelected then
                 "true"
 
              else
                 "false"
             )
         , Attr.class
-            ("min-h-[44px] px-1 rounded-xl text-[11px] sm:text-xs font-bold tracking-tight leading-tight overflow-hidden "
-                ++ (if b.name == selected.name then
-                        "bg-brand-yellow text-brand"
+            ("flex flex-col justify-between gap-2 p-3 rounded-xl text-left cursor-pointer transition-all overflow-hidden "
+                ++ (if isSelected then
+                        "bg-[#0d2235]/95 border-2 border-brand-yellow shadow-[0_0_0_2px_rgba(250,200,10,0.3)]"
 
                     else
-                        "bg-slate-800 active:bg-slate-700 text-slate-200"
+                        "bg-[#071926]/75 border border-white/10 active:bg-slate-800"
                    )
             )
         ]
-        [ text (T.boatName language b.name) ]
+        [ div [ Attr.class "flex flex-col gap-1" ]
+            [ span
+                [ Attr.class
+                    ("text-sm font-bold leading-tight "
+                        ++ (if isSelected then
+                                "text-brand-yellow"
+
+                            else
+                                "text-white"
+                           )
+                    )
+                ]
+                [ text (T.boatName language b.name) ]
+            , span [ Attr.class "text-[11px] leading-snug text-slate-400" ] [ text (T.boatDescription language b.description) ]
+            ]
+        , div [ Attr.class "flex items-center gap-3 text-[11px]" ]
+            [ statBar (T.speedLabel language) ((b.topSpeed - 7) / 3.2)
+            , statBar (T.turnLabel language) ((b.turnRate - 50) / 80)
+            ]
+        ]
 
 
 statBar : String -> Float -> Html msg
@@ -343,15 +501,24 @@ statBar label v =
         ]
 
 
-{-| A host button for one session mode (a 2-player room or a grid session).
+{-| A host card for one session mode (a 2-player room or a grid session):
+its title, what it is, and its host button.
 -}
-hostButton : Language -> ShipyardActions msg -> SessionMode -> String -> Html msg
-hostButton language actions mode label =
-    button
-        [ onClick (actions.onStartHostMultiplayer mode)
-        , Attr.title (T.hostTitle language (Multiplayer.sessionCapacity mode))
-        , Attr.class "flex-1 min-h-[44px] px-2 rounded-xl bg-slate-800 active:bg-slate-700 text-sky-300 font-bold text-xs flex items-center justify-center gap-1.5"
-        ]
-        [ FeatherIcons.tv |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-        , text label
+hostCard : Language -> ShipyardActions msg -> SessionMode -> FeatherIcons.Icon -> String -> String -> Html msg
+hostCard language actions mode icon label description =
+    div [ Attr.class "flex flex-col justify-between gap-3 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
+        [ div [ Attr.class "flex flex-col gap-1.5" ]
+            [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
+                [ icon |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                , text label
+                ]
+            , p [ Attr.class "text-xs text-slate-400" ] [ text description ]
+            ]
+        , button
+            [ Attr.type_ "button"
+            , onClick (actions.onStartHostMultiplayer mode)
+            , Attr.title (T.hostTitle language (Multiplayer.sessionCapacity mode))
+            , Attr.class "w-full min-h-[44px] px-3 rounded-lg bg-brand-yellow/20 border border-brand-yellow/40 text-brand-yellow font-extrabold text-xs cursor-pointer transition-all active:bg-brand-yellow/30"
+            ]
+            [ text label ]
         ]

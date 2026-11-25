@@ -6,9 +6,11 @@ module Sails.I18n exposing
     , boatDescription
     , boatName
     , boatsButton
+    , boatsHeading
     , buildLinkLabel
     , buildLinkPlaceholder
     , buildOnHullTitle
+    , buildOwnShip
     , buildShipHeading
     , buoyAria
     , buoyCount
@@ -19,6 +21,7 @@ module Sails.I18n exposing
     , copyRoomLink
     , countdownHint
     , courseTitle
+    , crewHeading
     , editShipButton
     , exitRace
     , finishToast
@@ -28,6 +31,7 @@ module Sails.I18n exposing
     , fromFlag
     , goBanner
     , gridHost
+    , gridHostDesc
     , hazardPounding
     , hazardRocks
     , headline
@@ -39,10 +43,12 @@ module Sails.I18n exposing
     , hullLabel
     , hullTitle
     , joinRace
+    , joinRaceDesc
     , joinRaceTitle
     , languageToggle
     , languageToggleTitle
     , loadButton
+    , loadShipHeading
     , loadingBricks
     , loadingShips
     , muteLabel
@@ -86,6 +92,7 @@ module Sails.I18n exposing
     , treasureToast
     , turnLabel
     , twoPlayerHost
+    , twoPlayerHostDesc
     , weatherName
     , windDirection
     , you
@@ -1036,6 +1043,13 @@ allPhrases =
     , ( "buildShipHeading", buildShipHeading )
     , ( "buildOnHullTitle", \l -> buildOnHullTitle l "Runko" )
     , ( "editShipButton", editShipButton )
+    , ( "buildOwnShip", buildOwnShip )
+    , ( "boatsHeading", boatsHeading )
+    , ( "loadShipHeading", loadShipHeading )
+    , ( "crewHeading", crewHeading )
+    , ( "twoPlayerHostDesc", twoPlayerHostDesc )
+    , ( "gridHostDesc", gridHostDesc )
+    , ( "joinRaceDesc", joinRaceDesc )
     ]
 
 
@@ -1058,3 +1072,46 @@ buildOnHullTitle lang hull =
 editShipButton : Language -> String
 editShipButton lang =
     pick lang "Muokkaa laivaa" "Edit ship"
+
+
+{-| The shipyard's builder button, when there is no ship of your own to edit.
+-}
+buildOwnShip : Language -> String
+buildOwnShip lang =
+    pick lang "Rakenna oma laiva" "Build your own ship"
+
+
+{-| Heading of the shipyard's boat cards.
+-}
+boatsHeading : Language -> String
+boatsHeading lang =
+    pick lang "Valitse aluksesi" "Choose your boat"
+
+
+{-| Heading of the shipyard card that loads a build link or a model file.
+-}
+loadShipHeading : Language -> String
+loadShipHeading lang =
+    pick lang "Purjehdi omalla rakennelmalla" "Sail your own build"
+
+
+{-| Heading of the shipyard's online play cards.
+-}
+crewHeading : Language -> String
+crewHeading lang =
+    pick lang "Purjehdi yhdessä" "Sail together"
+
+
+twoPlayerHostDesc : Language -> String
+twoPlayerHostDesc lang =
+    pick lang "Avaa huone kahdelle kapteenille." "Open a room for two captains."
+
+
+gridHostDesc : Language -> String
+gridHostDesc lang =
+    pick lang "Avaa huone jopa kahdeksalle laivalle." "Open a room for up to eight ships."
+
+
+joinRaceDesc : Language -> String
+joinRaceDesc lang =
+    pick lang "Syötä kaverin huoneen koodi tai liitä hänen linkkinsä." "Enter a friend's room code or paste their link."
