@@ -156,7 +156,8 @@ pick lang fi en =
 
 title : Language -> String
 title lang =
-    pick lang "Palikkapurjehdus" "Brick Sails"
+    -- The game name is the same in both languages, so it is not a translated phrase.
+    pick lang "Merirosvoleikki" "Merirosvoleikki"
 
 
 subtitle : Language -> String
@@ -895,8 +896,7 @@ check that none is missing (see `tests/LanguageTest.elm`).
 -}
 allPhrases : List ( String, Language -> String )
 allPhrases =
-    [ ( "title", title )
-    , ( "subtitle", subtitle )
+    [ ( "subtitle", subtitle )
     , ( "courseTitle", \l -> courseTitle l "Island Loop" )
     , ( "boatName Sloop", \l -> boatName l "Sloop" )
     , ( "boatName Cutter", \l -> boatName l "Cutter" )
