@@ -1445,8 +1445,29 @@ goalArrowEntities ctx draw time boats guide standards targets =
 
                         Nothing ->
                             []
+
+                -- 4. Ghost Ship (Spectral Cyan)
+                ghostArrow =
+                    case List.filter .isGhost (List.drop 1 boats) |> List.head of
+                        Just ghost ->
+                            let
+                                d =
+                                    Physics.horizontalDistance playerBoat.state.position ghost.state.position
+                            in
+                            if d < 400 && d > 8 then
+                                let
+                                    gr =
+                                        Vec3.toRecord ghost.state.position
+                                in
+                                drawArrow ( gr.x, gr.z ) (vec4 0.2 0.95 0.85 1.0) 5.7
+
+                            else
+                                []
+
+                        Nothing ->
+                            []
             in
-            harbourArrow ++ standardArrow ++ targetArrow
+            harbourArrow ++ standardArrow ++ targetArrow ++ ghostArrow
 
         Nothing ->
             []
