@@ -3,14 +3,12 @@ module Pages.Shipyard exposing
     , viewShipyard
     )
 
-{-| Start screen, laid out like Brick Racer's setup screen: the shared app
-header (title, FI / EN switch and mute), a framed preview of the selected
-boat bobbing on the water with its name, loading state, description and
-stats, the two main buttons (open the ship editor, set sail), then cards:
-the course with its best time, the four toy boats (and a ship loaded from a
-build link or built here), the starter hulls to build on with the build link
-and model file loader, and online play (host a room of two or eight, or join
-one). Every player sails on their own screen.
+{-| Start screen, with the options of Brick Racer's setup screen in the same
+order: the shared app header (title and mute), a framed preview of the boat
+bobbing on the water with its name, loading state, description and stats,
+the two main buttons (open the ship editor, set sail), the course with its
+best time, and online play (host a room of two or eight, or join one).
+Every player sails on their own screen.
 -}
 
 import Component.Navbar as Navbar
@@ -20,9 +18,8 @@ import Game.Leaderboard as Leaderboard
 import Game.Multiplayer as Multiplayer exposing (SessionMode(..))
 import Html exposing (Html, button, div, h2, input, p, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (onClick, onInput, onSubmit)
+import Html.Events exposing (onClick, onInput)
 import I18n exposing (Language)
-import Sails.Boats as Boats
 import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Render as Render
@@ -31,16 +28,11 @@ import Sails.Types exposing (Boat, Course, LeaderboardEntry)
 
 
 type alias ShipyardActions msg =
-    { onSelectBoat : String -> msg
-    , onStartSailing : msg
+    { onStartSailing : msg
     , onStartHostMultiplayer : SessionMode -> msg
     , onJoinMultiplayer : String -> msg
     , onRoomCodeChanged : String -> msg
     , onToggleMute : msg
-    , onPasteChanged : String -> msg
-    , onLoadPasted : msg
-    , onOpenFile : msg
-    , onToggleLanguage : msg
     , onStartBuild : String -> msg
     , onEditShip : msg
     }
@@ -56,8 +48,6 @@ viewShipyard :
     { boat : Boat
     , mesh : Maybe ShipMesh
     , loading : Maybe Loading
-    , customShip : Maybe Boat
-    , pasteText : String
     , loadError : Maybe String
     , course : Course
     , personalBest : Maybe LeaderboardEntry
@@ -90,18 +80,21 @@ viewShipyard cfg =
                 [ viewHero cfg
                 , viewActionButtons cfg
                 , p [ Attr.class "-mt-2 text-[11px] text-slate-400 text-center" ] [ text (T.controlsHint cfg.language cfg.tilt.enabled) ]
+                , case cfg.loadError of
+                    Just err ->
+                        p [ Attr.attribute "role" "alert", Attr.class "-mt-2 text-[11px] text-rose-300 font-bold text-center" ] [ text (T.shipLoadError cfg.language err) ]
+
+                    Nothing ->
+                        text ""
                 , viewCourse cfg
-                , viewBoats cfg
-                , viewBuildShip cfg.language cfg.hulls cfg.canEditShip cfg.actions
-                , viewLoadShip cfg.language cfg.pasteText cfg.loadError cfg.actions
                 , viewCrew cfg.language cfg.roomCode cfg.actions
                 ]
             ]
         ]
 
 
-{-| The shared app header (as Brick Racer's): the title, then the language
-switch and the mute button.
+{-| The shared app header (as Brick Racer's): the title, then the mute
+button.
 -}
 viewHeader : { a | audioMuted : Bool, language : Language, actions : ShipyardActions msg } -> Html msg
 viewHeader { audioMuted, language, actions } =
@@ -124,15 +117,6 @@ viewHeader { audioMuted, language, actions } =
             , trailing =
                 [ div [ Attr.class "flex gap-1.5" ]
                     [ button
-                        [ Attr.type_ "button"
-                        , onClick actions.onToggleLanguage
-                        , Attr.title (T.languageToggleTitle language)
-                        , Attr.attribute "aria-label" (T.languageToggleTitle language)
-                        , Attr.attribute "data-language-toggle" ""
-                        , Attr.class "w-11 h-11 flex items-center justify-center rounded-lg text-white text-xs font-black cursor-pointer hover:bg-brand-yellow hover:text-brand"
-                        ]
-                        [ text (T.languageToggle language) ]
-                    , button
                         [ Attr.type_ "button"
                         , onClick actions.onToggleMute
                         , Attr.title (T.muteLabel language audioMuted)
@@ -291,108 +275,6 @@ viewCourse { course, personalBest, language } =
         ]
 
 
-{-| The boat cards: the four toy boats and, when there is one, "Your ship".
--}
-viewBoats :
-    { a
-        | boat : Boat
-        , customShip : Maybe Boat
-        , language : Language
-        , actions : ShipyardActions msg
-    }
-    -> Html msg
-viewBoats { boat, customShip, language, actions } =
-    div [ Attr.class "flex flex-col gap-3" ]
-        [ sectionHeading (T.boatsHeading language)
-        , div [ Attr.class "grid grid-cols-2 sm:grid-cols-4 gap-3" ]
-            (List.map (boatCard language boat actions) (Boats.all ++ Maybe.withDefault [] (Maybe.map List.singleton customShip)))
-        ]
-
-
-{-| Build a ship in the ship editor on one of the starter hulls, or edit
-"Your ship" again when it stands on one.
--}
-viewBuildShip : Language -> List { id : String, name : String } -> Bool -> ShipyardActions msg -> Html msg
-viewBuildShip language hulls canEditShip actions =
-    div [ Attr.class "flex flex-col gap-3" ]
-        [ div [ Attr.class "flex items-center justify-between gap-2" ]
-            [ sectionHeading (T.buildShipHeading language)
-            , if canEditShip then
-                button
-                    [ Attr.type_ "button"
-                    , onClick actions.onEditShip
-                    , Attr.attribute "data-ship-edit" ""
-                    , Attr.class "min-h-[36px] px-3 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs cursor-pointer"
-                    ]
-                    [ text (T.editShipButton language) ]
-
-              else
-                text ""
-            ]
-        , div [ Attr.class "grid grid-cols-2 sm:grid-cols-4 gap-3" ]
-            (List.map
-                (\hull ->
-                    button
-                        [ Attr.type_ "button"
-                        , onClick (actions.onStartBuild hull.id)
-                        , Attr.attribute "data-hull" hull.id
-                        , Attr.title (T.buildOnHullTitle language hull.name)
-                        , Attr.class "min-h-[56px] flex items-center gap-2 p-3 rounded-xl text-left text-sm font-bold leading-tight bg-slate-900/65 border border-white/10 text-white cursor-pointer transition-all active:bg-slate-800 hover:border-brand-yellow/60"
-                        ]
-                        [ span [ Attr.class "shrink-0 text-brand-yellow" ] [ FeatherIcons.anchor |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
-                        , span [] [ text hull.name ]
-                        ]
-                )
-                hulls
-            )
-        ]
-
-
-{-| Paste a build link (or open a model file) to sail your own ship.
--}
-viewLoadShip : Language -> String -> Maybe String -> ShipyardActions msg -> Html msg
-viewLoadShip language pasteText loadError actions =
-    div [ Attr.class "flex flex-col gap-2 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
-        [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
-            [ FeatherIcons.download |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-            , text (T.loadShipHeading language)
-            ]
-        , Html.form [ onSubmit actions.onLoadPasted, Attr.class "flex gap-2" ]
-            [ input
-                [ Attr.type_ "text"
-                , Attr.value pasteText
-                , onInput actions.onPasteChanged
-                , Attr.placeholder (T.buildLinkPlaceholder language)
-                , Attr.attribute "aria-label" (T.buildLinkLabel language)
-                , Attr.attribute "data-ship-link" ""
-                , Attr.attribute "autocomplete" "off"
-                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-sm text-white placeholder:text-slate-500"
-                ]
-                []
-            , button
-                [ Attr.type_ "submit"
-                , Attr.attribute "data-ship-load" ""
-                , Attr.class "min-h-[44px] px-4 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs cursor-pointer"
-                ]
-                [ text (T.loadButton language) ]
-            , button
-                [ Attr.type_ "button"
-                , onClick actions.onOpenFile
-                , Attr.title (T.openModelFile language)
-                , Attr.attribute "aria-label" (T.openModelFile language)
-                , Attr.class "w-11 min-h-[44px] flex items-center justify-center rounded-lg bg-white/10 border border-white/20 active:bg-white/20 text-white cursor-pointer"
-                ]
-                [ FeatherIcons.folder |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
-            ]
-        , case loadError of
-            Just err ->
-                p [ Attr.attribute "role" "alert", Attr.class "text-[11px] text-rose-300 font-bold" ] [ text (T.shipLoadError language err) ]
-
-            Nothing ->
-                text ""
-        ]
-
-
 {-| Online play, as in Brick Racer: a card for each room size with its own
 host button, and a card to join a room by its code or link.
 -}
@@ -438,58 +320,6 @@ viewCrew language roomCode actions =
 sectionHeading : String -> Html msg
 sectionHeading label =
     h2 [ Attr.class "text-sm font-bold uppercase tracking-wider text-brand-yellow" ] [ text label ]
-
-
-{-| A boat card: its name, its description and its stats. The selected boat
-has the yellow frame.
--}
-boatCard : Language -> Boat -> ShipyardActions msg -> Boat -> Html msg
-boatCard language selected actions b =
-    let
-        isSelected =
-            b.name == selected.name
-    in
-    button
-        [ Attr.type_ "button"
-        , onClick (actions.onSelectBoat b.name)
-        , Attr.title (T.boatDescription language b.description)
-        , Attr.attribute "aria-pressed"
-            (if isSelected then
-                "true"
-
-             else
-                "false"
-            )
-        , Attr.class
-            ("flex flex-col justify-between gap-2 p-3 rounded-xl text-left cursor-pointer transition-all overflow-hidden "
-                ++ (if isSelected then
-                        "bg-[#0d2235]/95 border-2 border-brand-yellow shadow-[0_0_0_2px_rgba(250,200,10,0.3)]"
-
-                    else
-                        "bg-[#071926]/75 border border-white/10 active:bg-slate-800"
-                   )
-            )
-        ]
-        [ div [ Attr.class "flex flex-col gap-1" ]
-            [ span
-                [ Attr.class
-                    ("text-sm font-bold leading-tight "
-                        ++ (if isSelected then
-                                "text-brand-yellow"
-
-                            else
-                                "text-white"
-                           )
-                    )
-                ]
-                [ text (T.boatName language b.name) ]
-            , span [ Attr.class "text-[11px] leading-snug text-slate-400" ] [ text (T.boatDescription language b.description) ]
-            ]
-        , div [ Attr.class "flex items-center gap-3 text-[11px]" ]
-            [ statBar (T.speedLabel language) ((b.topSpeed - 7) / 3.2)
-            , statBar (T.turnLabel language) ((b.turnRate - 50) / 80)
-            ]
-        ]
 
 
 statBar : String -> Float -> Html msg
