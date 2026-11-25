@@ -13,7 +13,7 @@ import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
 import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
-import Sails.Types
+import Sails.Types exposing (Course, Faction(..))
 import Test exposing (Test, describe, test)
 
 
@@ -241,6 +241,83 @@ suite =
                         |> Tuple.first
                         |> .piratesSunk
                         |> Expect.equal []
+            ]
+        , describe "factions"
+            [ test "every race has ships from all three factions" <|
+                \_ ->
+                    seeds
+                        |> List.all
+                            (\s ->
+                                let
+                                    factions =
+                                        Pirates.fleet s course |> List.map .faction
+                                in
+                                List.member Pirates factions
+                                    && List.member BlueCoats factions
+                                    && List.member RedCoats factions
+                            )
+                        |> Expect.equal True
+            , test "each faction ship has its distinctive sail tint" <|
+                \_ ->
+                    let
+                        fleet =
+                            Pirates.fleet 42 course
+
+                        tintOf f =
+                            fleet
+                                |> List.filter (\p -> p.faction == f)
+                                |> List.head
+                                |> Maybe.map Pirates.sailTint
+                    in
+                    Expect.equal
+                        ( Just (Vec3.vec3 0.08 0.08 0.1)
+                        , Just (Vec3.vec3 0.12 0.38 0.85)
+                        , Just (Vec3.vec3 0.82 0.16 0.12)
+                        )
+                        ( tintOf Pirates, tintOf BlueCoats, tintOf RedCoats )
+            , test "BlueCoats patrol in Cutters while Pirates and RedCoats sail Schooners" <|
+                \_ ->
+                    let
+                        fleet =
+                            Pirates.fleet 42 course
+
+                        shipOf f =
+                            fleet
+                                |> List.filter (\p -> p.faction == f)
+                                |> List.head
+                                |> Maybe.map Pirates.shipNameFor
+                    in
+                    Expect.equal
+                        ( Just "Schooner", Just "Cutter", Just "Schooner" )
+                        ( shipOf Pirates, shipOf BlueCoats, shipOf RedCoats )
+            , test "each faction is assigned the patrol near its island" <|
+                \_ ->
+                    let
+                        fleet =
+                            Pirates.fleet 42 course
+
+                        distTo ( ix, iz ) p =
+                            sqrt ((p.centreX - ix) ^ 2 + (p.centreZ - iz) ^ 2)
+
+                        pirateShip =
+                            fleet |> List.filter (\p -> p.faction == Pirates) |> List.head
+
+                        blueCoatsShip =
+                            fleet |> List.filter (\p -> p.faction == BlueCoats) |> List.head
+
+                        redCoatsShip =
+                            fleet |> List.filter (\p -> p.faction == RedCoats) |> List.head
+                    in
+                    case ( pirateShip, blueCoatsShip, redCoatsShip ) of
+                        ( Just p, Just b, Just r ) ->
+                            Expect.equal ( True, True, True )
+                                ( distTo ( 40, 330 ) p < distTo ( -170, 230 ) p
+                                , distTo ( -170, 230 ) b < distTo ( 150, 90 ) b
+                                , distTo ( 150, 90 ) r < distTo ( 40, 330 ) r
+                                )
+
+                        _ ->
+                            Expect.fail "Missing faction patrol ships"
             ]
         ]
 

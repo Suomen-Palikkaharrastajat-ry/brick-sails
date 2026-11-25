@@ -1,5 +1,6 @@
 module Sails.I18n exposing
-    ( allPhrases
+    ( Lang
+    , allPhrases
     , backToBoats
     , backToCourse
     , bestLine
@@ -19,7 +20,9 @@ module Sails.I18n exposing
     , crewWaiting
     , editShipButton
     , exitRace
+    , factionBoardingToast
     , factionName
+    , factionSunkToast
     , finalTimeLabel
     , finishToast
     , finishedBadge
@@ -61,6 +64,7 @@ module Sails.I18n exposing
     , pirateSunkToast
     , piratesBoardedToast
     , piratesName
+    , piratesSunkToast
     , playerCount
     , pointOfSailText
     , raceStatus
@@ -121,6 +125,12 @@ the player reads is translated here.
 
 import I18n exposing (Language(..))
 import Sails.Types exposing (Faction(..))
+
+
+{-| Alias for Language.
+-}
+type alias Lang =
+    Language
 
 
 
@@ -763,18 +773,57 @@ finishToast lang =
     pick lang "SATAMASSA!" "LAND HO!"
 
 
+{-| A faction ship came alongside and boarded the boat.
+-}
+factionBoardingToast : Faction -> Lang -> String
+factionBoardingToast faction lang =
+    case faction of
+        Pirates ->
+            pick lang "Merirosvot kimppuun!" "Pirates boarded!"
+
+        BlueCoats ->
+            pick lang "Sinitakit kimppuun!" "BlueCoats boarded!"
+
+        RedCoats ->
+            pick lang "Punitakit kimppuun!" "RedCoats boarded!"
+
+
+{-| A cannon ball sank a faction patrol ship.
+-}
+factionSunkToast : Faction -> Lang -> String
+factionSunkToast faction lang =
+    case faction of
+        Pirates ->
+            pick lang "Merirosvo upposi!" "Pirate sunk!"
+
+        BlueCoats ->
+            pick lang "Sinitakki upposi!" "BlueCoat sunk!"
+
+        RedCoats ->
+            pick lang "Punitakki upposi!" "RedCoat sunk!"
+
+
 {-| A pirate ship came alongside and boarded the boat.
+Kept for backwards compatibility.
 -}
 piratesBoardedToast : Language -> String
 piratesBoardedToast lang =
-    pick lang "Merirosvot kimppuun!" "Pirates boarded!"
+    factionBoardingToast Pirates lang
 
 
 {-| A cannon ball sank a pirate ship, with the seconds it takes off.
+Kept for backwards compatibility.
 -}
 pirateSunkToast : Language -> Int -> String
 pirateSunkToast lang bonus =
-    pick lang "Merirosvo upposi! −" "Pirate sunk! −" ++ String.fromInt bonus ++ " s"
+    factionSunkToast Pirates lang ++ " −" ++ String.fromInt bonus ++ " s"
+
+
+{-| Alias for pirateSunkToast. Kept for backwards compatibility.
+-}
+piratesSunkToast : Language -> Int -> String
+piratesSunkToast =
+    pirateSunkToast
 
 
 harbourToast : Language -> Int -> Int -> String
@@ -1144,6 +1193,13 @@ allPhrases =
     , ( "mainMenuButton", mainMenuButton )
     , ( "piratesBoardedToast", piratesBoardedToast )
     , ( "pirateSunkToast", \l -> pirateSunkToast l 2 )
+    , ( "piratesSunkToast", \l -> piratesSunkToast l 2 )
+    , ( "factionBoardingToast Pirates", factionBoardingToast Pirates )
+    , ( "factionBoardingToast BlueCoats", factionBoardingToast BlueCoats )
+    , ( "factionBoardingToast RedCoats", factionBoardingToast RedCoats )
+    , ( "factionSunkToast Pirates", factionSunkToast Pirates )
+    , ( "factionSunkToast BlueCoats", factionSunkToast BlueCoats )
+    , ( "factionSunkToast RedCoats", factionSunkToast RedCoats )
     , ( "finalTimeLabel", finalTimeLabel )
     , ( "sailingStat", sailingStat )
     , ( "hitsStat", hitsStat )

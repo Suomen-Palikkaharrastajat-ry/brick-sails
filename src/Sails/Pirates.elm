@@ -10,45 +10,47 @@ module Sails.Pirates exposing
     , patrolRoutes
     , reach
     , reloadSeconds
+    , sailTint
     , shipName
+    , shipNameFor
     , shipSlot
     , stateAt
     )
 
-{-| Pirate ships: black-sailed schooners that patrol the course.
+{-| Pirate and patrol ships: three faction NPC vessels that patrol the course.
 
-Each pirate sails round and round a small circle centred on the middle of
-one leg between two harbours, so it crosses the route twice a lap and the
-player meets it on the way. Which legs, where on the circle each starts,
-which way round and how fast all come from a seed (the race's own seed:
-the course and run, or the room), and its position is a function of time
-alone, so the same seed always gives the same pirates in the same places.
+Each ship sails round and round a small circle centred on the middle of one leg
+between two harbours, so it crosses the route twice a lap and the player meets
+it on the way. Each faction (Pirates, BlueCoats, RedCoats) has a patrol ship
+assigned to the leg closest to its island, with faction-specific sail tints and
+vessel models. Where on the circle each starts, which way round and how fast all
+come from a seed.
 
   - A circle is only used when it keeps `harbourClearance` metres clear of
     every harbour's mooring circle and the start, clear of the islands, and
-    a few metres off the floating targets: a pirate never sits on a harbour,
+    a few metres off the floating targets: a patrol ship never sits on a harbour,
     so the course can always be finished.
-  - A pirate is a ship of its own size: the boat cannot sail through it, and
+  - A patrol ship is a ship of its own size: the boat cannot sail through it, and
     bumps off it as it does off an island (`collisionRadius`).
-  - A pirate the boat comes within `boardingRange` of boards it: the hull
-    takes one cannon hit's damage, then no pirate can board again for
+  - A patrol ship the boat comes within `boardingRange` of boards it: the hull
+    takes one cannon hit's damage, then no ship can board again for
     `boardingCooldown` seconds.
-  - Pirates shoot back. A pirate within `reach` of the boat fires a ball at
+  - Patrol ships shoot back. A ship within `reach` of the boat fires a ball at
     it every `reloadSeconds`; a ball that hits takes one cannon hit's damage.
-  - A cannon ball that hits a pirate sinks it for the rest of the run, and
+  - A cannon ball that hits a patrol ship sinks it for the rest of the run, and
     counts as a target hit (the same time bonus).
 
 -}
 
-import Math.Vector3 as Vec3 exposing (vec3)
+import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Physics as Physics
-import Sails.Types exposing (Course, SailingState)
+import Sails.Types exposing (Course, Faction(..), SailingState)
 
 
 {-| A pirate's patrol: its id, the centre and radius of its circle, the
 seconds a lap takes, where on the circle it is at time 0 (a share of a
-lap) and which way round it sails (1 clockwise seen from above, -1 the
-other way).
+lap), which way round it sails (1 clockwise seen from above, -1 the other
+way) and its faction.
 -}
 type alias Pirate =
     { id : Int
@@ -58,6 +60,7 @@ type alias Pirate =
     , lapSeconds : Float
     , phase : Float
     , direction : Float
+    , faction : Faction
     }
 
 
@@ -92,11 +95,48 @@ reloadSeconds pirate =
     4.5 + 0.8 * toFloat (modBy 3 pirate.id)
 
 
-{-| The built-in boat a pirate is drawn as (with black sails).
+{-| The built-in boat a pirate is drawn as (with black sails). Kept for
+backwards compatibility; use `shipNameFor` for faction-specific vessels.
 -}
 shipName : String
 shipName =
     "Schooner"
+
+
+{-| Sail color tint for each faction's patrol vessel:
+
+  - Pirates: deep black/charcoal
+  - BlueCoats: imperial blue
+  - RedCoats: royal crimson red
+
+-}
+sailTint : Pirate -> Vec3
+sailTint pirate =
+    case pirate.faction of
+        Pirates ->
+            vec3 0.08 0.08 0.1
+
+        BlueCoats ->
+            vec3 0.12 0.38 0.85
+
+        RedCoats ->
+            vec3 0.82 0.16 0.12
+
+
+{-| Vessel type for each faction: Pirates and RedCoats sail schooners, while
+BlueCoats patrol in nimble cutters.
+-}
+shipNameFor : Pirate -> String
+shipNameFor pirate =
+    case pirate.faction of
+        Pirates ->
+            "Schooner"
+
+        BlueCoats ->
+            "Cutter"
+
+        RedCoats ->
+            "Schooner"
 
 
 {-| Metres a pirate's patrol keeps clear of every harbour's mooring circle.
@@ -140,8 +180,62 @@ isPirateSlot slot =
     slot >= shipSlot 0
 
 
+{-| Assigns a patrol coordinate to the nearest faction's stronghold island:
+
+  - Smuggler's Reach (North) -> Pirates
+  - Governor's Anchorage (South-West) -> BlueCoats
+  - Port Royal Brick (East) -> RedCoats
+
+-}
+closestFaction : Float -> Float -> Course -> Faction
+closestFaction x z course =
+    let
+        islandPos f defaultX defaultZ =
+            course.towns
+                |> List.filterMap
+                    (\t ->
+                        if t.faction == Just f then
+                            Just ( t.island.x, t.island.z )
+
+                        else
+                            Nothing
+                    )
+                |> List.head
+                |> Maybe.withDefault ( defaultX, defaultZ )
+
+        ( sx, sz ) =
+            islandPos Pirates 40 330
+
+        ( ax, az ) =
+            islandPos BlueCoats -170 230
+
+        ( hx, hz ) =
+            islandPos RedCoats 150 90
+
+        dist2 ix iz =
+            (x - ix) ^ 2 + (z - iz) ^ 2
+
+        dS =
+            dist2 sx sz
+
+        dA =
+            dist2 ax az
+
+        dH =
+            dist2 hx hz
+    in
+    if dS <= dA && dS <= dH then
+        Pirates
+
+    else if dA <= dH then
+        BlueCoats
+
+    else
+        RedCoats
+
+
 {-| Every patrol circle the course has room for, one per leg between
-harbours (no lap timing yet: id, centre and radius only), in course order.
+harbours (no lap timing yet: id, centre, radius and faction only), in course order.
 -}
 patrolRoutes : Course -> List Pirate
 patrolRoutes course =
@@ -165,6 +259,7 @@ patrolRoutes course =
             , lapSeconds = 12
             , phase = 0
             , direction = 1
+            , faction = closestFaction mid.x mid.z course
             }
     in
     List.indexedMap route legs
@@ -200,8 +295,9 @@ isClear course p =
         && List.all (.position >> offTarget) course.targets
 
 
-{-| The pirates of a race with this seed: `fleetSize` of the course's
-patrol routes, each with its own start, way round and lap time.
+{-| The patrol fleet of a race with this seed: 3 ships, one for each
+faction (Pirates, BlueCoats, RedCoats), each guarding the patrol route
+closest to its stronghold island.
 -}
 fleet : Int -> Course -> List Pirate
 fleet seed course =
@@ -209,50 +305,64 @@ fleet seed course =
         routes =
             patrolRoutes course
 
-        pick ( chosen, available, s ) =
-            if List.length chosen >= fleetSize || List.isEmpty available then
-                ( chosen, available, s )
+        factions =
+            [ Pirates, BlueCoats, RedCoats ]
+
+        pickFaction f ( chosen, available, s ) =
+            let
+                ( r, s1 ) =
+                    random s
+
+                ( phase, s2 ) =
+                    random s1
+
+                ( way, s3 ) =
+                    random s2
+
+                ( pace, s4 ) =
+                    random s3
+
+                matching =
+                    List.filter (\route -> route.faction == f) available
+
+                candidates =
+                    if List.isEmpty matching then
+                        available
+
+                    else
+                        matching
+            in
+            if List.isEmpty candidates then
+                ( chosen, available, s4 )
 
             else
                 let
-                    ( r, s1 ) =
-                        random s
-
                     i =
-                        min (List.length available - 1) (floor (r * toFloat (List.length available)))
-
-                    ( phase, s2 ) =
-                        random s1
-
-                    ( way, s3 ) =
-                        random s2
-
-                    ( pace, s4 ) =
-                        random s3
+                        min (List.length candidates - 1) (floor (r * toFloat (List.length candidates)))
                 in
-                case List.drop i available of
+                case List.drop i candidates of
                     route :: _ ->
-                        pick
-                            ( { route
-                                | phase = phase
-                                , direction =
-                                    if way < 0.5 then
-                                        1
+                        ( { route
+                            | faction = f
+                            , phase = phase
+                            , direction =
+                                if way < 0.5 then
+                                    1
 
-                                    else
-                                        -1
-                                , lapSeconds = 11 + 3 * pace
-                              }
-                                :: chosen
-                            , List.take i available ++ List.drop (i + 1) available
-                            , s4
-                            )
+                                else
+                                    -1
+                            , lapSeconds = 11 + 3 * pace
+                          }
+                            :: chosen
+                        , List.filter (\rt -> rt.id /= route.id) available
+                        , s4
+                        )
 
                     [] ->
                         ( chosen, available, s4 )
 
         ( picked, _, _ ) =
-            pick ( [], routes, clamp 1 (modulus - 1) seed )
+            List.foldl pickFaction ( [], routes, clamp 1 (modulus - 1) seed ) factions
     in
     List.sortBy .id picked
 

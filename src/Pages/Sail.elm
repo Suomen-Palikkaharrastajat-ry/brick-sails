@@ -811,11 +811,18 @@ tick dt model =
         sunkNow =
             List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
 
+        boardingPirate =
+            if racing && model.pirateCooldown <= 0 then
+                piratesNow
+                    |> List.filter (\( _, ps ) -> horizontal state.position ps.position <= Pirates.boardingRange)
+                    |> List.map Tuple.first
+                    |> List.head
+
+            else
+                Nothing
+
         boarding =
-            racing
-                && model.pirateCooldown
-                <= 0
-                && List.any (\( _, ps ) -> horizontal state.position ps.position <= Pirates.boardingRange) piratesNow
+            boardingPirate /= Nothing
 
         countedHits =
             if model.progress.finished then
@@ -871,17 +878,26 @@ tick dt model =
             if justWrecked then
                 Just ( T.shipwrecked model.language, 2.0 )
 
-            else if boarding then
-                Just ( T.piratesBoardedToast model.language, 1.4 )
-
-            else if not (List.isEmpty sunkNow) then
-                Just ( T.pirateSunkToast model.language (round (Physics.bonusPerHit * toFloat (List.length sunkNow))), 1.4 )
-
-            else if knocked then
-                Just ( T.hullDamagedToast model.language (Hull.percent hull), 1.2 )
-
             else
-                Nothing
+                case boardingPirate of
+                    Just pirate ->
+                        Just ( T.factionBoardingToast pirate.faction model.language, 1.4 )
+
+                    Nothing ->
+                        case sunkNow of
+                            ( sunkPirate, _ ) :: _ ->
+                                let
+                                    bonus =
+                                        round (Physics.bonusPerHit * toFloat (List.length sunkNow))
+                                in
+                                Just ( T.factionSunkToast sunkPirate.faction model.language ++ " −" ++ String.fromInt bonus ++ " s", 1.4 )
+
+                            [] ->
+                                if knocked then
+                                    Just ( T.hullDamagedToast model.language (Hull.percent hull), 1.2 )
+
+                                else
+                                    Nothing
 
         toast =
             case List.filterMap identity [ hullToast, goToast, passToast, treasureToast, hitToast ] of
@@ -1232,10 +1248,10 @@ remoteBoat remoteShip p =
 {-| A pirate ship as drawn: the pirates' boat with black sails.
 -}
 pirateBoat : (String -> Maybe ShipMesh) -> ( Pirate, SailingState ) -> RenderBoat
-pirateBoat meshFor ( _, state ) =
-    { mesh = meshFor Pirates.shipName
+pirateBoat meshFor ( pirate, state ) =
+    { mesh = meshFor (Pirates.shipNameFor pirate)
     , state = state
-    , sailTint = Just (vec3 0.08 0.08 0.1)
+    , sailTint = Just (Pirates.sailTint pirate)
     }
 
 
