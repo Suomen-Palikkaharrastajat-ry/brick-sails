@@ -1321,7 +1321,7 @@ hullsView model =
                 , div [ Attr.style "min-width" "0" ]
                     [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px", Attr.style "line-height" "1.2" ] [ text (baseName lang base) ]
                     , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
-                        [ text (String.fromInt base.partCount ++ tr lang " parts · bow, deck and keel" " osaa · keula, kansi ja köli") ]
+                        [ text (String.fromInt base.partCount ++ tr lang " parts · bow, deck and hull" " osaa · keula, kansi ja runko") ]
                     ]
                 ]
     in

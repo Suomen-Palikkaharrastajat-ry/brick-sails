@@ -3,10 +3,10 @@
 0 Name: Long Cruiser Hull
 0 Author: Brick Family starter bases
 0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
-0 // Description: Sleek 2 x 8 stud micro clipper with wing-plate bow cutwater, long deck and keel.
-0 // Parts: 8 (all inside the grouped submodel long-cruiser-base.ldr)
+0 // Description: Sleek 2 x 8 stud micro clipper with wing-plate bow cutwater and long deck.
+0 // Parts: 7 (all inside the grouped submodel long-cruiser-base.ldr)
 0 // Hull only: no mast or sail (add them in the editor)
-0 // Bounds LDU: x -20..20, y -12..72, z -80..80 (size 40 x 84 x 160)
+0 // Bounds LDU: x -20..20, y -12..48, z -80..80 (size 40 x 60 x 160)
 0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
 1 16 0 0 0 1 0 0 0 1 0 0 0 1 long-cruiser-base.ldr
 0 NOFILE
@@ -24,6 +24,4 @@
 0 // Lower hull (y 24..48): 2x4 brick tie and inverted slope stern
 1 70 0 24 -20 0 0 1 0 1 0 -1 0 0 3001.dat
 1 70 0 24 50 -1 0 0 0 1 0 0 0 -1 3660b.dat
-0 // Deep fin keel (y 48..72)
-1 0 0 48 -20 0 0 1 0 1 0 -1 0 0 3001.dat
 0 NOFILE

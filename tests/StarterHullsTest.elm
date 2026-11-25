@@ -9,7 +9,7 @@ module StarterHullsTest exposing (suite)
     enough hull to float) and `Sails.Analyze` only notes the missing sail,
   - Brick Studio's `Studio.Health` finds no misaligned or overlapping parts,
     and every part is joined to the rest of the hull by studs,
-  - the hull has a keel below the waterline and a flat deck of plates on top.
+  - the hull has a flat bottom and a flat deck of plates on top.
 
 -}
 
@@ -84,14 +84,14 @@ starterTest starter =
 
                     Err err ->
                         Expect.fail err
-        , test "has a keel below the hull and a plate deck on top" <|
+        , test "has a flat bottom below the hull and a plate deck on top" <|
             \_ ->
                 let
                     ys =
                         List.map (\p -> Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0))) flat
                 in
                 Expect.all
-                    [ \_ -> Expect.atLeast 48 (List.maximum ys |> Maybe.withDefault 0)
+                    [ \_ -> Expect.atMost 24 (List.maximum ys |> Maybe.withDefault 0)
                     , \_ -> Expect.equal (Just -8) (List.filter (\p -> Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0)) < 0) flat |> List.map (\p -> Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0))) |> List.maximum)
                     ]
                     ()

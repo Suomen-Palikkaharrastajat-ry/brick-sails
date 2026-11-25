@@ -20,7 +20,7 @@ the check that keeps the hull in one piece.
 
 A ship starts from one of the starter hulls in `starters/sails/`
 (`Sails.StarterBases`). Each is an `.mpd` whose main model holds a single
-reference to the hull submodel (bow, deck and keel), so `Studio.Core` selects
+reference to the hull submodel (bow, deck and bottom), so `Studio.Core` selects
 and moves the whole hull as one piece. The editor never ungroups it:
 `baseIntact` is checked after every edit and an edit that breaks the hull
 (ungroup, delete, cut, duplicate, regroup) is dropped. The game flattens the

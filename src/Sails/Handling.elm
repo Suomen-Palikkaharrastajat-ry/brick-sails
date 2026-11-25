@@ -73,11 +73,11 @@ reference :
     }
 reference =
     { handling = { topSpeed = 9.0, turnRate = 95.0, acceleration = 1.3 }
-    , sailAreaDisplacementRatio = 6.99
+    , sailAreaDisplacementRatio = 6.89
     , hullSpeedKnots = 7.04
-    , mass = 3458
+    , mass = 3277.8
     , lengthMeters = 8.4
-    , reserveBuoyancy = 3.01
+    , reserveBuoyancy = 3.18
     }
 
 

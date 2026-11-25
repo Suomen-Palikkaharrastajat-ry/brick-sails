@@ -3,10 +3,10 @@
 0 Name: Narrow Racing Hull
 0 Author: Brick Family starter bases
 0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
-0 // Description: Micro 2 x 6 stud racing sloop with inverted slope bow, flat plate deck and fin keel.
-0 // Parts: 6 (all inside the grouped submodel narrow-racer-base.ldr)
+0 // Description: Micro 2 x 6 stud racing sloop with inverted slope bow and flat plate deck.
+0 // Parts: 5 (all inside the grouped submodel narrow-racer-base.ldr)
 0 // Hull only: no mast or sail (add them in the editor)
-0 // Bounds LDU: x -20..20, y -12..72, z -70..50 (size 40 x 84 x 120)
+0 // Bounds LDU: x -20..20, y -12..48, z -70..50 (size 40 x 60 x 120)
 0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
 1 16 0 0 0 1 0 0 0 1 0 0 0 1 narrow-racer-base.ldr
 0 NOFILE
@@ -22,6 +22,4 @@
 0 // Lower hull (y 24..48): 2x2 brick tie and raked transom inverted slope
 1 70 0 24 -30 1 0 0 0 1 0 0 0 1 3003.dat
 1 70 0 24 20 -1 0 0 0 1 0 0 0 -1 3660b.dat
-0 // Weighted fin keel (y 48..72)
-1 0 0 48 -30 1 0 0 0 1 0 0 0 1 3003.dat
 0 NOFILE

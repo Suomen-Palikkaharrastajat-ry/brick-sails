@@ -115,9 +115,10 @@ catamaran =
 
 -- MODELS
 --
--- Layout of every hull: a 4-stud-wide body of 2 x 4 bricks with an inverted
--- 2 x 2 slope bow, a 2-wide keel underneath, a mast of 1 x 1 x 6 round bricks
--- on a 2 x 2 jumper plate, and sails stacked from 1 x N bricks.
+-- Layout of every hull: a flat-bottom body of 2 x 4 bricks with an inverted
+-- 2 x 2 slope bow, a mast of 1 x 1 x 6 round bricks on a 2 x 2 jumper plate,
+-- and sails stacked from 1 x N bricks. Every boat sits stable and upright on a
+-- flat surface for real-life LEGO play.
 
 
 {-| LDraw source of the sloop.
@@ -139,11 +140,6 @@ sloopLdr =
         , "1 70 20 0 40 0 0 1 0 1 0 -1 0 0 3001.dat"
         , "1 70 20 0 80 0 0 1 0 1 0 -1 0 0 3003.dat"
         , "1 70 20 0 -110 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "0 // Keel"
-        , "1 70 0 24 -40 0 0 1 0 1 0 -1 0 0 3001.dat"
-        , "1 70 0 24 20 0 0 1 0 1 0 -1 0 0 3003.dat"
-        , "1 70 0 24 -90 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "1 70 0 24 50 -1 0 0 0 1 0 0 0 -1 3660b.dat"
         , "0 // Cabin"
         , "1 19 0 -24 60 1 0 0 0 1 0 0 0 1 3003.dat"
         , "1 70 0 -32 60 1 0 0 0 1 0 0 0 1 3068b.dat"
@@ -192,10 +188,6 @@ cutterLdr =
         , "1 1 20 0 -40 0 0 1 0 1 0 -1 0 0 3001.dat"
         , "1 1 20 0 40 0 0 1 0 1 0 -1 0 0 3001.dat"
         , "1 1 20 0 -90 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "0 // Keel"
-        , "1 1 0 24 -20 0 0 1 0 1 0 -1 0 0 3001.dat"
-        , "1 1 0 24 -70 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "1 1 0 24 30 -1 0 0 0 1 0 0 0 -1 3660b.dat"
         , "0 // Cabin and bowsprit"
         , "1 15 0 -24 50 1 0 0 0 1 0 0 0 1 3003.dat"
         , "1 1 0 -32 50 1 0 0 0 1 0 0 0 1 3068b.dat"
@@ -246,12 +238,6 @@ schoonerLdr =
         , "1 72 20 0 0 0 0 1 0 1 0 -1 0 0 3001.dat"
         , "1 72 20 0 80 0 0 1 0 1 0 -1 0 0 3001.dat"
         , "1 72 20 0 -130 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "0 // Keel"
-        , "1 72 0 24 -60 0 0 1 0 1 0 -1 0 0 3001.dat"
-        , "1 72 0 24 20 0 0 1 0 1 0 -1 0 0 3001.dat"
-        , "1 72 0 24 70 1 0 0 0 1 0 0 0 1 3004.dat"
-        , "1 72 0 24 -110 1 0 0 0 1 0 0 0 1 3660b.dat"
-        , "1 72 0 24 90 -1 0 0 0 1 0 0 0 -1 3660b.dat"
         , "0 // Deckhouse"
         , "1 19 0 -24 -10 1 0 0 0 1 0 0 0 1 3003.dat"
         , "1 72 0 -32 -10 1 0 0 0 1 0 0 0 1 3068b.dat"
