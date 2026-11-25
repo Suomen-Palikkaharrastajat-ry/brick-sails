@@ -3,8 +3,11 @@ module Pages.Results exposing
     , viewResults
     )
 
-{-| Finish screen: star rating, time with the target bonus, personal best,
-and a big "Sail again" button.
+{-| The end of a voyage, as Brick Racer's finish celebration in Brick Sails'
+own look: while bricks burst over the boat (`Sails.Ending`), a card rises
+with a bobbing boat, "Land ho!", the stars popping in one by one, the
+headline, the final time with its sailing time, hits and treasure, the new
+record badge, and two ways on: sail again, or back to the main menu.
 -}
 
 import FeatherIcons
@@ -13,6 +16,7 @@ import Html exposing (Html, button, div, h1, p, span, text)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick)
 import I18n exposing (Language)
+import Sails.Ending as Ending exposing (Ending)
 import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, CourseProgress, LeaderboardEntry)
@@ -20,7 +24,7 @@ import Sails.Types exposing (Course, CourseProgress, LeaderboardEntry)
 
 type alias ResultsActions msg =
     { onSailAgain : msg
-    , onReturnToShipyard : msg
+    , onBackToMenu : msg
     }
 
 
@@ -29,102 +33,137 @@ viewResults :
     , progress : CourseProgress
     , boatName : String
     , personalBest : Maybe LeaderboardEntry
+    , ending : Ending
     , language : Language
     , actions : ResultsActions msg
     }
     -> Html msg
-viewResults { course, progress, boatName, personalBest, language, actions } =
+viewResults { course, progress, boatName, personalBest, ending, language, actions } =
     let
-        score =
-            Physics.finalTime progress
+        t =
+            ending.timer
 
-        stars =
-            Physics.starRating course.targetSeconds score
+        -- The card rises and fades in over the first 0.4 s.
+        rise =
+            clamp 0 1 (t / 0.4)
 
-        isNewRecord =
-            case personalBest of
-                Just pb ->
-                    score < pb.timeSeconds
-
-                Nothing ->
-                    True
+        shown =
+            Ending.starsShown ending
 
         star i =
+            let
+                -- Each star pops: it grows past full size, then settles.
+                age =
+                    t - (0.4 + 0.35 * toFloat (i - 1))
+
+                scale =
+                    if i > shown then
+                        1
+
+                    else if age < 0.15 then
+                        0.4 + 0.6 * (age / 0.15) * 1.3
+
+                    else
+                        1 + 0.3 * max 0 (1 - (age - 0.15) / 0.2)
+            in
             span
                 [ Attr.class
-                    (if i <= stars then
+                    (if i <= shown then
                         "text-brand-yellow drop-shadow-[0_2px_6px_rgba(250,200,10,0.6)]"
 
                      else
                         "text-slate-700"
                     )
+                , Attr.style "display" "inline-block"
+                , Attr.style "transform" ("scale(" ++ String.fromFloat scale ++ ")")
+                , Attr.attribute "data-star"
+                    (if i <= shown then
+                        "on"
+
+                     else
+                        "off"
+                    )
                 ]
                 [ FeatherIcons.star |> FeatherIcons.withSize 44 |> FeatherIcons.toHtml [ Attr.attribute "fill" "currentColor" ] ]
 
-        headline =
-            T.headline language stars
-
         nextGoal =
-            if stars < 3 then
+            if ending.stars < 3 then
                 T.nextGoal language (Leaderboard.formatRaceTime course.targetSeconds)
 
             else
                 ""
-    in
-    div [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-3 bg-brand/80 backdrop-blur-sm select-none overflow-y-auto" ]
-        [ div [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-brand border border-white/10 rounded-3xl p-4 sm:p-5 shadow-2xl text-white flex flex-col landscape:flex-row items-center text-center gap-3 landscape:gap-5" ]
-            [ div [ Attr.class "flex flex-col items-center gap-1" ]
-                [ div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language stars) ] (List.map star [ 1, 2, 3 ])
-                , h1 [ Attr.class "text-2xl font-black uppercase tracking-wider text-brand-yellow whitespace-nowrap" ] [ text headline ]
-                , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.courseTitle language course.title ++ " · " ++ T.boatName language boatName) ]
+
+        statCard icon label value =
+            div [ Attr.class "flex-1 min-w-[84px] flex flex-col items-center gap-0.5 px-2 py-2 rounded-xl bg-white/5 border border-white/10" ]
+                [ span [ Attr.class "text-lg leading-none" ] [ text icon ]
+                , span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text label ]
+                , span [ Attr.class "font-mono text-sm font-black text-white" ] [ text value ]
                 ]
-            , div [ Attr.class "w-full flex flex-col gap-3" ]
-                [ div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center" ]
-                    [ span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider" ] [ text (Leaderboard.formatRaceTime score) ]
-                    , span [ Attr.class "text-xs text-slate-400" ]
-                        [ text
-                            (T.resultBreakdown language
-                                { sailing = Leaderboard.formatRaceTime progress.elapsedSeconds
-                                , hitBonus = round (Physics.bonusPerHit * toFloat progress.targetsHit)
-                                , hits = progress.targetsHit
-                                , treasureBonus =
-                                    if List.isEmpty progress.treasureFound then
-                                        Nothing
 
-                                    else
-                                        Just (round progress.treasureBonus)
-                                }
-                            )
-                        ]
-                    , if isNewRecord then
-                        span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-brand-yellow/20 text-brand-yellow text-xs font-bold uppercase border border-brand-yellow/30" ]
-                            [ text (T.newPersonalBest language) ]
-
-                      else
-                        span [ Attr.class "mt-1 text-xs text-slate-400" ]
-                            [ text (T.personalBestShort language (personalBest |> Maybe.map (.timeSeconds >> Leaderboard.formatRaceTime) |> Maybe.withDefault "")) ]
-                    , if String.isEmpty nextGoal then
-                        text ""
-
-                      else
-                        span [ Attr.class "text-[11px] text-slate-500" ] [ text nextGoal ]
+        hitBonus =
+            round (Physics.bonusPerHit * toFloat progress.targetsHit)
+    in
+    div
+        [ Attr.class "fixed inset-0 z-30 flex items-center justify-center p-3 bg-brand/70 backdrop-blur-sm select-none overflow-y-auto"
+        , Attr.attribute "data-testid" "ending"
+        , Attr.attribute "role" "dialog"
+        , Attr.attribute "aria-label" (T.finishToast language)
+        ]
+        [ div
+            [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-brand border-2 border-brand-yellow/60 rounded-3xl p-4 sm:p-5 shadow-2xl shadow-brand-yellow/20 text-white flex flex-col items-center text-center gap-3"
+            , Attr.style "opacity" (String.fromFloat rise)
+            , Attr.style "transform" ("translateY(" ++ String.fromFloat (24 * (1 - rise)) ++ "px)")
+            ]
+            [ div
+                [ Attr.class "text-5xl leading-none drop-shadow-[0_4px_12px_rgba(250,200,10,0.5)]"
+                , Attr.style "transform" ("translateY(" ++ String.fromFloat (4 * sin (t * 3)) ++ "px) rotate(" ++ String.fromFloat (6 * sin (t * 2)) ++ "deg)")
+                , Attr.attribute "aria-hidden" "true"
+                ]
+                [ text "⛵" ]
+            , h1 [ Attr.class "text-3xl font-black uppercase tracking-wider text-brand-yellow" ] [ text (T.finishToast language) ]
+            , div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language ending.stars) ] (List.map star [ 1, 2, 3 ])
+            , p [ Attr.class "text-lg font-extrabold text-white" ] [ text (T.headline language ending.stars) ]
+            , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.courseTitle language course.title ++ " · " ++ T.boatName language boatName) ]
+            , div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center gap-2" ]
+                [ span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
+                , span [ Attr.class "font-mono text-4xl font-black text-sky-300 tracking-wider", Attr.attribute "data-testid" "ending-time" ] [ text (Leaderboard.formatRaceTime ending.score) ]
+                , div [ Attr.class "w-full flex flex-wrap gap-2" ]
+                    [ statCard "🧭" (T.sailingStat language) (Leaderboard.formatRaceTime progress.elapsedSeconds)
+                    , statCard "🎯" (T.hitsStat language) (String.fromInt progress.targetsHit ++ " (−" ++ String.fromInt hitBonus ++ " s)")
+                    , statCard "💰" (T.treasureStat language) (String.fromInt (List.length progress.treasureFound) ++ " (−" ++ String.fromInt (round progress.treasureBonus) ++ " s)")
                     ]
-                , div [ Attr.class "flex gap-2 w-full" ]
-                    [ button
-                        [ onClick actions.onSailAgain
-                        , Attr.attribute "data-retry" ""
-                        , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-sm uppercase tracking-wider shadow-lg shadow-brand-yellow/25 flex items-center justify-center gap-2"
-                        ]
-                        [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
-                        , text (T.sailAgain language)
-                        ]
-                    , button
-                        [ onClick actions.onReturnToShipyard
-                        , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
-                        ]
-                        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                        , text (T.boatsButton language)
-                        ]
+                , if ending.isNewRecord then
+                    span [ Attr.class "mt-1 px-3 py-0.5 rounded-full bg-brand-yellow/20 text-brand-yellow text-xs font-bold uppercase border border-brand-yellow/30 animate-pulse" ]
+                        [ text ("🏆 " ++ T.newPersonalBest language) ]
+
+                  else
+                    span [ Attr.class "mt-1 text-xs text-slate-400" ]
+                        [ text (T.personalBestShort language (personalBest |> Maybe.map (.timeSeconds >> Leaderboard.formatRaceTime) |> Maybe.withDefault "")) ]
+                , if String.isEmpty nextGoal then
+                    text ""
+
+                  else
+                    span [ Attr.class "text-[11px] text-slate-500" ] [ text nextGoal ]
+                ]
+            , div [ Attr.class "flex gap-2 w-full" ]
+                [ button
+                    [ Attr.type_ "button"
+                    , onClick actions.onSailAgain
+                    , Attr.attribute "data-retry" ""
+                    , Attr.attribute "data-testid" "ending-sail-again"
+                    , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-sm uppercase tracking-wider shadow-lg shadow-brand-yellow/25 flex items-center justify-center gap-2"
+                    ]
+                    [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
+                    , text (T.sailAgain language)
+                    ]
+                , button
+                    [ Attr.type_ "button"
+                    , onClick actions.onBackToMenu
+                    , Attr.attribute "data-testid" "ending-menu"
+                    , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
+                    ]
+                    [ FeatherIcons.home |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                    , text (T.mainMenuButton language)
                     ]
                 ]
             ]

@@ -64,7 +64,6 @@ import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
-import Studio.HashPayload as HashPayload
 
 
 type alias Flags =
@@ -95,7 +94,6 @@ type alias Model =
     , props : Render.Props
     , customShip : Maybe Boat
     , remoteShips : Dict String RemoteShip
-    , pasteText : String
     , loadError : Maybe String
     , boat : Boat
     , course : Course
@@ -117,8 +115,7 @@ type alias Model =
 
 
 type Msg
-    = SelectBoat String
-    | StartSailing
+    = StartSailing
     | StartHostMultiplayer Multiplayer.SessionMode
     | JoinMultiplayer String
     | RoomCodeChanged String
@@ -132,13 +129,7 @@ type Msg
     | ViewportResized { width : Int, height : Int }
     | SailMessage Sail.SailMsg
     | PartFetched String (Result Http.Error String)
-    | PasteChanged String
-    | LoadPasted
-    | OpenFile
-    | FileContentReceived String
-    | FileLoadError String
     | HashChanged String
-    | ToggleLanguage
     | StartBuild String
     | EditShip
     | BuildMsg Build.Msg
@@ -168,7 +159,6 @@ init flags =
             , props = Dict.empty
             , customShip = Nothing
             , remoteShips = Dict.empty
-            , pasteText = ""
             , loadError = Nothing
             , boat = Boats.default
             , course = Physics.defaultCourse
@@ -225,47 +215,8 @@ silenceAudio =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SelectBoat name ->
-            case model.customShip of
-                Just ship ->
-                    if name == ship.name then
-                        ( { model | boat = ship }, Cmd.none )
-
-                    else
-                        ( { model | boat = Boats.byName name }, Cmd.none )
-
-                Nothing ->
-                    ( { model | boat = Boats.byName name }, Cmd.none )
-
         PartFetched name result ->
             requestParts { model | partCache = Resolve.updateCache name result Parser.parseFile model.partCache }
-
-        PasteChanged text ->
-            ( { model | pasteText = text }, Cmd.none )
-
-        LoadPasted ->
-            let
-                ( next, cmd ) =
-                    loadShip Nothing model.pasteText model
-            in
-            case ( next.loadError, HashPayload.parseDirectBase64 model.pasteText ) of
-                ( Nothing, Just b64 ) ->
-                    ( { next | pasteText = "" }, Cmd.batch [ cmd, GamePorts.setUrlHash ("#b/" ++ b64) ] )
-
-                ( Nothing, Nothing ) ->
-                    ( { next | pasteText = "" }, cmd )
-
-                _ ->
-                    ( next, cmd )
-
-        OpenFile ->
-            ( model, GamePorts.requestFileUpload () )
-
-        FileContentReceived text ->
-            loadShip Nothing text model
-
-        FileLoadError err ->
-            ( { model | loadError = Just ("Could not open that file: " ++ err) }, Cmd.none )
 
         HashChanged hash ->
             if Ingest.hasShipPayload hash && model.viewMode == ViewShipyard then
@@ -365,20 +316,6 @@ update msg model =
         ReturnToShipyard ->
             ( { model | viewMode = ViewShipyard, sailModel = Nothing }
             , Cmd.batch [ GamePorts.leaveMultiplayerRoom (), silenceAudio ]
-            )
-
-        ToggleLanguage ->
-            let
-                next =
-                    case model.language of
-                        Fi ->
-                            En
-
-                        En ->
-                            Fi
-            in
-            ( { model | language = next }
-            , GamePorts.storeLanguage (SailsI18n.toCode next)
             )
 
         ToggleMute ->
@@ -790,8 +727,6 @@ subscriptions model =
         , GamePorts.multiplayerError MultiplayerError
         , GamePorts.multiplayerVehicleLoaded MultiplayerVehicleLoaded
         , GamePorts.tiltStatus TiltStatusChanged
-        , GamePorts.fileContentReceived FileContentReceived
-        , GamePorts.fileLoadError FileLoadError
         , GamePorts.hashChanged HashChanged
         , case ( model.builder, model.viewMode, model.sailModel ) of
             ( Just build, _, _ ) ->
@@ -827,8 +762,6 @@ view model =
                 { boat = model.boat
                 , mesh = Dict.get model.boat.name model.meshes
                 , loading = loadingOf model model.boat
-                , customShip = model.customShip
-                , pasteText = model.pasteText
                 , loadError = model.loadError
                 , course = model.course
                 , personalBest = personalBest model
@@ -842,16 +775,11 @@ view model =
                 , hulls = List.map (\b -> { id = b.id, name = shortHullName model.language b }) Editor.bases
                 , canEditShip = editableShip model /= Nothing
                 , actions =
-                    { onSelectBoat = SelectBoat
-                    , onStartSailing = StartSailing
+                    { onStartSailing = StartSailing
                     , onStartHostMultiplayer = StartHostMultiplayer
                     , onJoinMultiplayer = JoinMultiplayer
                     , onRoomCodeChanged = RoomCodeChanged
                     , onToggleMute = ToggleMute
-                    , onPasteChanged = PasteChanged
-                    , onLoadPasted = LoadPasted
-                    , onOpenFile = OpenFile
-                    , onToggleLanguage = ToggleLanguage
                     , onStartBuild = StartBuild
                     , onEditShip = EditShip
                     }

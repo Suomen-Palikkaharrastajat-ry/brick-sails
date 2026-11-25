@@ -5,13 +5,7 @@ module Sails.I18n exposing
     , bestLine
     , boatDescription
     , boatName
-    , boatsButton
-    , boatsHeading
-    , buildLinkLabel
-    , buildLinkPlaceholder
-    , buildOnHullTitle
     , buildOwnShip
-    , buildShipHeading
     , controlsHint
     , copyLink
     , copyRoomLink
@@ -20,6 +14,7 @@ module Sails.I18n exposing
     , crewHeading
     , editShipButton
     , exitRace
+    , finalTimeLabel
     , finishToast
     , finishedBadge
     , fireButton
@@ -38,6 +33,7 @@ module Sails.I18n exposing
     , heelLabel
     , heelTitle
     , hitToast
+    , hitsStat
     , hostTitle
     , hullDamagedToast
     , hullLabel
@@ -45,18 +41,14 @@ module Sails.I18n exposing
     , joinRace
     , joinRaceDesc
     , joinRaceTitle
-    , languageToggle
-    , languageToggleTitle
-    , loadButton
-    , loadShipHeading
     , loadingBricks
     , loadingShips
+    , mainMenuButton
     , mooringHint
     , muteLabel
     , newPersonalBest
     , nextGoal
     , nextHarbourTitle
-    , openModelFile
     , overpoweredTitle
     , personalBestLine
     , personalBestShort
@@ -65,7 +57,6 @@ module Sails.I18n exposing
     , raceStatus
     , reefWarning
     , restartRace
-    , resultBreakdown
     , roomCodeLabel
     , roomCodePlaceholder
     , roomLabel
@@ -73,6 +64,7 @@ module Sails.I18n exposing
     , sailLevelName
     , sailLevelTitle
     , sailStep
+    , sailingStat
     , setSail
     , shipLoadError
     , shipwrecked
@@ -90,6 +82,7 @@ module Sails.I18n exposing
     , title
     , toCode
     , treasureLabel
+    , treasureStat
     , treasureToast
     , turnLabel
     , twoPlayerHost
@@ -153,18 +146,6 @@ pick lang fi en =
 
         En ->
             en
-
-
-{-| Text of the language switch: the other language's code.
--}
-languageToggle : Language -> String
-languageToggle lang =
-    pick lang "EN" "FI"
-
-
-languageToggleTitle : Language -> String
-languageToggleTitle lang =
-    pick lang "In English" "Suomeksi"
 
 
 
@@ -359,26 +340,6 @@ joinRaceTitle lang =
 joinRace : Language -> String
 joinRace lang =
     pick lang "Liity miehistöön" "Join the crew"
-
-
-buildLinkPlaceholder : Language -> String
-buildLinkPlaceholder lang =
-    pick lang "Liitä laivasi rakennelinkki" "Paste a build link to sail your ship"
-
-
-buildLinkLabel : Language -> String
-buildLinkLabel lang =
-    pick lang "Rakennelinkki" "Build link"
-
-
-loadButton : Language -> String
-loadButton lang =
-    pick lang "Lataa" "Load"
-
-
-openModelFile : Language -> String
-openModelFile lang =
-    pick lang "Avaa mallitiedosto" "Open a model file"
 
 
 {-| A loaded build that could not be used, in the player's language. The
@@ -727,6 +688,41 @@ sailAgain lang =
     pick lang "Uudestaan" "Sail again"
 
 
+{-| The finish screen's button back to the main menu (the shipyard).
+-}
+mainMenuButton : Language -> String
+mainMenuButton lang =
+    pick lang "Valikkoon" "Main menu"
+
+
+{-| Label of the final time on the finish screen.
+-}
+finalTimeLabel : Language -> String
+finalTimeLabel lang =
+    pick lang "Loppuaika" "Final time"
+
+
+{-| Finish screen stat: time spent sailing.
+-}
+sailingStat : Language -> String
+sailingStat lang =
+    pick lang "Purjehdus" "Sailing"
+
+
+{-| Finish screen stat: targets hit.
+-}
+hitsStat : Language -> String
+hitsStat lang =
+    pick lang "Osumat" "Hits"
+
+
+{-| Finish screen stat: treasure found.
+-}
+treasureStat : Language -> String
+treasureStat lang =
+    pick lang "Aarteet" "Treasure"
+
+
 
 -- TOASTS
 
@@ -783,53 +779,6 @@ starsAria lang n =
 nextGoal : Language -> String -> String
 nextGoal lang target =
     pick lang "3 tähteä ajalla " "3 stars at " ++ target
-
-
-{-| How the final time was made: the sailing time, less the target and
-treasure bonuses.
--}
-resultBreakdown : Language -> { sailing : String, hitBonus : Int, hits : Int, treasureBonus : Maybe Int } -> String
-resultBreakdown lang r =
-    let
-        treasure =
-            case r.treasureBonus of
-                Just bonus ->
-                    " − " ++ String.fromInt bonus ++ pick lang " s aarteista" " s treasure"
-
-                Nothing ->
-                    ""
-    in
-    case lang of
-        Fi ->
-            r.sailing
-                ++ " purjehdusta − "
-                ++ String.fromInt r.hitBonus
-                ++ " s osumista ("
-                ++ String.fromInt r.hits
-                ++ ")"
-                ++ treasure
-
-        En ->
-            r.sailing
-                ++ " sailing − "
-                ++ String.fromInt r.hitBonus
-                ++ " s for "
-                ++ String.fromInt r.hits
-                ++ " target"
-                ++ (if r.hits == 1 then
-                        ""
-
-                    else
-                        "s"
-                   )
-                ++ treasure
-
-
-{-| The finish screen's button back to the boat picker.
--}
-boatsButton : Language -> String
-boatsButton lang =
-    pick lang "Veneet" "Boats"
 
 
 newPersonalBest : Language -> String
@@ -930,9 +879,7 @@ check that none is missing (see `tests/LanguageTest.elm`).
 -}
 allPhrases : List ( String, Language -> String )
 allPhrases =
-    [ ( "languageToggle", languageToggle )
-    , ( "languageToggleTitle", languageToggleTitle )
-    , ( "title", title )
+    [ ( "title", title )
     , ( "subtitle", subtitle )
     , ( "courseTitle", \l -> courseTitle l "Island Loop" )
     , ( "boatName Sloop", \l -> boatName l "Sloop" )
@@ -963,10 +910,6 @@ allPhrases =
     , ( "roomCodeLabel", roomCodeLabel )
     , ( "joinRaceTitle", joinRaceTitle )
     , ( "joinRace", joinRace )
-    , ( "buildLinkPlaceholder", buildLinkPlaceholder )
-    , ( "buildLinkLabel", buildLinkLabel )
-    , ( "loadButton", loadButton )
-    , ( "openModelFile", openModelFile )
     , ( "shipLoadError empty", \l -> shipLoadError l "Paste a build link first." )
     , ( "shipLoadError damaged", \l -> shipLoadError l "That build link is damaged and could not be read." )
     , ( "shipLoadError not a link", \l -> shipLoadError l "That is not a build link. Copy the link from the building app." )
@@ -1022,6 +965,11 @@ allPhrases =
     , ( "shipwrecked", shipwrecked )
     , ( "shipwreckedText", shipwreckedText )
     , ( "sailAgain", sailAgain )
+    , ( "mainMenuButton", mainMenuButton )
+    , ( "finalTimeLabel", finalTimeLabel )
+    , ( "sailingStat", sailingStat )
+    , ( "hitsStat", hitsStat )
+    , ( "treasureStat", treasureStat )
     , ( "treasureToast", \l -> treasureToast l 5 )
     , ( "finishToast", finishToast )
     , ( "harbourToast", \l -> harbourToast l 1 7 )
@@ -1032,8 +980,6 @@ allPhrases =
     , ( "headline 1", \l -> headline l 1 )
     , ( "starsAria", \l -> starsAria l 2 )
     , ( "nextGoal", \l -> nextGoal l "1:00.00" )
-    , ( "resultBreakdown", \l -> resultBreakdown l { sailing = "1:00.00", hitBonus = 4, hits = 2, treasureBonus = Just 5 } )
-    , ( "boatsButton", boatsButton )
     , ( "newPersonalBest", newPersonalBest )
     , ( "personalBestShort", \l -> personalBestShort l "1:00.00" )
     , ( "loadingShips", \l -> loadingShips l [ 2 ] )
@@ -1049,31 +995,13 @@ allPhrases =
     , ( "slotOpen", \l -> slotOpen l 2 )
     , ( "you", you )
     , ( "finishedBadge", finishedBadge )
-    , ( "buildShipHeading", buildShipHeading )
-    , ( "buildOnHullTitle", \l -> buildOnHullTitle l "Runko" )
     , ( "editShipButton", editShipButton )
     , ( "buildOwnShip", buildOwnShip )
-    , ( "boatsHeading", boatsHeading )
-    , ( "loadShipHeading", loadShipHeading )
     , ( "crewHeading", crewHeading )
     , ( "twoPlayerHostDesc", twoPlayerHostDesc )
     , ( "gridHostDesc", gridHostDesc )
     , ( "joinRaceDesc", joinRaceDesc )
     ]
-
-
-{-| Heading of the shipyard row that opens the ship editor on a hull.
--}
-buildShipHeading : Language -> String
-buildShipHeading lang =
-    pick lang "Rakenna laiva rungolle" "Build a ship on a hull"
-
-
-{-| Tooltip of a hull button in that row.
--}
-buildOnHullTitle : Language -> String -> String
-buildOnHullTitle lang hull =
-    pick lang ("Rakenna rungolle: " ++ hull) ("Build on the " ++ hull)
 
 
 {-| Button that opens "Your ship" in the ship editor again.
@@ -1088,20 +1016,6 @@ editShipButton lang =
 buildOwnShip : Language -> String
 buildOwnShip lang =
     pick lang "Rakenna oma laiva" "Build your own ship"
-
-
-{-| Heading of the shipyard's boat cards.
--}
-boatsHeading : Language -> String
-boatsHeading lang =
-    pick lang "Valitse aluksesi" "Choose your boat"
-
-
-{-| Heading of the shipyard card that loads a build link or a model file.
--}
-loadShipHeading : Language -> String
-loadShipHeading lang =
-    pick lang "Purjehdi omalla rakennelmalla" "Sail your own build"
 
 
 {-| Heading of the shipyard's online play cards.

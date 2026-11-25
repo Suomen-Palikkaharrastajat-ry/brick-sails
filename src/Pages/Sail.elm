@@ -26,6 +26,7 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
 import Sails.CameraRig as CameraRig exposing (Follow)
+import Sails.Ending as Ending exposing (Ending)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
@@ -85,6 +86,7 @@ type alias SailModel =
     , rockTimer : Float
     , seaStrain : Float
     , debris : List Wreck.Piece
+    , ending : Maybe Ending
     , language : Language
     }
 
@@ -182,6 +184,7 @@ initSail language boat course audioMuted pb maybeMulti tilt width height =
     , rockTimer = 0
     , seaStrain = 0
     , debris = []
+    , ending = Nothing
     , language = language
     }
 
@@ -811,6 +814,42 @@ tick dt model =
 
                 Nothing ->
                     Cmd.none
+
+        -- The finish celebration (`Sails.Ending`): it starts when the last
+        -- harbour is reached, and bricks burst over the boat as it goes on.
+        ending =
+            if progress.finished then
+                case model.ending of
+                    Just e ->
+                        Just (Ending.step dt e)
+
+                    Nothing ->
+                        Just
+                            (Ending.start
+                                { targetSeconds = model.course.targetSeconds
+                                , personalBest = Maybe.map .timeSeconds model.personalBest
+                                }
+                                progress
+                            )
+
+            else
+                Nothing
+
+        celebration =
+            case ending of
+                Just e ->
+                    let
+                        -- Bursts already gone off before this step.
+                        done =
+                            model.ending
+                                |> Maybe.map (Ending.bursts Nothing)
+                                |> Maybe.withDefault 0
+                    in
+                    List.range done (done + Ending.bursts model.ending e - 1)
+                        |> List.concatMap (\n -> Ending.confetti n state)
+
+                Nothing ->
+                    []
     in
     ( { model
         | state = state
@@ -837,7 +876,8 @@ tick dt model =
 
             else
                 0
-        , debris = debris
+        , debris = debris ++ celebration
+        , ending = ending
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
     )
@@ -1057,21 +1097,23 @@ viewRace model callbacks maybeRoom =
 
             Nothing ->
                 text ""
-        , if model.progress.finished then
-            Results.viewResults
-                { course = model.course
-                , progress = model.progress
-                , boatName = model.boat.name
-                , personalBest = model.personalBest
-                , language = model.language
-                , actions =
-                    { onSailAgain = callbacks.onRestartCourse
-                    , onReturnToShipyard = callbacks.onReturnToShipyard
+        , case ( model.progress.finished, model.ending ) of
+            ( True, Just ending ) ->
+                Results.viewResults
+                    { course = model.course
+                    , progress = model.progress
+                    , boatName = model.boat.name
+                    , personalBest = model.personalBest
+                    , ending = ending
+                    , language = model.language
+                    , actions =
+                        { onSailAgain = callbacks.onRestartCourse
+                        , onBackToMenu = callbacks.onReturnToShipyard
+                        }
                     }
-                }
 
-          else
-            text ""
+            _ ->
+                text ""
         ]
 
 
