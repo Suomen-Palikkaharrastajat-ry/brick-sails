@@ -52,6 +52,8 @@ module Sails.I18n exposing
     , overpoweredTitle
     , personalBestLine
     , personalBestShort
+    , pirateSunkToast
+    , piratesBoardedToast
     , playerCount
     , pointOfSailText
     , raceStatus
@@ -737,6 +739,20 @@ finishToast lang =
     pick lang "SATAMASSA!" "LAND HO!"
 
 
+{-| A pirate ship came alongside and boarded the boat.
+-}
+piratesBoardedToast : Language -> String
+piratesBoardedToast lang =
+    pick lang "Merirosvot kimppuun!" "Pirates boarded!"
+
+
+{-| A cannon ball sank a pirate ship, with the seconds it takes off.
+-}
+pirateSunkToast : Language -> Int -> String
+pirateSunkToast lang bonus =
+    pick lang "Merirosvo upposi! −" "Pirate sunk! −" ++ String.fromInt bonus ++ " s"
+
+
 harbourToast : Language -> Int -> Int -> String
 harbourToast lang n total =
     pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
@@ -966,6 +982,8 @@ allPhrases =
     , ( "shipwreckedText", shipwreckedText )
     , ( "sailAgain", sailAgain )
     , ( "mainMenuButton", mainMenuButton )
+    , ( "piratesBoardedToast", piratesBoardedToast )
+    , ( "pirateSunkToast", \l -> pirateSunkToast l 2 )
     , ( "finalTimeLabel", finalTimeLabel )
     , ( "sailingStat", sailingStat )
     , ( "hitsStat", hitsStat )

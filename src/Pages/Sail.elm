@@ -31,6 +31,7 @@ import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
 import Sails.Physics as Physics
+import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types
@@ -87,6 +88,9 @@ type alias SailModel =
     , seaStrain : Float
     , debris : List Wreck.Piece
     , ending : Maybe Ending
+    , pirates : List Pirate
+    , piratesSunk : List Int
+    , pirateCooldown : Float
     , language : Language
     }
 
@@ -185,8 +189,19 @@ initSail language boat course audioMuted pb maybeMulti tilt width height =
     , seaStrain = 0
     , debris = []
     , ending = Nothing
+    , pirates = Pirates.fleet (pirateSeed course maybeMulti 0) course
+    , piratesSunk = []
+    , pirateCooldown = 0
     , language = language
     }
+
+
+{-| Seed of the race's pirates (`Sails.Pirates.fleet`): as the weather's,
+the room's in a room, else new for each run of the course.
+-}
+pirateSeed : Course -> Maybe RoomState -> Int -> Int
+pirateSeed course room run =
+    weatherSeed course room run * 7 + 3
 
 
 {-| Seed of the race's weather. In a room every player gets the room's
@@ -293,8 +308,34 @@ aimPoints model =
 
         ships =
             remotePlayers model |> List.map .position
+
+        pirates =
+            afloatPirates model |> List.map (Tuple.second >> .position)
     in
-    targets ++ ships
+    targets ++ ships ++ pirates
+
+
+{-| The pirates still afloat, with where they are now.
+-}
+afloatPirates : SailModel -> List ( Pirate, SailingState )
+afloatPirates model =
+    model.pirates
+        |> List.filter (\p -> not (List.member p.id model.piratesSunk))
+        |> List.map (\p -> ( p, onTheWaves model (Pirates.stateAt model.simTime p) ))
+
+
+{-| A pirate lifted onto the swell at its place, as the targets are.
+-}
+onTheWaves : SailModel -> SailingState -> SailingState
+onTheWaves model ps =
+    let
+        r =
+            Vec3.toRecord ps.position
+
+        sea =
+            (Weather.conditions model.course.wind model.weather).sea
+    in
+    { ps | position = vec3 r.x (Physics.seaElevation sea r.x r.z model.simTime) r.z }
 
 
 remotePlayers : SailModel -> List Multiplayer.RemotePlayer
@@ -475,6 +516,7 @@ update msg model =
                 | multiplayer = model.multiplayer
                 , run = model.run + 1
                 , weather = Weather.init (weatherSeed model.course model.multiplayer (model.run + 1))
+                , pirates = Pirates.fleet (pirateSeed model.course model.multiplayer (model.run + 1)) model.course
                 , sailLevel = model.sailLevel
               }
             , GamePorts.calibrateTilt ()
@@ -593,7 +635,12 @@ tick dt model =
             Hull.step dt
                 racing
                 { rock = rock
-                , cannonHits = 0
+                , cannonHits =
+                    if boarding then
+                        1
+
+                    else
+                        0
                 , roughSea = roughSea
                 }
                 model.hull
@@ -628,12 +675,29 @@ tick dt model =
             Physics.checkShipHits afterTargets
                 (remotePlayers model |> List.map (\p -> { slot = p.slot, position = p.position }))
 
+        -- Pirates where they are this frame (`Sails.Pirates`).
+        piratesNow =
+            afloatPirates { model | simTime = time }
+
+        ( afterPirates, pirateFlashes, pirateSlotsHit ) =
+            Physics.checkShipHits afterShips
+                (List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position }) piratesNow)
+
+        sunkNow =
+            List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
+
+        boarding =
+            racing
+                && model.pirateCooldown
+                <= 0
+                && List.any (\( _, ps ) -> horizontal state.position ps.position <= Pirates.boardingRange) piratesNow
+
         countedHits =
             if model.progress.finished then
                 0
 
             else
-                hits
+                hits + List.length sunkNow
 
         treasure =
             if racing then
@@ -682,6 +746,12 @@ tick dt model =
             if justWrecked then
                 Just ( T.shipwrecked model.language, 2.0 )
 
+            else if boarding then
+                Just ( T.piratesBoardedToast model.language, 1.4 )
+
+            else if not (List.isEmpty sunkNow) then
+                Just ( T.pirateSunkToast model.language (round (Physics.bonusPerHit * toFloat (List.length sunkNow))), 1.4 )
+
             else if knocked then
                 Just ( T.hullDamagedToast model.language (Hull.percent hull), 1.2 )
 
@@ -715,7 +785,7 @@ tick dt model =
 
                 Nothing ->
                     Cmd.none
-            , if not (List.isEmpty hitFlashes && List.isEmpty shipFlashes) then
+            , if not (List.isEmpty hitFlashes && List.isEmpty shipFlashes && List.isEmpty pirateFlashes) then
                 sfx (GameAudio.Impact 1.0)
 
               else if not (List.isEmpty splashes) then
@@ -859,8 +929,15 @@ tick dt model =
         , simTime = time
         , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
-        , cannonballs = afterShips
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes)
+        , cannonballs = afterPirates
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes ++ pirateFlashes)
+        , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
+        , pirateCooldown =
+            if boarding then
+                Pirates.boardingCooldown
+
+            else
+                max 0 (model.pirateCooldown - dt)
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
         , toast = toast
         , hull = hull
@@ -876,7 +953,7 @@ tick dt model =
 
             else
                 0
-        , debris = debris ++ celebration
+        , debris = debris ++ List.concatMap (Tuple.second >> Wreck.breakUp) sunkNow ++ celebration
         , ending = ending
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
@@ -947,6 +1024,16 @@ remoteBoat remoteShip p =
     }
 
 
+{-| A pirate ship as drawn: the pirates' boat with black sails.
+-}
+pirateBoat : (String -> Maybe ShipMesh) -> ( Pirate, SailingState ) -> RenderBoat
+pirateBoat meshFor ( _, state ) =
+    { mesh = meshFor Pirates.shipName
+    , state = state
+    , sailTint = Just (vec3 0.08 0.08 0.1)
+    }
+
+
 {-| Draw the race. `meshFor` looks up a boat's brick geometry by boat name
 (see `Main`); the player's own boat is looked up as `model.boat.name`.
 -}
@@ -983,7 +1070,9 @@ viewRace model callbacks maybeRoom =
                 [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing } ]
 
         boats =
-            ownBoat ++ List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
+            ownBoat
+                ++ List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
+                ++ List.map (pirateBoat callbacks.meshFor) (afloatPirates model)
 
         loadingShips =
             remotePlayers model
