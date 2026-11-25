@@ -672,8 +672,8 @@ goBanner lang =
 countdownHint : Language -> String
 countdownHint lang =
     pick lang
-        "Poikkea pasaatituulessa jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja ammu: −2 s."
-        "Ride the trade winds to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and shoot for -2 s."
+        "Purjehdi tuulen mukana jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja ammu: −2 s."
+        "Sail with the wind to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and shoot for -2 s."
 
 
 {-| The sail buttons: raise (True) or lower (False).
