@@ -6,6 +6,8 @@ of sail logic.
 -}
 
 import Expect
+import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
+import I18n exposing (Language(..))
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
@@ -327,6 +329,17 @@ suite =
                 \_ ->
                     Expect.equal [ "00:00.0", "01:23.4", "10:05.9" ]
                         (List.map HUD.formatCounter [ 0, 83.47, 605.99 ])
+            , test "the map badge shows the course title and the map code" <|
+                \_ ->
+                    let
+                        map =
+                            { biome = Boreal, season = Winter, weather = Snow, seed = 48213 }
+
+                        borealCourse =
+                            Archipelago.courseFor (Archipelago.generate map) 0
+                    in
+                    Expect.equal ( "Boreal · Winter · Snow #48213", "boreal-winter-snow-48213" )
+                        (HUD.mapBadgeText En borealCourse)
             , test "the point of sail tells into the wind, close-hauled, reach and run apart" <|
                 \_ ->
                     let

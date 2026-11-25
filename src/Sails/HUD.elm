@@ -3,6 +3,7 @@ module Sails.HUD exposing
     , PointOfSail(..)
     , Side(..)
     , formatCounter
+    , mapBadgeText
     , pointOfSail
     , showSteerButtons
     , viewHud
@@ -11,7 +12,8 @@ module Sails.HUD exposing
 
 {-| Touch-first race HUD, a glanceable dashboard as in Brick Racer.
 
-Top left: the race timer as a counter of digit tiles (`mm:ss.d`), the
+Top left: the course title with its map code under it, small (the map
+code means the same map in Brick Racer), the race timer as a counter of digit tiles (`mm:ss.d`), the
 boat's speed in knots with the metres to the next harbour (for a few
 seconds after docking, that harbour's time in their place, and "Mooring…"
 while the boat moors), harbour progress, the hull's
@@ -28,6 +30,7 @@ can be held. A boat far off the course gets an arrow back to it.
 -}
 
 import FeatherIcons
+import Game.MapParams as MapParams
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
 import Html.Events as Events
@@ -122,6 +125,7 @@ panel =
 viewStatus :
     { a
         | progress : CourseProgress
+        , course : Course
         , state : SailingState
         , cameraYaw : Float
         , wind : Wind
@@ -133,7 +137,7 @@ viewStatus :
         , canAnchor : Bool
     }
     -> Html msg
-viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbourDistance, language, canAnchor } =
+viewStatus { progress, course, state, cameraYaw, wind, weather, hull, hazards, nextHarbourDistance, language, canAnchor } =
     let
         total =
             progress.totalWaypoints
@@ -183,7 +187,8 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbo
             )
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
-        [ viewCounter (formatCounter progress.elapsedSeconds)
+        [ viewMapBadge language course
+        , viewCounter (formatCounter progress.elapsedSeconds)
         , viewMetrics language progress state nextHarbourDistance canAnchor
         , viewHealth language hull
         , viewHazards language hazards
@@ -238,6 +243,38 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbo
 
             Nothing ->
                 text ""
+        ]
+
+
+{-| The course title and the map code of the badge, as Brick Racer's race
+HUD shows them: for example ( "Boreal · Winter · Snow #48213",
+"boreal-winter-snow-48213" ).
+-}
+mapBadgeText : Language -> Course -> ( String, String )
+mapBadgeText language course =
+    ( T.mapTitle language course.map, MapParams.toCode course.map )
+
+
+{-| The small map badge at the top of the status panel: the course title
+with the map code under it. It takes no width of its own (width 0, at
+least the panel's), so a long title is cut short with an ellipsis instead
+of widening the panel on a phone.
+-}
+viewMapBadge : Language -> Course -> Html msg
+viewMapBadge language course =
+    let
+        ( title, code ) =
+            mapBadgeText language course
+    in
+    div
+        [ Attr.class "flex flex-col leading-tight text-[10px]"
+        , Attr.style "width" "0"
+        , Attr.style "min-width" "100%"
+        , Attr.attribute "data-testid" "map-badge"
+        , Attr.title (title ++ " (" ++ code ++ ")")
+        ]
+        [ span [ Attr.class "font-bold text-slate-200 truncate" ] [ text title ]
+        , span [ Attr.class "font-mono text-slate-400 truncate" ] [ text code ]
         ]
 
 
