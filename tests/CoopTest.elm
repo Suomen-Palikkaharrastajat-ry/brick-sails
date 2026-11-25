@@ -48,6 +48,7 @@ player slot finished =
 room : Role -> Int -> RoomStatus -> List RemotePlayer -> RoomState
 room role mySlot status players =
     { roomId = "CREW42"
+    , courseId = "island-loop"
     , role = role
     , mySlot = mySlot
     , status = status
