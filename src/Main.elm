@@ -60,6 +60,7 @@ import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
 import Sails.Render as Render
+import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
@@ -302,8 +303,12 @@ update msg model =
             )
 
         MultiplayerRoomChanged rawJson ->
-            case Decode.decodeValue Multiplayer.decodeRoomState rawJson of
-                Ok room ->
+            case SailsRoom.fromPort rawJson of
+                SailsRoom.NoRoom ->
+                    -- Left the room (or never in one): stay where we are, in no room.
+                    ( { model | sailModel = model.sailModel |> Maybe.map (\s -> { s | multiplayer = Nothing }) }, Cmd.none )
+
+                SailsRoom.InRoom room ->
                     case model.sailModel of
                         Just sModel ->
                             let
@@ -327,7 +332,7 @@ update msg model =
                                 ]
                             )
 
-                Err _ ->
+                SailsRoom.Unreadable ->
                     ( model, Cmd.none )
 
         MultiplayerError err ->
