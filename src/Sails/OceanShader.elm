@@ -243,6 +243,16 @@ waterVertexShader =
                  + 0.45 * max(0.0, u_sea - 1.0) * sin(k0 * (p.x * 0.3 + p.y * 0.95) - k0 * 4.2 * t);
         }
 
+        float distToIslands(vec2 p) {
+            float d = length(p - vec2(-12.0, 100.0)) - 24.0;
+            d = min(d, length(p - vec2(150.0, 90.0)) - 40.0);
+            d = min(d, length(p - vec2(-170.0, 230.0)) - 50.0);
+            d = min(d, length(p - vec2(40.0, 330.0)) - 45.0);
+            d = min(d, length(p - vec2(-130.0, -60.0)) - 35.0);
+            d = min(d, length(p - vec2(-78.0, 205.0)) - 10.0);
+            return d;
+        }
+
         void main () {
             vec2 q = position.xz;
             float h = seaHeight(q, u_time);
@@ -264,14 +274,26 @@ waterVertexShader =
             // Height relative to the sea state, for the colour and the caps.
             float hn = h / max(0.6, s + storm * 3.0);
             vec3 col = mix(u_deep, u_shallow, smoothstep(-0.25, 0.3, hn));
+
+            // Shallow turquoise lagoon around islands.
+            float dShore = distToIslands(q);
+            float lagoon = 1.0 - smoothstep(0.0, 20.0, max(0.0, dShore));
+            vec3 lagoonColor = mix(u_shallow, vec3(0.24, 0.86, 0.80), 0.75);
+            col = mix(col, lagoonColor, lagoon * 0.8);
+
             // White caps: a little lower down the waves as the sea gets up.
             float capLine = 0.31 - 0.05 * clamp(u_sea - 1.0, 0.0, 1.5);
             float crest = smoothstep(capLine - 0.04, capLine + 0.04, hn);
 
+            // Shoreline beach surf foam lapping at the sand.
+            float surfWave = sin(u_time * 2.6 - dShore * 1.4);
+            float surfFoam = smoothstep(0.45, 0.9, surfWave) * (1.0 - smoothstep(0.0, 5.0, max(0.0, dShore)));
+            float foam = clamp(crest * 0.35 + surfFoam * 0.8, 0.0, 1.0);
+
             vec3 p = vec3(position.x, h, position.z);
             v_worldPos = p;
             v_normal = normalize(vec3(-dx, 1.0, -dz));
-            v_color = mix(col, u_cap, crest * 0.35);
+            v_color = mix(col, u_cap, foam);
             v_studs = 1.0;
             gl_Position = u_perspective * u_view * vec4(p, 1.0);
         }
