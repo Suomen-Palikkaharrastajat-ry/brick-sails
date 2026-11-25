@@ -51,6 +51,7 @@ type alias HudActions msg =
     , onToggleMute : msg
     , onRestart : msg
     , onExit : msg
+    , onDropAnchor : msg
     }
 
 
@@ -75,6 +76,8 @@ viewHud :
     , nextHarbourDistance : Maybe Float
     , courseBearing : Maybe Float
     , language : Language
+    , canAnchor : Bool
+    , isAnchored : Bool
     , actions : HudActions msg
     }
     -> Html msg
@@ -103,7 +106,8 @@ viewHud cfg =
                     text ""
                 ]
             , div [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto" ]
-                [ sailControl cfg
+                [ anchorButton cfg
+                , sailControl cfg
                 , shootHint cfg
                 ]
             ]
@@ -126,9 +130,10 @@ viewStatus :
         , hazards : { rocks : Bool, pounding : Bool }
         , nextHarbourDistance : Maybe Float
         , language : Language
+        , canAnchor : Bool
     }
     -> Html msg
-viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbourDistance, language } =
+viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbourDistance, language, canAnchor } =
     let
         total =
             progress.totalWaypoints
@@ -179,7 +184,7 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbo
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
         [ viewCounter (formatCounter progress.elapsedSeconds)
-        , viewMetrics language progress state nextHarbourDistance
+        , viewMetrics language progress state nextHarbourDistance canAnchor
         , viewHealth language hull
         , viewHazards language hazards
         , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" (T.harbourAria language) ]
@@ -369,8 +374,8 @@ harbourTimeSeconds =
 harbour; while the boat moors, a mooring hint; for a few seconds after
 docking, that harbour's time instead.
 -}
-viewMetrics : Language -> CourseProgress -> SailingState -> Maybe Float -> Html msg
-viewMetrics language progress state nextHarbourDistance =
+viewMetrics : Language -> CourseProgress -> SailingState -> Maybe Float -> Bool -> Html msg
+viewMetrics language progress state nextHarbourDistance canAnchor =
     let
         lastSplit =
             List.reverse progress.splits |> List.head
@@ -397,7 +402,16 @@ viewMetrics language progress state nextHarbourDistance =
                         [ text (formatCounter t) ]
 
                 Nothing ->
-                    if progress.berthSeconds > 0 then
+                    if canAnchor then
+                        span
+                            [ Attr.class "text-amber-300 font-bold animate-pulse flex items-center gap-1"
+                            , Attr.attribute "data-testid" "mooring"
+                            ]
+                            [ FeatherIcons.anchor |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+                            , text (T.dropAnchorHint language)
+                            ]
+
+                    else if progress.berthSeconds > 0 then
                         span
                             [ Attr.class "text-amber-300"
                             , Attr.attribute "data-testid" "mooring"
@@ -536,6 +550,67 @@ shootHint { cannonReady, touchShoot, language } =
         , Attr.attribute "data-fire" ""
         ]
         [ text (T.shootHint language touchShoot) ]
+
+
+{-| Drop anchor / weigh anchor button. Shows prominently when in harbour ready to moor,
+or when the boat is anchored.
+-}
+anchorButton :
+    { a
+        | canAnchor : Bool
+        , isAnchored : Bool
+        , language : Language
+        , actions : HudActions msg
+    }
+    -> Html msg
+anchorButton { canAnchor, isAnchored, language, actions } =
+    if canAnchor || isAnchored then
+        button
+            [ Events.onClick actions.onDropAnchor
+            , Attr.title
+                (if isAnchored then
+                    T.weighAnchor language ++ " (E)"
+
+                 else
+                    T.dropAnchor language ++ " (E)"
+                )
+            , Attr.attribute "aria-label"
+                (if isAnchored then
+                    T.weighAnchor language
+
+                 else
+                    T.dropAnchor language
+                )
+            , Attr.attribute "data-testid" "drop-anchor"
+            , Attr.class
+                ("h-11 px-3.5 flex items-center gap-1.5 rounded-2xl border-2 font-black text-sm shadow-xl backdrop-blur-md transition-all active:scale-95 "
+                    ++ (if canAnchor && not isAnchored then
+                            "bg-amber-500 hover:bg-amber-400 text-slate-900 border-amber-300 animate-pulse"
+
+                        else if isAnchored then
+                            "bg-sky-600/90 hover:bg-sky-500 text-white border-sky-300"
+
+                        else
+                            "bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-white/20"
+                       )
+                )
+            ]
+            [ FeatherIcons.anchor
+                |> FeatherIcons.withSize 20
+                |> FeatherIcons.toHtml []
+            , span [ Attr.class "uppercase tracking-wide text-xs" ]
+                [ text
+                    (if isAnchored then
+                        T.weighAnchor language
+
+                     else
+                        T.dropAnchor language
+                    )
+                ]
+            ]
+
+    else
+        text ""
 
 
 viewToast : Maybe String -> Html msg

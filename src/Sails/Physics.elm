@@ -6,6 +6,7 @@ module Sails.Physics exposing
     , bonusPerHit
     , bumpShips
     , canClearReef
+    , canDropAnchor
     , canRecoverStandardAtSea
     , canRepatriateStandard
     , canSeizeStandard
@@ -25,6 +26,7 @@ module Sails.Physics exposing
     , dockSeconds
     , dockSpeed
     , driftWith
+    , dropAnchorProgress
     , effectiveDraft
     , factionForSlot
     , factionHarbourPoint
@@ -1269,6 +1271,46 @@ harbourThrottle waypoints progress state =
 
             Nothing ->
                 1
+
+
+{-| Whether the boat is in position to drop anchor and moor at the current harbour:
+inside the harbour radius and travelling at dock speed or slower.
+-}
+canDropAnchor : List Waypoint -> CourseProgress -> SailingState -> Bool
+canDropAnchor waypoints progress state =
+    if progress.finished then
+        False
+
+    else
+        case List.drop progress.currentWaypointIndex waypoints |> List.head of
+            Just wp ->
+                (horizontalDistance state.position wp.position <= wp.radius) && (state.speed <= dockSpeed)
+
+            Nothing ->
+                False
+
+
+{-| Drop anchor at the current harbour. Moors immediately, recording the split
+and advancing to the next harbour.
+-}
+dropAnchorProgress : CourseProgress -> ( CourseProgress, Maybe Int )
+dropAnchorProgress progress =
+    if progress.finished then
+        ( progress, Nothing )
+
+    else
+        let
+            next =
+                progress.currentWaypointIndex + 1
+        in
+        ( { progress
+            | currentWaypointIndex = next
+            , splits = progress.splits ++ [ progress.elapsedSeconds ]
+            , finished = next >= progress.totalWaypoints
+            , berthSeconds = 0
+          }
+        , Just progress.currentWaypointIndex
+        )
 
 
 horizontalDistance : Vec3 -> Vec3 -> Float

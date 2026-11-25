@@ -779,4 +779,61 @@ suite =
                         ]
                         ()
             ]
+        , describe "Anchor & Mooring"
+            [ test "canDropAnchor requires being inside harbour radius at dockSpeed or slower" <|
+                \_ ->
+                    let
+                        wp0 =
+                            List.head course.waypoints
+                                |> Maybe.withDefault { index = 0, position = Vec3.vec3 0 0 0, radius = 16, kind = Sails.Types.Harbour }
+
+                        progress0 =
+                            Physics.initProgress course
+
+                        startState =
+                            Physics.initSailingState course
+
+                        atHarbourSlow =
+                            { startState | position = wp0.position, speed = 1.0 }
+
+                        atHarbourFast =
+                            { startState | position = wp0.position, speed = 8.0 }
+
+                        farAway =
+                            { startState | position = Vec3.vec3 500 0 500, speed = 1.0 }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True (Physics.canDropAnchor course.waypoints progress0 atHarbourSlow)
+                        , \_ -> Expect.equal False (Physics.canDropAnchor course.waypoints progress0 atHarbourFast)
+                        , \_ -> Expect.equal False (Physics.canDropAnchor course.waypoints progress0 farAway)
+                        ]
+                        ()
+            , test "dropAnchorProgress immediately moors and advances the waypoint split" <|
+                \_ ->
+                    let
+                        progress0 =
+                            Physics.initProgress course
+
+                        ( p1, harbour0 ) =
+                            Physics.dropAnchorProgress progress0
+
+                        lastIndex =
+                            List.length course.waypoints - 1
+
+                        atFinalProgress =
+                            { progress0 | currentWaypointIndex = lastIndex }
+
+                        ( pFinal, finalHarbour ) =
+                            Physics.dropAnchorProgress atFinalProgress
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal (Just 0) harbour0
+                        , \_ -> Expect.equal 1 p1.currentWaypointIndex
+                        , \_ -> Expect.equal 1 (List.length p1.splits)
+                        , \_ -> Expect.equal False p1.finished
+                        , \_ -> Expect.equal (Just lastIndex) finalHarbour
+                        , \_ -> Expect.equal True pFinal.finished
+                        ]
+                        ()
+            ]
         ]

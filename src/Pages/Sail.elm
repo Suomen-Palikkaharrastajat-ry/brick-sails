@@ -116,6 +116,7 @@ type alias SailModel =
     , playerFaction : Faction
     , standards : List StandardState
     , ghostShip : GhostShip
+    , anchored : Bool
     }
 
 
@@ -137,6 +138,7 @@ type SailMsg
     | CopyShareUrl
     | StartMultiplayerCountdown
     | UpdateMultiplayerRoom RoomState
+    | DropAnchor
 
 
 countdownSeconds : Float
@@ -234,6 +236,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
             |> Maybe.withDefault Pirates
     , standards = Physics.initStandards
     , ghostShip = GhostShip.init
+    , anchored = False
     }
 
 
@@ -552,6 +555,75 @@ update msg model =
         LowerSail ->
             ( { model | sailLevel = max 0 (model.sailLevel - 1) }, Cmd.none )
 
+        DropAnchor ->
+            if Physics.canDropAnchor model.course.waypoints model.progress model.state then
+                let
+                    ( newProgress, passed ) =
+                        Physics.dropAnchorProgress model.progress
+
+                    state =
+                        model.state
+
+                    stoppedState =
+                        { state | speed = 0 }
+
+                    passedToast =
+                        case passed of
+                            Just i ->
+                                if newProgress.finished then
+                                    Just ( T.finishToast model.language, 2.0 )
+
+                                else
+                                    Just ( T.harbourToast model.language (i + 1) newProgress.totalWaypoints, 1.5 )
+
+                            Nothing ->
+                                Nothing
+
+                    ending =
+                        if newProgress.finished then
+                            Just
+                                (Ending.start
+                                    { targetSeconds = model.course.targetSeconds
+                                    , personalBest = Maybe.map .timeSeconds model.personalBest
+                                    }
+                                    newProgress
+                                )
+
+                        else
+                            model.ending
+                in
+                ( { model
+                    | progress = newProgress
+                    , state = stoppedState
+                    , toast = passedToast
+                    , ending = ending
+                    , anchored = False
+                  }
+                , sfx (GameAudio.Impact 0.7)
+                )
+
+            else if model.anchored then
+                ( { model
+                    | anchored = False
+                    , toast = Just ( T.anchorWeighedToast model.language, 1.2 )
+                  }
+                , Cmd.none
+                )
+
+            else
+                let
+                    state =
+                        model.state
+                in
+                ( { model
+                    | anchored = True
+                    , sailLevel = 0
+                    , state = { state | speed = 0 }
+                    , toast = Just ( T.anchorDroppedToast model.language, 1.2 )
+                  }
+                , sfx (GameAudio.Impact 0.6)
+                )
+
         ToggleMute ->
             ( { model | audioMuted = not model.audioMuted }, GamePorts.setAudioMuted (not model.audioMuted) )
 
@@ -570,7 +642,20 @@ update msg model =
                     ( { model | keyRight = True }, Cmd.none )
 
                 "Space" ->
-                    update FireCannons model
+                    if Physics.canDropAnchor model.course.waypoints model.progress model.state then
+                        update DropAnchor model
+
+                    else
+                        update FireCannons model
+
+                "KeyE" ->
+                    update DropAnchor model
+
+                "KeyH" ->
+                    update DropAnchor model
+
+                "KeyB" ->
+                    update DropAnchor model
 
                 "KeyF" ->
                     update FireCannons model
@@ -599,6 +684,9 @@ update msg model =
                 "Enter" ->
                     if model.progress.finished || Hull.wrecked model.hull then
                         update RestartCourse model
+
+                    else if Physics.canDropAnchor model.course.waypoints model.progress model.state then
+                        update DropAnchor model
 
                     else
                         ( model, Cmd.none )
@@ -726,23 +814,31 @@ tick dt model =
             Weather.conditions model.course.wind weather
 
         sailed =
-            Physics.stepBoat
-                { dt = dt
-                , time = time
-                , steer = steerInput model
-                , throttle =
-                    if racing then
-                        Physics.harbourThrottle model.course.waypoints model.progress model.state
+            if model.anchored then
+                let
+                    s =
+                        model.state
+                in
+                { s | speed = 0 }
 
-                    else
-                        0
-                , sea = conditions.sea
-                , sail = Tuple.second (Physics.sailLevel model.sailLevel)
-                }
-                conditions.wind
-                model.boat
-                model.course.islands
-                model.state
+            else
+                Physics.stepBoat
+                    { dt = dt
+                    , time = time
+                    , steer = steerInput model
+                    , throttle =
+                        if racing then
+                            Physics.harbourThrottle model.course.waypoints model.progress model.state
+
+                        else
+                            0
+                    , sea = conditions.sea
+                    , sail = Tuple.second (Physics.sailLevel model.sailLevel)
+                    }
+                    conditions.wind
+                    model.boat
+                    model.course.islands
+                    model.state
 
         -- Far off the course a current carries the boat back towards it, and
         -- a pirate ship in its way bumps it off (`Physics.bumpShips`).
@@ -809,7 +905,17 @@ tick dt model =
 
         ( progressAfterHarbours, passed ) =
             if racing then
-                Physics.stepProgress dt state model.course.waypoints model.progress
+                let
+                    ( p, passedWp ) =
+                        Physics.stepProgress dt state model.course.waypoints model.progress
+                in
+                if Physics.canDropAnchor model.course.waypoints model.progress state then
+                    -- In interactive sailing, docking requires the anchor icon to drop anchor.
+                    -- Time in berth accumulates for the mooring indicator, but the waypoint does not advance until anchor is dropped:
+                    ( { p | currentWaypointIndex = model.progress.currentWaypointIndex, berthSeconds = min (Physics.dockSeconds - 0.05) p.berthSeconds }, Nothing )
+
+                else
+                    ( p, passedWp )
 
             else
                 ( model.progress, Nothing )
@@ -1693,6 +1799,8 @@ viewRace model callbacks maybeRoom =
                         |> Maybe.map (\n -> Vec3.distance (Vec3.setY 0 n) (Vec3.setY 0 model.state.position))
                 , courseBearing = backToCourse model
                 , language = model.language
+                , canAnchor = Physics.canDropAnchor model.course.waypoints model.progress model.state
+                , isAnchored = model.anchored
                 , actions =
                     { onSteer = Steer
                     , onRaiseSail = RaiseSail
@@ -1700,6 +1808,7 @@ viewRace model callbacks maybeRoom =
                     , onToggleMute = ToggleMute
                     , onRestart = callbacks.onRestartCourse
                     , onExit = callbacks.onReturnToShipyard
+                    , onDropAnchor = DropAnchor
                     }
                 }
         , hostHeader model.language (crewDone model) maybeRoom

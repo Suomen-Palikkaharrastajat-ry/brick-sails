@@ -1,6 +1,8 @@
 module Sails.I18n exposing
     ( Lang
     , allPhrases
+    , anchorDroppedToast
+    , anchorWeighedToast
     , backToBoats
     , backToCourse
     , bestLine
@@ -18,6 +20,8 @@ module Sails.I18n exposing
     , crewHeadline
     , crewTimeLabel
     , crewWaiting
+    , dropAnchor
+    , dropAnchorHint
     , editShipButton
     , exitRace
     , factionBoardingToast
@@ -110,6 +114,7 @@ module Sails.I18n exposing
     , twoPlayerHost
     , twoPlayerHostDesc
     , weatherName
+    , weighAnchor
     , windDirection
     , you
     )
@@ -703,6 +708,41 @@ mooringHint lang =
     pick lang "Kiinnitetään…" "Mooring…"
 
 
+{-| Drop anchor button label and tooltip.
+-}
+dropAnchor : Language -> String
+dropAnchor lang =
+    pick lang "Laske ankkuri" "Drop anchor"
+
+
+{-| Weigh anchor button label and tooltip.
+-}
+weighAnchor : Language -> String
+weighAnchor lang =
+    pick lang "Nosta ankkuri" "Weigh anchor"
+
+
+{-| Toast when the anchor is dropped.
+-}
+anchorDroppedToast : Language -> String
+anchorDroppedToast lang =
+    pick lang "Ankkuri laskettu!" "Anchor dropped!"
+
+
+{-| Toast when the anchor is weighed.
+-}
+anchorWeighedToast : Language -> String
+anchorWeighedToast lang =
+    pick lang "Ankkuri nostettu!" "Anchor weighed!"
+
+
+{-| Mooring prompt when in harbour ready to drop anchor.
+-}
+dropAnchorHint : Language -> String
+dropAnchorHint lang =
+    pick lang "Laske ankkuri" "Drop anchor"
+
+
 heelTitle : Language -> String
 heelTitle lang =
     pick lang "Kallistuma: laske purjetta, jos vene kallistuu rajusti" "Heel: lower the sail if the boat leans over hard"
@@ -1258,6 +1298,11 @@ allPhrases =
     , ( "nextHarbourTitle", nextHarbourTitle )
     , ( "harbourTimeTitle", \l -> harbourTimeTitle l 2 )
     , ( "mooringHint", mooringHint )
+    , ( "dropAnchor", dropAnchor )
+    , ( "weighAnchor", weighAnchor )
+    , ( "anchorDroppedToast", anchorDroppedToast )
+    , ( "anchorWeighedToast", anchorWeighedToast )
+    , ( "dropAnchorHint", dropAnchorHint )
     , ( "backToCourse", backToCourse )
     , ( "shipwrecked", shipwrecked )
     , ( "shipwreckedText", shipwreckedText )
