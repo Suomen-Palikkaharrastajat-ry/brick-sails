@@ -7,6 +7,7 @@ camera.
 
 import Dict
 import Expect
+import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
 import LDraw.Document as Document
 import LDraw.Parser as Parser
 import LDraw.Resolve exposing (PartStatus(..))
@@ -24,6 +25,7 @@ import Sails.Physics as Physics
 import Sails.Render as Render
 import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (Boat, CourseProgress, IslandRole(..), SailingState)
+import Sails.World as World
 import Test exposing (Test, describe, test)
 import WebGL
 
@@ -739,6 +741,24 @@ suite =
                         [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (CameraRig.knockShake 2)
                         , \_ -> Expect.greaterThan 0.6 knocked.shake
                         , \_ -> Expect.lessThan 0.01 settled.shake
+                        ]
+                        ()
+            , test "the shipyard sea takes the map's colours, not always the desert's" <|
+                \_ ->
+                    let
+                        base =
+                            Ocean.makeCtx { eye = vec3 0 10 20, target = vec3 0 0 0 } 1.0 800 600
+
+                        boreal =
+                            { biome = Boreal, season = Winter, weather = Snow, seed = 5 }
+
+                        desert =
+                            { boreal | biome = Desert, season = Summer, weather = Clear }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal (World.seaPalette boreal) (Ocean.withMap boreal base).palette
+                        , \_ -> Expect.notEqual (World.seaPalette desert) (Ocean.withMap boreal base).palette
+                        , \_ -> Expect.equal (Ocean.withCourse Archipelago.defaultCourse base).palette (World.seaPalette Archipelago.defaultCourse.map)
                         ]
                         ()
             , test "cannonballs emit trailing smoke puffs while young, fading after 0.4s" <|

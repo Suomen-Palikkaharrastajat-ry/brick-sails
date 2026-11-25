@@ -40,6 +40,7 @@ import Dict exposing (Dict)
 import Game.BrickLook as BrickLook
 import Game.BrickModels as BrickModels
 import Game.BrickProps as BrickProps exposing (PropModel)
+import Game.MapParams exposing (MapParams)
 import Game.Precipitation as Precipitation
 import Html exposing (Html)
 import Html.Attributes as Attr
@@ -294,11 +295,12 @@ debrisEntities ctx width height draw shipMeshOf piece =
                     []
 
 
-{-| Shipyard preview: one boat on the water, seen from the side, slowly
-circling. Shows only the sea while the boat's parts are loading.
+{-| Shipyard preview: one boat on the water of the map's sea colours
+(`Ocean.withMap`), seen from the side, slowly circling. Shows only the sea
+while the boat's parts are loading.
 -}
-renderShipyard : Maybe ShipMesh -> Float -> Int -> Int -> Html msg
-renderShipyard mesh time width height =
+renderShipyard : MapParams -> Maybe ShipMesh -> Float -> Int -> Int -> Html msg
+renderShipyard map mesh time width height =
     let
         aspect =
             toFloat (max 1 width) / toFloat (max 1 height)
@@ -338,6 +340,7 @@ renderShipyard mesh time width height =
 
         ctx =
             Ocean.makeCtx cam time width height
+                |> Ocean.withMap map
 
         state =
             { position = vec3 0 (Physics.waterElevation 0 0 time) 0

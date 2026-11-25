@@ -8,6 +8,7 @@ module Sails.OceanShader exposing
     , skyEntity
     , sunDirection
     , withCourse
+    , withMap
     , withWeather
     )
 
@@ -19,12 +20,13 @@ island scenery. The weather (`withWeather`) raises the sea, darkens the sea,
 sky and light under storm clouds, pulls the fog in and lights everything up
 in a lightning flash. The course (`withCourse`) sets the map's sea and sky
 colours (`Sails.World.SeaPalette`), where the sea is centred and the
-islands the lagoon and the surf ring.
+islands the lagoon and the surf ring; `withMap` sets only the colours (the
+shipyard preview).
 -}
 
 import Game.BrickLook as BrickLook
 import Game.BrickProps as BrickProps
-import Game.MapParams
+import Game.MapParams exposing (MapParams)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 exposing (Vec4, vec4)
@@ -67,15 +69,26 @@ lagoon colour and the surf round their shores.
 -}
 withCourse : Course -> Ctx -> Ctx
 withCourse course ctx =
-    { ctx
-        | palette = World.seaPalette course.map
-        , centre = ( course.arena.x, course.arena.z )
+    let
+        coloured =
+            withMap course.map ctx
+    in
+    { coloured
+        | centre = ( course.arena.x, course.arena.z )
         , isles =
             course.islands
                 |> List.sortBy (\i -> negate i.radius)
                 |> List.take maxIsles
                 |> List.map islandVec
     }
+
+
+{-| The sea and sky colours of a map (`Sails.World.seaPalette`), with
+nothing else of its course: the shipyard preview's open water.
+-}
+withMap : MapParams -> Ctx -> Ctx
+withMap map ctx =
+    { ctx | palette = World.seaPalette map }
 
 
 islandVec : Island -> Vec4

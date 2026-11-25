@@ -151,22 +151,23 @@ viewHeader { audioMuted, language, actions } =
         ]
 
 
-{-| The framed preview of the selected boat on the water, with its name and
-loading state at the top left, its stats at the bottom left and its
-description at the bottom right.
+{-| The framed preview of the selected boat on the water of the map's sea,
+with its name and loading state at the top left, its stats at the bottom
+left and its description at the bottom right.
 -}
 viewHero :
     { a
         | boat : Boat
         , mesh : Maybe ShipMesh
         , loading : Maybe Loading
+        , course : Course
         , time : Float
         , viewportWidth : Int
         , viewportHeight : Int
         , language : Language
     }
     -> Html msg
-viewHero { boat, mesh, loading, time, viewportWidth, viewportHeight, language } =
+viewHero { boat, mesh, loading, course, time, viewportWidth, viewportHeight, language } =
     let
         heroWidth =
             clamp 288 1024 (viewportWidth - 32)
@@ -178,7 +179,7 @@ viewHero { boat, mesh, loading, time, viewportWidth, viewportHeight, language } 
         [ Attr.class "relative w-full shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-brand"
         , Attr.style "height" (String.fromInt heroHeight ++ "px")
         ]
-        [ Render.renderShipyard mesh time heroWidth heroHeight
+        [ Render.renderShipyard course.map mesh time heroWidth heroHeight
         , div [ Attr.class "absolute top-3 left-3 flex items-center gap-2 pointer-events-none" ]
             [ span [ Attr.class "px-3 py-1.5 rounded-xl bg-brand/90 border border-white/20 text-xs font-bold" ]
                 [ text (T.boatName language boat.name) ]
