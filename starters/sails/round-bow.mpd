@@ -3,10 +3,10 @@
 0 Name: Round Bow Hull
 0 Author: Brick Family starter bases
 0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
-0 // Description: Round-nosed 6 x 14 stud hull: round bricks and curved inverted slopes at the bow.
-0 // Parts: 43 (all inside the grouped submodel round-bow-base.ldr)
+0 // Description: Micro 2 x 6 stud round-nosed cog with round brick stem, flush deck and keel.
+0 // Parts: 7 (all inside the grouped submodel round-bow-base.ldr)
 0 // Hull only: no mast or sail (add them in the editor)
-0 // Bounds LDU: x -60..60, y -20..72, z -160..120 (size 120 x 92 x 280)
+0 // Bounds LDU: x -20..20, y -12..72, z -60..60 (size 40 x 84 x 120)
 0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
 1 16 0 0 0 1 0 0 0 1 0 0 0 1 round-bow-base.ldr
 0 NOFILE
@@ -14,52 +14,15 @@
 0 Round Bow Hull (grouped)
 0 Name: round-bow-base.ldr
 0 Author: Brick Family starter bases
-0 // Upper hull course (y 0..24): 6 wide, 2x2 round bricks round off the bow corners
-1 14 -40 0 -80 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 -40 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 -40 0 80 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 0 0 -100 1 0 0 0 1 0 0 0 1 3003.dat
-1 14 0 0 -40 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 0 0 40 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 0 0 100 1 0 0 0 1 0 0 0 1 3003.dat
-1 14 40 0 -80 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 40 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 40 0 80 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 -40 0 -140 1 0 0 0 1 0 0 0 1 3941.dat
-1 14 40 0 -140 1 0 0 0 1 0 0 0 1 3941.dat
-1 14 0 0 -130 1 0 0 0 1 0 0 0 1 3660b.dat
-0 // Lower hull course (y 24..48): 4 wide, curved inverted slopes under the bow
-1 14 -20 24 -40 0 0 1 0 1 0 -1 0 0 3001.dat
-1 14 -20 24 30 0 0 1 0 1 0 -1 0 0 3002.dat
-1 14 -20 24 70 1 0 0 0 1 0 0 0 1 3004.dat
-1 14 20 24 -60 1 0 0 0 1 0 0 0 1 3003.dat
-1 14 20 24 -10 0 0 1 0 1 0 -1 0 0 3002.dat
-1 14 20 24 50 0 0 1 0 1 0 -1 0 0 3002.dat
-1 14 -30 24 -90 -1 0 0 0 1 0 0 0 -1 24201.dat
-1 14 -10 24 -90 -1 0 0 0 1 0 0 0 -1 24201.dat
-1 14 10 24 -90 -1 0 0 0 1 0 0 0 -1 24201.dat
-1 14 30 24 -90 -1 0 0 0 1 0 0 0 -1 24201.dat
-1 14 -20 24 90 -1 0 0 0 1 0 0 0 -1 3660b.dat
-1 14 20 24 90 -1 0 0 0 1 0 0 0 -1 3660b.dat
-0 // Keel (y 48..72): 2 wide with inverted slopes
-1 0 0 48 -20 0 0 1 0 1 0 -1 0 0 3001.dat
-1 0 0 48 40 1 0 0 0 1 0 0 0 1 3003.dat
-1 0 0 48 -70 1 0 0 0 1 0 0 0 1 3660b.dat
-1 0 0 48 70 -1 0 0 0 1 0 0 0 -1 3660b.dat
-0 // Flat deck (y -8..0): 6x12 plate, round 2x2 plates over the round bricks
-1 15 0 -8 0 0 0 1 0 1 0 -1 0 0 3028.dat
-1 15 -40 -8 -140 1 0 0 0 1 0 0 0 1 4032b.dat
-1 15 40 -8 -140 1 0 0 0 1 0 0 0 1 4032b.dat
-1 15 0 -8 -140 1 0 0 0 1 0 0 0 1 3022.dat
-0 // Gunwales and foredeck (y -16..-8) lock the round bow plates to the main deck
-1 0 -50 -16 -100 0 0 1 0 1 0 -1 0 0 3710.dat
-1 0 -50 -16 -20 0 0 1 0 1 0 -1 0 0 3710.dat
-1 0 -50 -16 60 0 0 1 0 1 0 -1 0 0 3710.dat
-1 0 -50 -16 110 1 0 0 0 1 0 0 0 1 3024.dat
-1 0 50 -16 -110 0 0 1 0 1 0 -1 0 0 3623.dat
-1 0 50 -16 -40 0 0 1 0 1 0 -1 0 0 3710.dat
-1 0 50 -16 40 0 0 1 0 1 0 -1 0 0 3710.dat
-1 0 50 -16 100 0 0 1 0 1 0 -1 0 0 3023b.dat
-1 15 0 -16 -100 0 0 1 0 1 0 -1 0 0 3020.dat
-1 0 0 -16 110 1 0 0 0 1 0 0 0 1 3710.dat
+0 // Deck (y -8..0): 2x2 round plate bow cap and 2x4 main deck plate
+1 15 0 -8 -40 1 0 0 0 1 0 0 0 1 4032b.dat
+1 15 0 -8 20 0 0 1 0 1 0 -1 0 0 3020.dat
+0 // Upper hull (y 0..24): 2x2 round brick bow stem and 2x4 brick
+1 14 0 0 -40 1 0 0 0 1 0 0 0 1 3941.dat
+1 14 0 0 20 0 0 1 0 1 0 -1 0 0 3001.dat
+0 // Lower hull (y 24..48): 2x2 brick stem lock and inverted slope transom
+1 14 0 24 -20 1 0 0 0 1 0 0 0 1 3003.dat
+1 14 0 24 30 -1 0 0 0 1 0 0 0 -1 3660b.dat
+0 // Keel (y 48..72)
+1 0 0 48 -20 0 0 1 0 1 0 -1 0 0 3003.dat
 0 NOFILE

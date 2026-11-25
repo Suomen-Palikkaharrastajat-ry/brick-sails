@@ -7,15 +7,14 @@ no mast or sail: the player adds those. The ship editor (`Pages.Build`,
 
 | File | Name | Parts | Bounds in LDU (x / y / z) | Character |
 |---|---|---|---|---|
-| `sails/narrow-racer.mpd` | Narrow Racing Hull | 26 | -40..40 / -20..96 / -160..160 (80 x 116 x 320) | 4 wide, wing-plate (`51739`) pointed bow, deep fin keel |
-| `sails/wide-sturdy.mpd` | Wide Sturdy Hull | 39 | -60..60 / -20..72 / -140..140 (120 x 92 x 280) | 6 wide, three courses deep, blunt bow |
-| `sails/long-cruiser.mpd` | Long Cruiser Hull | 38 | -40..40 / -20..72 / -280..280 (80 x 92 x 560) | 4 x 28 studs, pointed bow, full-length 2-wide keel |
-| `sails/round-bow.mpd` | Round Bow Hull | 43 | -60..60 / -20..72 / -160..120 (120 x 92 x 280) | 6 wide, round bricks, round plates and curved inverted slopes at the bow |
+| `sails/narrow-racer.mpd` | Narrow Racing Hull | 6 | -20..20 / -12..72 / -70..50 (40 x 84 x 120) | Micro 2 x 6 stud racing sloop with inverted slope bow, flat plate deck and fin keel |
+| `sails/wide-sturdy.mpd` | Wide Sturdy Hull | 8 | -40..40 / -12..72 / -70..50 (80 x 84 x 120) | Micro 4 x 6 stud beamy galleon with twin bow slopes, broad deck and central keel |
+| `sails/long-cruiser.mpd` | Long Cruiser Hull | 8 | -20..20 / -12..72 / -80..80 (40 x 84 x 160) | Sleek 2 x 8 stud micro clipper with wing-plate bow cutwater, long deck and keel |
+| `sails/round-bow.mpd` | Round Bow Hull | 7 | -20..20 / -12..72 / -60..60 (40 x 84 x 120) | Micro 2 x 6 stud round-nosed cog with round brick stem, flush deck and keel |
 
 Bounds are from the real catalog geometry, in LDraw axes like
 `Sails.Boats`: -Y is up, the bow points to -Z, the hull bricks' tops are at
-y = 0, the deck plates on top of them at y = -8, gunwale plates at y = -16 and
-the keel hangs below y = 24.
+y = 0, the deck plates on top of them at y = -8 and the keel hangs below y = 24.
 
 ## Layout of a file
 
@@ -33,10 +32,8 @@ title the game shows ("Your build: Round Bow Hull").
 
 ## Build rules they meet
 
-- Well under `Sails.Ingest.maxShipParts` (600): 26 to 43 parts.
-- `Sails.Ingest.validateShip` accepts each one: the hull part count is far
-  above the 2 parts `Sails.Analyze` needs to float. With no sail yet the
-  analysis gives only the "No sail detected" advisory.
+- Micro-scale starter base budget: 6 to 8 parts (< 10 parts each), leaving maximum part budget for player customization.
+- `Sails.Ingest.validateShip` accepts each one: the hull part count is above the 2 parts `Sails.Analyze` needs to float. With no sail yet the analysis gives only the "No sail detected" advisory.
 - Parts whose origin is lower than y = 10 (LDraw y > 10) count as keel (`RudderKeel`) in `Sails.Ingest`; every hull has one.
 
 ## Checks
