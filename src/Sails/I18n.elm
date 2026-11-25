@@ -89,6 +89,9 @@ module Sails.I18n exposing
     , spaceKey
     , speedKnotsTitle
     , speedLabel
+    , standardDroppedToast
+    , standardRepatriatedToast
+    , standardSeizedToast
     , starsAria
     , startRace
     , steerLabel
@@ -803,6 +806,51 @@ factionSunkToast faction lang =
             pick lang "Punitakki upposi!" "RedCoat sunk!"
 
 
+{-| A player seized an enemy faction's regalia standard from their harbor.
+-}
+standardSeizedToast : Faction -> Lang -> String
+standardSeizedToast faction lang =
+    case faction of
+        Pirates ->
+            pick lang "Merirosvojen lippu vallattu! Suuntaa kotisatamaan!" "Seized the Pirate Standard! Head for home port!"
+
+        BlueCoats ->
+            pick lang "Kuvernöörin vaakuna vallattu! Suuntaa kotisatamaan!" "Seized the Governor's Golden Crest! Head for home port!"
+
+        RedCoats ->
+            pick lang "Kuninkaallinen sotalippu vallattu! Suuntaa kotisatamaan!" "Seized the Crown's Royal Ensign! Head for home port!"
+
+
+{-| A carried standard fell into the sea upon ship destruction or wreck.
+-}
+standardDroppedToast : Faction -> Lang -> String
+standardDroppedToast faction lang =
+    case faction of
+        Pirates ->
+            pick lang "Merirosvojen lippu putosi aaltoihin!" "Pirate Standard lost at sea!"
+
+        BlueCoats ->
+            pick lang "Kuvernöörin vaakuna putosi aaltoihin!" "Governor's Crest lost at sea!"
+
+        RedCoats ->
+            pick lang "Kuninkaallinen sotalippu putosi aaltoihin!" "Royal Ensign lost at sea!"
+
+
+{-| A seized standard was successfully returned and repatriated to home citadel.
+-}
+standardRepatriatedToast : Faction -> Lang -> String
+standardRepatriatedToast faction lang =
+    case faction of
+        Pirates ->
+            pick lang "Merirosvojen lippu kotiutettu! −15 s!" "Pirate Standard repatriated! −15 s bonus!"
+
+        BlueCoats ->
+            pick lang "Kuvernöörin vaakuna kotiutettu! −15 s!" "Governor's Crest repatriated! −15 s bonus!"
+
+        RedCoats ->
+            pick lang "Kuninkaallinen sotalippu kotiutettu! −15 s!" "Royal Ensign repatriated! −15 s bonus!"
+
+
 {-| A pirate ship came alongside and boarded the boat.
 Kept for backwards compatibility.
 -}
@@ -1200,6 +1248,15 @@ allPhrases =
     , ( "factionSunkToast Pirates", factionSunkToast Pirates )
     , ( "factionSunkToast BlueCoats", factionSunkToast BlueCoats )
     , ( "factionSunkToast RedCoats", factionSunkToast RedCoats )
+    , ( "standardSeizedToast Pirates", standardSeizedToast Pirates )
+    , ( "standardSeizedToast BlueCoats", standardSeizedToast BlueCoats )
+    , ( "standardSeizedToast RedCoats", standardSeizedToast RedCoats )
+    , ( "standardDroppedToast Pirates", standardDroppedToast Pirates )
+    , ( "standardDroppedToast BlueCoats", standardDroppedToast BlueCoats )
+    , ( "standardDroppedToast RedCoats", standardDroppedToast RedCoats )
+    , ( "standardRepatriatedToast Pirates", standardRepatriatedToast Pirates )
+    , ( "standardRepatriatedToast BlueCoats", standardRepatriatedToast BlueCoats )
+    , ( "standardRepatriatedToast RedCoats", standardRepatriatedToast RedCoats )
     , ( "finalTimeLabel", finalTimeLabel )
     , ( "sailingStat", sailingStat )
     , ( "hitsStat", hitsStat )

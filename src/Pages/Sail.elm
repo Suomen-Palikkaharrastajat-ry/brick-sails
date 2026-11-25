@@ -52,9 +52,12 @@ import Sails.Types
         , CombatImpact
         , Course
         , CourseProgress
+        , Faction(..)
         , LeaderboardEntry
         , SailingState
+        , StandardState(..)
         , Target
+        , standardForCarrier
         )
 import Sails.Weather as Weather exposing (Weather)
 import Sails.Wreck as Wreck
@@ -109,6 +112,8 @@ type alias SailModel =
     , crewClock : Float
     , moorings : Dict Int Float
     , crewTime : Maybe Float
+    , playerFaction : Faction
+    , standards : List StandardState
     }
 
 
@@ -221,6 +226,11 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , crewClock = 0
     , moorings = Dict.empty
     , crewTime = Nothing
+    , playerFaction =
+        maybeMulti
+            |> Maybe.map (\r -> Physics.factionForSlot r.mySlot)
+            |> Maybe.withDefault Pirates
+    , standards = Physics.initStandards
     }
 
 
@@ -811,6 +821,190 @@ tick dt model =
         sunkNow =
             List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
 
+        agedStandards =
+            Physics.stepStandards dt model.standards
+
+        droppedOnWreckStandards =
+            if justWrecked then
+                case model.state.carriedStandard of
+                    Just f ->
+                        List.map
+                            (\s ->
+                                if s == CarriedBy (mySlot model) f then
+                                    AtSea f model.state.position 0.0
+
+                                else
+                                    s
+                            )
+                            agedStandards
+
+                    Nothing ->
+                        agedStandards
+
+            else
+                agedStandards
+
+        droppedPirateStandards =
+            List.foldl
+                (\( p, ps ) stds ->
+                    let
+                        slot =
+                            Pirates.shipSlot p.id
+                    in
+                    List.map
+                        (\s ->
+                            case s of
+                                CarriedBy sSlot f ->
+                                    if sSlot == slot then
+                                        AtSea f ps.position 0.0
+
+                                    else
+                                        s
+
+                                _ ->
+                                    s
+                        )
+                        stds
+                )
+                droppedOnWreckStandards
+                sunkNow
+
+        regalia =
+            if justWrecked then
+                { standards = droppedPirateStandards
+                , carriedStandard = Nothing
+                , bonus = 0.0
+                , toast = Maybe.map (\f -> ( T.standardDroppedToast f model.language, 1.8 )) model.state.carriedStandard
+                , repatriated = False
+                }
+
+            else if racing then
+                case model.state.carriedStandard of
+                    Nothing ->
+                        let
+                            recoverableAtSea =
+                                droppedPirateStandards
+                                    |> List.filter (Physics.canRecoverStandardAtSea state.position)
+                                    |> List.head
+                        in
+                        case recoverableAtSea of
+                            Just (AtSea f _ _) ->
+                                let
+                                    slot =
+                                        mySlot model
+
+                                    updatedStandards =
+                                        List.map
+                                            (\s ->
+                                                case s of
+                                                    AtSea sf _ _ ->
+                                                        if sf == f then
+                                                            CarriedBy slot f
+
+                                                        else
+                                                            s
+
+                                                    _ ->
+                                                        s
+                                            )
+                                            droppedPirateStandards
+                                in
+                                { standards = updatedStandards
+                                , carriedStandard = Just f
+                                , bonus = 0.0
+                                , toast = Just ( T.standardSeizedToast f model.language, 2.0 )
+                                , repatriated = False
+                                }
+
+                            _ ->
+                                let
+                                    enemyFactions =
+                                        [ Pirates, BlueCoats, RedCoats ]
+                                            |> List.filter (\f -> f /= model.playerFaction)
+
+                                    seizableFaction =
+                                        enemyFactions
+                                            |> List.filter
+                                                (\f ->
+                                                    List.any (Physics.canSeizeStandard state.position state.speed model.course f) droppedPirateStandards
+                                                )
+                                            |> List.head
+                                in
+                                case seizableFaction of
+                                    Just enemyFaction ->
+                                        let
+                                            slot =
+                                                mySlot model
+
+                                            updatedStandards =
+                                                List.map
+                                                    (\s ->
+                                                        if s == AtCitadel enemyFaction then
+                                                            CarriedBy slot enemyFaction
+
+                                                        else
+                                                            s
+                                                    )
+                                                    droppedPirateStandards
+                                        in
+                                        { standards = updatedStandards
+                                        , carriedStandard = Just enemyFaction
+                                        , bonus = 0.0
+                                        , toast = Just ( T.standardSeizedToast enemyFaction model.language, 2.0 )
+                                        , repatriated = False
+                                        }
+
+                                    Nothing ->
+                                        { standards = droppedPirateStandards
+                                        , carriedStandard = Nothing
+                                        , bonus = 0.0
+                                        , toast = Nothing
+                                        , repatriated = False
+                                        }
+
+                    Just carriedEnemy ->
+                        if Physics.canRepatriateStandard state.position state.speed model.course model.playerFaction (Just carriedEnemy) then
+                            let
+                                slot =
+                                    mySlot model
+
+                                updatedStandards =
+                                    List.map
+                                        (\s ->
+                                            if s == CarriedBy slot carriedEnemy then
+                                                AtCitadel carriedEnemy
+
+                                            else
+                                                s
+                                        )
+                                        droppedPirateStandards
+                            in
+                            { standards = updatedStandards
+                            , carriedStandard = Nothing
+                            , bonus = Physics.repatriationBonusSeconds
+                            , toast = Just ( T.standardRepatriatedToast carriedEnemy model.language, 2.5 )
+                            , repatriated = True
+                            }
+
+                        else
+                            { standards = droppedPirateStandards
+                            , carriedStandard = Just carriedEnemy
+                            , bonus = 0.0
+                            , toast = Nothing
+                            , repatriated = False
+                            }
+
+            else
+                { standards = droppedPirateStandards
+                , carriedStandard = model.state.carriedStandard
+                , bonus = 0.0
+                , toast = Nothing
+                , repatriated = False
+                }
+
+        finalState =
+            { state | carriedStandard = regalia.carriedStandard }
+
         boardingPirate =
             if racing && model.pirateCooldown <= 0 then
                 piratesNow
@@ -845,7 +1039,7 @@ tick dt model =
             { progressAfterHarbours
                 | targetsHit = progressAfterHarbours.targetsHit + countedHits
                 , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
-                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus
+                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus + regalia.bonus
             }
 
         treasureToast =
@@ -900,7 +1094,7 @@ tick dt model =
                                     Nothing
 
         toast =
-            case List.filterMap identity [ hullToast, goToast, passToast, treasureToast, hitToast ] of
+            case List.filterMap identity [ regalia.toast, hullToast, goToast, passToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -954,6 +1148,11 @@ tick dt model =
 
               else if knocked then
                 sfx (GameAudio.Impact 0.6)
+
+              else
+                Cmd.none
+            , if regalia.repatriated then
+                sfx GameAudio.Finish
 
               else
                 Cmd.none
@@ -1047,20 +1246,27 @@ tick dt model =
                 Nothing
 
         celebration =
-            case ending of
-                Just e ->
-                    let
-                        -- Bursts already gone off before this step.
-                        done =
-                            model.ending
-                                |> Maybe.map (Ending.bursts Nothing)
-                                |> Maybe.withDefault 0
-                    in
-                    List.range done (done + Ending.bursts model.ending e - 1)
-                        |> List.concatMap (\n -> Ending.confetti n state)
+            (if regalia.repatriated then
+                Ending.confetti 1 state
 
-                Nothing ->
-                    []
+             else
+                []
+            )
+                ++ (case ending of
+                        Just e ->
+                            let
+                                -- Bursts already gone off before this step.
+                                done =
+                                    model.ending
+                                        |> Maybe.map (Ending.bursts Nothing)
+                                        |> Maybe.withDefault 0
+                            in
+                            List.range done (done + Ending.bursts model.ending e - 1)
+                                |> List.concatMap (\n -> Ending.confetti n state)
+
+                        Nothing ->
+                            []
+                   )
 
         crewClock =
             if roomVoyage model then
@@ -1107,7 +1313,7 @@ tick dt model =
                     model.crewTime
     in
     ( { model
-        | state = state
+        | state = finalState
         , progress = progress
         , phase = phase
         , follow = follow
@@ -1117,6 +1323,7 @@ tick dt model =
         , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
+        , standards = regalia.standards
         , pirateCooldown =
             if boarding then
                 Pirates.boardingCooldown
@@ -1222,8 +1429,8 @@ type alias RemoteShipLookup =
 {-| Another player's boat, in their player colour: the ship they shared (a
 built-in boat or their own build), or the default boat until it arrives.
 -}
-remoteBoat : RemoteShipLookup -> Multiplayer.RemotePlayer -> RenderBoat
-remoteBoat remoteShip p =
+remoteBoat : List StandardState -> RemoteShipLookup -> Multiplayer.RemotePlayer -> RenderBoat
+remoteBoat standards remoteShip p =
     let
         rot =
             Vec3.toRecord p.rotation
@@ -1240,6 +1447,7 @@ remoteBoat remoteShip p =
         , pitch = rot.x
         , bumped = False
         , sail = 1
+        , carriedStandard = standardForCarrier p.slot standards
         }
     , sailTint = Just (slotTint p.slot)
     }
@@ -1247,10 +1455,16 @@ remoteBoat remoteShip p =
 
 {-| A pirate ship as drawn: the pirates' boat with black sails.
 -}
-pirateBoat : (String -> Maybe ShipMesh) -> ( Pirate, SailingState ) -> RenderBoat
-pirateBoat meshFor ( pirate, state ) =
+pirateBoat : List StandardState -> (String -> Maybe ShipMesh) -> ( Pirate, SailingState ) -> RenderBoat
+pirateBoat standards meshFor ( pirate, state ) =
     { mesh = meshFor (Pirates.shipNameFor pirate)
-    , state = state
+    , state =
+        case standardForCarrier (Pirates.shipSlot pirate.id) standards of
+            Just f ->
+                { state | carriedStandard = Just f }
+
+            Nothing ->
+                state
     , sailTint = Just (Pirates.sailTint pirate)
     }
 
@@ -1292,8 +1506,8 @@ viewRace model callbacks maybeRoom =
 
         boats =
             ownBoat
-                ++ List.map (remoteBoat callbacks.remoteShip) (remotePlayers model)
-                ++ List.map (pirateBoat callbacks.meshFor) (afloatPirates model)
+                ++ List.map (remoteBoat model.standards callbacks.remoteShip) (remotePlayers model)
+                ++ List.map (pirateBoat model.standards callbacks.meshFor) (afloatPirates model)
 
         loadingShips =
             remotePlayers model
@@ -1343,6 +1557,7 @@ viewRace model callbacks maybeRoom =
             , props = callbacks.props
             , debris = model.debris
             , shipMeshOf = shipMeshOf
+            , standards = model.standards
             }
     in
     div

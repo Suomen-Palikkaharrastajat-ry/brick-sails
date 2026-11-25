@@ -93,5 +93,16 @@ suite =
                         , \_ -> Expect.equal "Port Royal Brick" (T.citadelName En RedCoats)
                         ]
                         ()
+            , test "standard toasts have Finnish and English phrases" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.equal "Kuvernöörin vaakuna vallattu! Suuntaa kotisatamaan!" (T.standardSeizedToast BlueCoats Fi)
+                        , \_ -> Expect.equal "Seized the Governor's Golden Crest! Head for home port!" (T.standardSeizedToast BlueCoats En)
+                        , \_ -> Expect.equal "Kuvernöörin vaakuna putosi aaltoihin!" (T.standardDroppedToast BlueCoats Fi)
+                        , \_ -> Expect.equal "Governor's Crest lost at sea!" (T.standardDroppedToast BlueCoats En)
+                        , \_ -> Expect.equal "Kuvernöörin vaakuna kotiutettu! −15 s!" (T.standardRepatriatedToast BlueCoats Fi)
+                        , \_ -> Expect.equal "Governor's Crest repatriated! −15 s bonus!" (T.standardRepatriatedToast BlueCoats En)
+                        ]
+                        ()
             ]
         ]

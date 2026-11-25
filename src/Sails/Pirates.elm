@@ -399,6 +399,7 @@ stateAt t p =
     , pitch = 0
     , bumped = False
     , sail = 1
+    , carriedStandard = Nothing
     }
 
 

@@ -11,14 +11,20 @@ module Sails.Types exposing
     , LeaderboardEntry
     , SailingState
     , ShipSpec
+    , StandardState(..)
     , Target
     , Town
     , Treasure
     , ViewMode(..)
     , Waypoint
     , Wind
+    , carriedBySlot
+    , isAtCitadel
+    , isAtSea
     , lduToMeters
     , metersToLdu
+    , standardFaction
+    , standardForCarrier
     )
 
 {-| Domain data types for Brick Sails: the toy boats, the harbour course,
@@ -86,6 +92,79 @@ type Faction
     = Pirates
     | BlueCoats
     | RedCoats
+
+
+{-| A faction standard (Regalia) in the War of the Three Ensigns:
+safe in its home citadel, carried aboard a ship, or bobbing in the sea
+after a wreck.
+-}
+type StandardState
+    = AtCitadel Faction
+    | CarriedBy Int Faction
+    | AtSea Faction Vec3 Float
+
+
+{-| The faction whose standard this is.
+-}
+standardFaction : StandardState -> Faction
+standardFaction std =
+    case std of
+        AtCitadel f ->
+            f
+
+        CarriedBy _ f ->
+            f
+
+        AtSea f _ _ ->
+            f
+
+
+{-| Whether this standard is currently safe at its citadel.
+-}
+isAtCitadel : Faction -> StandardState -> Bool
+isAtCitadel f std =
+    case std of
+        AtCitadel sf ->
+            sf == f
+
+        _ ->
+            False
+
+
+{-| Whether this standard is carried by a specific ship slot.
+-}
+carriedBySlot : Int -> StandardState -> Maybe Faction
+carriedBySlot slot std =
+    case std of
+        CarriedBy s f ->
+            if s == slot then
+                Just f
+
+            else
+                Nothing
+
+        _ ->
+            Nothing
+
+
+{-| Find which standard is carried by a specific slot from a list of standards.
+-}
+standardForCarrier : Int -> List StandardState -> Maybe Faction
+standardForCarrier slot standards =
+    List.filterMap (carriedBySlot slot) standards
+        |> List.head
+
+
+{-| Whether this standard is bobbing at sea.
+-}
+isAtSea : StandardState -> Bool
+isAtSea std =
+    case std of
+        AtSea _ _ _ ->
+            True
+
+        _ ->
+            False
 
 
 {-| A small brick town on an island's shore: houses on the grass and a pier
@@ -240,6 +319,7 @@ type alias SailingState =
     , pitch : Float
     , bumped : Bool
     , sail : Float
+    , carriedStandard : Maybe Faction
     }
 
 

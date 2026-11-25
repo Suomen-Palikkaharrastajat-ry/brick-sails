@@ -4,6 +4,9 @@ module Sails.Physics exposing
     , beachHeight
     , bonusPerHit
     , bumpShips
+    , canRecoverStandardAtSea
+    , canRepatriateStandard
+    , canSeizeStandard
     , cannonRange
     , checkBoatHits
     , checkShipHits
@@ -17,6 +20,9 @@ module Sails.Physics exposing
     , dockSeconds
     , dockSpeed
     , driftWith
+    , factionForSlot
+    , factionHarbourPoint
+    , factionTown
     , finalTime
     , fireCannons
     , grassHeight
@@ -25,9 +31,12 @@ module Sails.Physics exposing
     , helmCurve
     , initProgress
     , initSailingState
+    , initStandards
+    , keelBurdenBoat
     , nearestCoursePoint
     , overpower
     , reachedTreasure
+    , repatriationBonusSeconds
     , rockImpact
     , roughSeaStrain
     , routeCount
@@ -43,6 +52,7 @@ module Sails.Physics exposing
     , stepImpacts
     , stepProgress
     , stepProjectiles
+    , stepStandards
     , stepTargets
     , swellHeading
     , treasureReach
@@ -75,7 +85,9 @@ import Sails.Types
         , HarbourKind(..)
         , Island
         , SailingState
+        , StandardState(..)
         , Target
+        , Town
         , Treasure
         , Waypoint
         , Wind
@@ -387,6 +399,7 @@ initSailingState course =
     , pitch = 0
     , bumped = False
     , sail = 1
+    , carriedStandard = Nothing
     }
 
 
@@ -638,12 +651,32 @@ headSeaLoss scale heading =
     clamp 0 0.25 (0.06 * headOn * max 0 (scale - 1))
 
 
+{-| Keel burden handling modifier when carrying a faction standard:
+top speed reduced by 18% (0.82x), acceleration and turn rate reduced by 25% (0.75x).
+-}
+keelBurdenBoat : SailingState -> Boat -> Boat
+keelBurdenBoat state boat =
+    case state.carriedStandard of
+        Just _ ->
+            { boat
+                | topSpeed = boat.topSpeed * 0.82
+                , turnRate = boat.turnRate * 0.75
+                , acceleration = boat.acceleration * 0.75
+            }
+
+        Nothing ->
+            boat
+
+
 {-| Advance the boat one step. `wind` is the wind blowing now (the course
 wind in fair weather, see `Sails.Weather`).
 -}
 stepBoat : StepInput -> Wind -> Boat -> List Island -> SailingState -> SailingState
-stepBoat input wind boat islands state =
+stepBoat input wind rawBoat islands state =
     let
+        boat =
+            keelBurdenBoat state rawBoat
+
         dt =
             clamp 0.001 0.05 input.dt
 
@@ -780,6 +813,7 @@ stepBoat input wind boat islands state =
     , pitch = 2.5 * sin (input.time * 2.1) * (0.4 + 0.6 * speedRatio) + wavePitch
     , bumped = bumped
     , sail = sail
+    , carriedStandard = state.carriedStandard
     }
 
 
@@ -1551,3 +1585,132 @@ stepImpacts dt impacts =
                 Nothing
         )
         impacts
+
+
+
+-- REGALIA & CITADEL STANDARDS
+
+
+{-| Initial standards: one for each faction, safe at their citadels.
+-}
+initStandards : List StandardState
+initStandards =
+    [ AtCitadel Pirates
+    , AtCitadel BlueCoats
+    , AtCitadel RedCoats
+    ]
+
+
+{-| Assigns a faction to a multiplayer slot or player seat.
+-}
+factionForSlot : Int -> Faction
+factionForSlot slot =
+    case modBy 3 slot of
+        1 ->
+            Pirates
+
+        2 ->
+            BlueCoats
+
+        _ ->
+            RedCoats
+
+
+{-| Town corresponding to a faction's stronghold citadel.
+-}
+factionTown : Course -> Faction -> Maybe Town
+factionTown course faction =
+    course.towns
+        |> List.filter (\t -> t.faction == Just faction)
+        |> List.head
+
+
+{-| Harbour water coordinate for a faction's citadel.
+-}
+factionHarbourPoint : Course -> Faction -> Vec3
+factionHarbourPoint course faction =
+    case factionTown course faction of
+        Just town ->
+            shorePoint town.island town.bearing ((town.island.radius + harbourOffshore) / town.island.radius)
+
+        Nothing ->
+            case faction of
+                Pirates ->
+                    shorePoint smugglerIsland 195 ((smugglerIsland.radius + harbourOffshore) / smugglerIsland.radius)
+
+                BlueCoats ->
+                    shorePoint anchorageIsland 130 ((anchorageIsland.radius + harbourOffshore) / anchorageIsland.radius)
+
+                RedCoats ->
+                    shorePoint harbourIsland 268 ((harbourIsland.radius + harbourOffshore) / harbourIsland.radius)
+
+
+{-| Advance standard states over time (bobbing age at sea, resetting to citadel after 60s).
+-}
+stepStandards : Float -> List StandardState -> List StandardState
+stepStandards dt standards =
+    List.map
+        (\std ->
+            case std of
+                AtSea faction pos age ->
+                    if age + dt > 60.0 then
+                        AtCitadel faction
+
+                    else
+                        AtSea faction pos (age + dt)
+
+                other ->
+                    other
+        )
+        standards
+
+
+{-| Whether a boat is close and slow enough to seize an enemy faction standard at its citadel.
+-}
+canSeizeStandard : Vec3 -> Float -> Course -> Faction -> StandardState -> Bool
+canSeizeStandard boatPos boatSpeed course enemyFaction standard =
+    case standard of
+        AtCitadel f ->
+            if f == enemyFaction && boatSpeed < 3.0 then
+                horizontalDistance boatPos (factionHarbourPoint course enemyFaction) <= harbourRadius
+
+            else
+                False
+
+        _ ->
+            False
+
+
+{-| Whether a boat is close enough (within 4.5 m) to recover a standard floating at sea.
+-}
+canRecoverStandardAtSea : Vec3 -> StandardState -> Bool
+canRecoverStandardAtSea boatPos standard =
+    case standard of
+        AtSea _ pos _ ->
+            horizontalDistance boatPos pos <= 4.5
+
+        _ ->
+            False
+
+
+{-| Whether a boat carrying an enemy standard is close and slow enough at its home harbor to repatriate it.
+-}
+canRepatriateStandard : Vec3 -> Float -> Course -> Faction -> Maybe Faction -> Bool
+canRepatriateStandard boatPos boatSpeed course homeFaction carried =
+    case carried of
+        Just enemyFaction ->
+            if enemyFaction /= homeFaction && boatSpeed < 3.0 then
+                horizontalDistance boatPos (factionHarbourPoint course homeFaction) <= harbourRadius
+
+            else
+                False
+
+        Nothing ->
+            False
+
+
+{-| Bonus seconds awarded when an enemy standard is repatriated to home citadel.
+-}
+repatriationBonusSeconds : Float
+repatriationBonusSeconds =
+    15.0

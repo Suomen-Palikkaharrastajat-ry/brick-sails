@@ -60,10 +60,12 @@ import Sails.Types
         , HarbourKind(..)
         , Island
         , SailingState
+        , StandardState(..)
         , Target
         , Town
         , Treasure
         , Waypoint
+        , isAtCitadel
         )
 import Sails.Weather exposing (Conditions)
 import Sails.Wreck as Wreck
@@ -138,6 +140,7 @@ renderWorld :
         , props : Props
         , debris : List Wreck.Piece
         , shipMeshOf : Wreck.Source -> Maybe ShipMesh
+        , standards : List StandardState
         }
     -> Int
     -> Int
@@ -183,11 +186,12 @@ renderWorld cam scene width height =
                 ++ seaArchEntities ctx width height scene.scenery
                 ++ seabirdFlockEntities draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
-                ++ townEntities ctx width height scene.scenery draw scene.course.towns
+                ++ townEntities ctx width height scene.scenery draw scene.standards scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (harbourEntities ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
-                ++ List.concatMap (boatEntities ctx width height) scene.boats
+                ++ List.concatMap (boatEntities ctx width height draw) scene.boats
+                ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
                 ++ guideEntities ctx scene.guide
                 ++ List.concatMap (ballEntity draw) scene.balls
@@ -314,12 +318,18 @@ renderShipyard mesh time width height =
             , pitch = 2 * sin (time * 1.7)
             , bumped = False
             , sail = 1
+            , carriedStandard = Nothing
+            }
+
+        dummyDraw =
+            { prop = \_ _ _ -> []
+            , fitted = \_ _ _ _ -> []
             }
     in
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height { mesh = mesh, state = state, sailTint = Nothing }
+            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing }
         )
 
 
@@ -347,11 +357,11 @@ white =
     vec3 1 1 1
 
 
-{-| Draw one brick boat: the hull and rig, and the sails hoisted as far as
-the boat's sail setting.
+{-| Draw one brick boat: the hull and rig, the sails hoisted as far as
+the boat's sail setting, and any captured faction standard hoisted banner.
 -}
-boatEntities : Ctx -> Int -> Int -> RenderBoat -> List WebGL.Entity
-boatEntities ctx width height rb =
+boatEntities : Ctx -> Int -> Int -> Draw -> RenderBoat -> List WebGL.Entity
+boatEntities ctx width height draw rb =
     case rb.mesh of
         Nothing ->
             []
@@ -394,9 +404,36 @@ boatEntities ctx width height rb =
                             |> Mat4.scale3 1 hoist 1
                             |> Mat4.translate3 0 -mesh.sailFoot 0
                         )
+
+                hoistedBanner =
+                    case s.carriedStandard of
+                        Just faction ->
+                            let
+                                propName =
+                                    case faction of
+                                        Pirates ->
+                                            "pirateStandard"
+
+                                        BlueCoats ->
+                                            "blueCoatStandard"
+
+                                        RedCoats ->
+                                            "redCoatStandard"
+
+                                bannerModel =
+                                    Mat4.mul world
+                                        (Mat4.makeTranslate3 0 0.8 -1.2
+                                            |> Mat4.scale3 0.6 0.6 0.6
+                                        )
+                            in
+                            draw.fitted propName (BrickProps.fitHeight 1.8) bannerModel plain
+
+                        Nothing ->
+                            []
             in
             brickPasses ctx width height distance tint model mesh.scene
                 ++ brickPasses ctx width height distance tint sailModel mesh.sails
+                ++ hoistedBanner
 
 
 {-| Draw one brick scene: the plastic surface pass, then the brick edges
@@ -920,10 +957,10 @@ sceneryEntities ctx width height scenery piece at bearing =
 
 {-| Each town: its houses on the grass, its pier from the beach out to
 the water's edge, and the faction standard at the end of the pier on the
-island shore.
+island shore (drawn only if still safe at the citadel).
 -}
-townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List Town -> List WebGL.Entity
-townEntities ctx width height scenery draw towns =
+townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Town -> List WebGL.Entity
+townEntities ctx width height scenery draw standards towns =
     List.concatMap
         (\town ->
             let
@@ -935,14 +972,20 @@ townEntities ctx width height scenery draw towns =
 
                 standardProp =
                     case town.faction of
-                        Just Pirates ->
-                            Just "pirateStandard"
+                        Just f ->
+                            if List.any (isAtCitadel f) standards then
+                                case f of
+                                    Pirates ->
+                                        Just "pirateStandard"
 
-                        Just BlueCoats ->
-                            Just "blueCoatStandard"
+                                    BlueCoats ->
+                                        Just "blueCoatStandard"
 
-                        Just RedCoats ->
-                            Just "redCoatStandard"
+                                    RedCoats ->
+                                        Just "redCoatStandard"
+
+                            else
+                                Nothing
 
                         Nothing ->
                             Nothing
@@ -963,6 +1006,48 @@ townEntities ctx width height scenery draw towns =
                 ++ standardEntities
         )
         towns
+
+
+{-| A faction standard lost at sea: bobbing in the waves with a golden beacon glow ring.
+-}
+standardAtSeaEntities : Ctx -> Draw -> Float -> StandardState -> List WebGL.Entity
+standardAtSeaEntities ctx draw time std =
+    case std of
+        AtSea faction pos age ->
+            let
+                p =
+                    Vec3.toRecord pos
+
+                bob =
+                    Physics.seaElevation ctx.sea p.x p.z time + 0.3 * sin (age * 3.5)
+
+                pulse =
+                    4.5 * (1 + 0.08 * sin (age * 5))
+
+                ring =
+                    ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 pulse 1 pulse) (vec3 1 0.84 0.15) ringMesh
+
+                propName =
+                    case faction of
+                        Pirates ->
+                            "pirateStandard"
+
+                        BlueCoats ->
+                            "blueCoatStandard"
+
+                        RedCoats ->
+                            "redCoatStandard"
+
+                propMatrix =
+                    Mat4.makeTranslate3 p.x (bob + 1.2) p.z
+                        |> rotY (age * 1.8)
+                        |> rotX (degrees (6 * sin (age * 2.5)))
+                        |> rotZ (degrees (5 * cos (age * 2.0)))
+            in
+            ring :: draw.fitted propName (BrickProps.fitHeight 2.4) propMatrix plain
+
+        _ ->
+            []
 
 
 {-| Coastal natural stone arches standing in the waves.
