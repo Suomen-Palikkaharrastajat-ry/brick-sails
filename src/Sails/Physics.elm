@@ -7,6 +7,7 @@ module Sails.Physics exposing
     , checkShipHits
     , checkTargetHits
     , courseCurrent
+    , courseForSeat
     , courseFreeRange
     , courseRoute
     , defaultCourse
@@ -27,6 +28,7 @@ module Sails.Physics exposing
     , reachedTreasure
     , rockImpact
     , roughSeaStrain
+    , routeCount
     , sailDrive
     , sailLevel
     , sailLevels
@@ -44,6 +46,7 @@ module Sails.Physics exposing
     , treasureReach
     , waterElevation
     , waveScale
+    , waypointsFor
     , windFactor
     )
 
@@ -81,26 +84,35 @@ import Sails.Types
 
 
 {-| A loop round the islands: six harbours to dock at in order, each one a
-dock on the shore of one of the course's islands (see `harbour`). The loop
-leaves from the lighthouse island in the middle (its first harbour beside
-Tortuga Cove), calls at the east, northern, southern and outer islands
-beside their towns, and comes back to the lighthouse island's final harbour
-under the pirate arch, on the side facing the start. Seven floating targets
-sit beside the legs for bonus time.
+dock on the shore of one of the course's islands (see `harbour`). Every
+route calls at the same harbours, one on each of the east, northern,
+southern and outer islands beside their towns and one on the lighthouse
+island in the middle, and comes back to the lighthouse island's final
+harbour under the pirate arch, on the side facing the start; the order of
+the first ones, and so where on its island's shore each harbour docks,
+depends on the route (see `routes`). This is the first route, the one a
+boat sailing alone takes. Seven floating targets sit beside its legs for
+bonus time.
 -}
 defaultCourse : Course
 defaultCourse =
+    courseForSeat 0
+
+
+{-| The course for a seat in a room (0 for the first seat, and for a boat
+sailing alone): the same harbours, in the order of route `seat` modulo
+`routeCount`, with its own start heading and treasure chest.
+-}
+courseForSeat : Int -> Course
+courseForSeat seat =
+    let
+        route =
+            routeFor seat
+    in
     { id = "harbour-loop"
     , title = "Island Loop"
     , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on the small island past harbour 3."
-    , waypoints =
-        [ harbour 0 Harbour lighthouseIsland 135
-        , harbour 1 Harbour harbourIsland 297
-        , harbour 2 Harbour smugglerIsland 212
-        , harbour 3 Harbour anchorageIsland 110
-        , harbour 4 Harbour outerIsland 20
-        , harbour 5 FinalHarbour lighthouseIsland 215
-        ]
+    , waypoints = waypointsFor seat
     , targets =
         List.indexedMap
             (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 })
@@ -121,21 +133,118 @@ defaultCourse =
         ]
     , treasures =
         [ { id = 0
-          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland 330 0.86)
-          , bearing = 330
+          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland route.treasureBearing 0.86)
+          , bearing = route.treasureBearing
           , bonusSeconds = 6
           }
         ]
     , wind = { speed = 7.0, direction = 270.0 }
     , startPosition = vec3 0 0 0
-    , startHeading = 5.0
+    , startHeading = route.startHeading
     , targetSeconds = 110.0
     }
 
 
+{-| One order of the harbours: the islands they dock on, with the compass
+bearing of each dock from its island's centre, before the final harbour;
+the heading the boat starts on (towards the first harbour); and where on
+the treasure island's shore the chest lies, facing the leg to the fourth
+harbour (index 3), which passes it.
+-}
+type alias Route =
+    { harbours : List ( Island, Float )
+    , startHeading : Float
+    , treasureBearing : Float
+    }
+
+
+{-| The orders the harbours can be sailed in, one per seat of a room
+(seats beyond the last start again from the first). Each player calls at
+the same harbours, orienteering style, but not in the same order. An order
+has to keep every leg 8 m clear of every island (bar the 12 m into and out
+of a harbour on its own shore) and avoid turning back on itself at a
+harbour, where a boat would swing onto the rocks; with the lighthouse
+island in the middle of the loop only a few orders do, each with its own
+docks on the islands' shores (the routes run 921, 960 and 993 m):
+
+  - the lighthouse island, Port Royal, Smuggler's Reach, Governor's
+    Anchorage, the outer island;
+  - Port Royal, the lighthouse island (its north-east shore), Smuggler's
+    Reach, Governor's Anchorage, the outer island;
+  - Port Royal, Smuggler's Reach, the lighthouse island (its north
+    shore), Governor's Anchorage, the outer island.
+
+-}
+routes : List Route
+routes =
+    [ { harbours =
+            [ ( lighthouseIsland, 135 )
+            , ( harbourIsland, 297 )
+            , ( smugglerIsland, 212 )
+            , ( anchorageIsland, 110 )
+            , ( outerIsland, 20 )
+            ]
+      , startHeading = 5
+      , treasureBearing = 330
+      }
+    , { harbours =
+            [ ( harbourIsland, 297 )
+            , ( lighthouseIsland, 55 )
+            , ( smugglerIsland, 212 )
+            , ( anchorageIsland, 110 )
+            , ( outerIsland, 20 )
+            ]
+      , startHeading = 46
+      , treasureBearing = 330
+      }
+    , { harbours =
+            [ ( harbourIsland, 285 )
+            , ( smugglerIsland, 190 )
+            , ( lighthouseIsland, 340 )
+            , ( anchorageIsland, 145 )
+            , ( outerIsland, 20 )
+            ]
+      , startHeading = 47
+      , treasureBearing = 210
+      }
+    ]
+
+
+{-| How many harbour orders there are (see `routes`).
+-}
+routeCount : Int
+routeCount =
+    List.length routes
+
+
+routeFor : Int -> Route
+routeFor seat =
+    case List.drop (modBy routeCount seat) routes of
+        route :: _ ->
+            route
+
+        [] ->
+            { harbours = [], startHeading = 0, treasureBearing = 330 }
+
+
+{-| The harbours of a seat's route in the order it docks at them, numbered
+from 0, ending with the final harbour on the lighthouse island. The boat's
+progress, the brake assist and the harbour markers all go by this list.
+-}
+waypointsFor : Int -> List Waypoint
+waypointsFor seat =
+    let
+        harbours =
+            (routeFor seat).harbours
+    in
+    List.indexedMap (\i ( island, bearing ) -> harbour i Harbour island bearing) harbours
+        ++ [ harbour (List.length harbours) FinalHarbour lighthouseIsland 215 ]
+
+
 {-| The island in the middle of the course, with the fort's watchtower and
-a little colonial cove town: the loop leaves from its first harbour and
-ends at its final harbour, both on the shore facing the start.
+a little colonial cove town. It has two harbours: one the loop calls at
+(where on its shore depends on the route, see `routes`) and the final
+harbour, on the shore facing the start, where every route ends.
 -}
 lighthouseIsland : Island
 lighthouseIsland =
@@ -170,9 +279,9 @@ outerIsland =
     { x = -130, z = -60, radius = 35, height = 7 }
 
 
-{-| A small island beside the leg from harbour 3 to harbour 4, where the
-pirates buried their chest on the shore facing the route: a short detour
-off the route.
+{-| A small island beside the leg to the fourth harbour (index 3), where
+the pirates buried their chest on the shore facing that leg (see `Route`):
+a short detour off the route.
 -}
 treasureIsland : Island
 treasureIsland =

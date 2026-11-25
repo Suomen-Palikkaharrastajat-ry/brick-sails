@@ -130,11 +130,12 @@ suite =
             , test "on the course there is no current" <|
                 \_ ->
                     Expect.equal ( 0, 0 ) (Physics.courseCurrent route (vec3 10 0 30))
-            , test "the treasure detour is inside the free range" <|
+            , test "on every seat's route the treasure detour is inside the free range" <|
                 \_ ->
-                    course.treasures
-                        |> List.map (\t -> Physics.courseCurrent route t.position)
-                        |> Expect.equal (List.map (\_ -> ( 0, 0 )) course.treasures)
+                    List.range 0 (Physics.routeCount - 1)
+                        |> List.map Physics.courseForSeat
+                        |> List.concatMap (\seatCourse -> List.map (\t -> Physics.courseCurrent (Physics.courseRoute seatCourse) t.position) seatCourse.treasures)
+                        |> Expect.equal (List.repeat Physics.routeCount ( 0, 0 ))
             , test "far off the course the current carries the boat back, gently" <|
                 \_ ->
                     let

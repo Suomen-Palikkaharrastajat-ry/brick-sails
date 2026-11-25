@@ -13,7 +13,7 @@ import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh
-import Sails.Types exposing (CourseProgress, SailingState, Wind)
+import Sails.Types exposing (CourseProgress, HarbourKind(..), SailingState, Wind)
 import Sails.Weather as Weather exposing (Spell(..), Weather)
 import Test exposing (Test, describe, test)
 
@@ -21,6 +21,21 @@ import Test exposing (Test, describe, test)
 course : Sails.Types.Course
 course =
     Physics.defaultCourse
+
+
+{-| The course of every harbour order, one per seat (see
+`Physics.courseForSeat`).
+-}
+seatCourses : List Sails.Types.Course
+seatCourses =
+    List.map Physics.courseForSeat (List.range 0 (Physics.routeCount - 1))
+
+
+{-| A check that must hold for the course of every harbour order.
+-}
+everySeat : (Sails.Types.Course -> Expect.Expectation) -> Expect.Expectation
+everySeat check =
+    Expect.all (List.map (\seatCourse -> \_ -> check seatCourse) seatCourses) ()
 
 
 {-| The highest swell seen over a grid of points and a minute and a half.
@@ -108,11 +123,11 @@ turnedWith area wind =
     abs (Physics.angleDiff after.heading moving.heading)
 
 
-{-| Autopilot round the course in a weather that keeps going, with a sail
-area. Returns the progress when the course is done or `limit` runs out.
+{-| Autopilot round a seat's course in a weather that keeps going, with a
+sail area. Returns the progress when the course is done or `limit` runs out.
 -}
-raceIn : Weather -> Float -> Float -> CourseProgress
-raceIn weather0 area limit =
+raceIn : Sails.Types.Course -> Weather -> Float -> Float -> CourseProgress
+raceIn seatCourse weather0 area limit =
     let
         go weather state progress =
             if progress.finished || progress.elapsedSeconds > limit then
@@ -121,7 +136,7 @@ raceIn weather0 area limit =
             else
                 let
                     goal =
-                        List.drop progress.currentWaypointIndex course.waypoints
+                        List.drop progress.currentWaypointIndex seatCourse.waypoints
                             |> List.head
                             |> Maybe.map (.position >> Vec3.toRecord)
                             |> Maybe.withDefault { x = 0, y = 0, z = 0 }
@@ -136,28 +151,28 @@ raceIn weather0 area limit =
                         Weather.step 0.02 weather
 
                     now =
-                        Weather.conditions course.wind nextWeather
+                        Weather.conditions seatCourse.wind nextWeather
 
                     next =
                         Physics.stepBoat
                             { dt = 0.02
                             , time = progress.elapsedSeconds
                             , steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
-                            , throttle = Physics.harbourThrottle course.waypoints progress state
+                            , throttle = Physics.harbourThrottle seatCourse.waypoints progress state
                             , sea = now.sea
                             , sail = area
                             }
                             now.wind
                             Boats.default
-                            course.islands
+                            seatCourse.islands
                             state
 
                     ( nextProgress, _ ) =
-                        Physics.stepProgress 0.02 next course.waypoints progress
+                        Physics.stepProgress 0.02 next seatCourse.waypoints progress
                 in
                 go nextWeather next nextProgress
     in
-    go weather0 (Physics.initSailingState course) (Physics.initProgress course)
+    go weather0 (Physics.initSailingState seatCourse) (Physics.initProgress seatCourse)
 
 
 {-| The spells a seed's weather goes through in `seconds`, with how long
@@ -205,23 +220,24 @@ segmentDistance ( px, pz ) ( ax, az ) ( bx, bz ) =
     sqrt ((px - (ax + t * dx)) ^ 2 + (pz - (az + t * dz)) ^ 2)
 
 
-{-| The buoy route as legs, from the start line through every buoy.
+{-| A seat's route as legs, from the start line through every harbour.
 -}
-legs : List ( ( Float, Float ), ( Float, Float ) )
-legs =
+legs : Sails.Types.Course -> List ( ( Float, Float ), ( Float, Float ) )
+legs seatCourse =
     let
         pts =
-            (course.startPosition :: List.map .position course.waypoints)
+            (seatCourse.startPosition :: List.map .position seatCourse.waypoints)
                 |> List.map (\v -> ( Vec3.getX v, Vec3.getZ v ))
     in
     List.map2 Tuple.pair pts (List.drop 1 pts)
 
 
 {-| Autopilot that detours to the treasure after harbour 3 (on the leg to
-harbour 4, which passes the treasure island) and then finishes.
+the harbour with index 3, which passes the chest on every seat's route) and
+then finishes.
 -}
-treasureHunt : Float -> ( CourseProgress, List Int )
-treasureHunt limit =
+treasureHunt : Sails.Types.Course -> Float -> ( CourseProgress, List Int )
+treasureHunt seatCourse limit =
     let
         go state progress found =
             if progress.finished || progress.elapsedSeconds > limit then
@@ -230,7 +246,7 @@ treasureHunt limit =
             else
                 let
                     chest =
-                        List.head course.treasures
+                        List.head seatCourse.treasures
 
                     goal =
                         case chest of
@@ -245,7 +261,7 @@ treasureHunt limit =
                                 buoyGoal
 
                     buoyGoal =
-                        List.drop progress.currentWaypointIndex course.waypoints
+                        List.drop progress.currentWaypointIndex seatCourse.waypoints
                             |> List.head
                             |> Maybe.map (.position >> Vec3.toRecord)
                             |> Maybe.withDefault { x = 0, y = 0, z = 0 }
@@ -258,18 +274,18 @@ treasureHunt limit =
 
                     next =
                         Physics.stepBoat
-                            { dt = 0.02, time = progress.elapsedSeconds, steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25), throttle = Physics.harbourThrottle course.waypoints progress state, sea = 1, sail = 1 }
-                            course.wind
+                            { dt = 0.02, time = progress.elapsedSeconds, steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25), throttle = Physics.harbourThrottle seatCourse.waypoints progress state, sea = 1, sail = 1 }
+                            seatCourse.wind
                             Boats.default
-                            course.islands
+                            seatCourse.islands
                             state
 
                     ( nextProgress, _ ) =
-                        Physics.stepProgress 0.02 next course.waypoints progress
+                        Physics.stepProgress 0.02 next seatCourse.waypoints progress
                 in
-                go next nextProgress (found ++ List.map .id (Physics.reachedTreasure next course.treasures found))
+                go next nextProgress (found ++ List.map .id (Physics.reachedTreasure next seatCourse.treasures found))
     in
-    go (Physics.initSailingState course) (Physics.initProgress course) []
+    go (Physics.initSailingState seatCourse) (Physics.initProgress seatCourse) []
 
 
 suite : Test
@@ -495,28 +511,31 @@ suite =
                         , \_ -> Expect.equal 0 (bolts (Weather.developed Squall))
                         ]
                         ()
-            , test "the course stays finishable in a thunderstorm that never ends" <|
+            , test "every seat's course stays finishable in a thunderstorm that never ends" <|
                 \_ ->
-                    let
-                        reefed =
-                            raceIn (Weather.developed Thunderstorm) 0.65 400
+                    everySeat
+                        (\seatCourse ->
+                            let
+                                reefed =
+                                    raceIn seatCourse (Weather.developed Thunderstorm) 0.65 400
 
-                        full =
-                            raceIn (Weather.developed Thunderstorm) 1 400
+                                full =
+                                    raceIn seatCourse (Weather.developed Thunderstorm) 1 400
 
-                        fairRace =
-                            raceIn (Weather.init 1) 1 400
-                    in
-                    Expect.all
-                        [ \_ -> Expect.equal True reefed.finished
-                        , \_ -> Expect.equal True full.finished
-                        , \_ -> Expect.atMost (course.targetSeconds * 3) reefed.elapsedSeconds
-                        , \_ -> Expect.greaterThan fairRace.elapsedSeconds reefed.elapsedSeconds
-                        ]
-                        ()
+                                fairRace =
+                                    raceIn seatCourse (Weather.init 1) 1 400
+                            in
+                            Expect.all
+                                [ \_ -> Expect.equal True reefed.finished
+                                , \_ -> Expect.equal True full.finished
+                                , \_ -> Expect.atMost (seatCourse.targetSeconds * 3) reefed.elapsedSeconds
+                                , \_ -> Expect.greaterThan fairRace.elapsedSeconds reefed.elapsedSeconds
+                                ]
+                                ()
+                        )
             ]
         , describe "Islands, towns and treasure"
-            [ test "every island is clear of the route, bar 12 m into and out of a harbour on its own shore" <|
+            [ test "every island is clear of every seat's route, bar 12 m into and out of a harbour on its own shore" <|
                 \_ ->
                     let
                         -- A leg's end docks on an island: a harbour within 6 m of its shore.
@@ -551,10 +570,13 @@ suite =
                             in
                             segmentDistance ( isl.x, isl.z ) ta tb < isl.radius + 8 || segmentDistance ( isl.x, isl.z ) a b <= isl.radius + 2
                     in
-                    course.islands
-                        |> List.filter (\isl -> List.any (\leg -> tooClose leg isl) legs)
-                        |> Expect.equal []
-            , test "the start is in open water and every harbour lies just off one island's shore, clear of the others" <|
+                    everySeat
+                        (\seatCourse ->
+                            seatCourse.islands
+                                |> List.filter (\isl -> List.any (\leg -> tooClose leg isl) (legs seatCourse))
+                                |> Expect.equal []
+                        )
+            , test "the start is in open water and every seat's harbours lie just off one island's shore, clear of the others" <|
                 \_ ->
                     let
                         distance v isl =
@@ -574,10 +596,13 @@ suite =
                                 |> List.filter (\isl -> distance course.startPosition isl < isl.radius + 10)
                                 |> Expect.equal []
                         , \_ ->
-                            course.waypoints
-                                |> List.filter (\wp -> not (docked wp.position))
-                                |> List.map .index
-                                |> Expect.equal []
+                            everySeat
+                                (\seatCourse ->
+                                    seatCourse.waypoints
+                                        |> List.filter (\wp -> not (docked wp.position))
+                                        |> List.map .index
+                                        |> Expect.equal []
+                                )
                         ]
                         ()
             , test "towns stand on islands of the course and a treasure island has a chest" <|
@@ -585,9 +610,9 @@ suite =
                     Expect.all
                         [ \_ -> Expect.atLeast 1 (List.length course.towns)
                         , \_ -> Expect.equal True (List.all (\t -> List.member t.island course.islands) course.towns)
-                        , \_ -> Expect.atLeast 1 (List.length course.treasures)
+                        , \_ -> everySeat (\seatCourse -> Expect.atLeast 1 (List.length seatCourse.treasures))
                         , \_ ->
-                            course.treasures
+                            List.concatMap .treasures seatCourses
                                 |> List.all
                                     (\t ->
                                         List.any
@@ -603,19 +628,94 @@ suite =
                                 |> Expect.equal True
                         ]
                         ()
-            , test "the treasure can be reached from the route and the course still finished" <|
+            , test "on every seat's route the treasure can be reached and the course still finished" <|
+                \_ ->
+                    everySeat
+                        (\seatCourse ->
+                            let
+                                ( progress, found ) =
+                                    treasureHunt seatCourse 200
+
+                                withTreasure =
+                                    { progress | treasureFound = found, treasureBonus = List.sum (List.map .bonusSeconds seatCourse.treasures) }
+                            in
+                            Expect.all
+                                [ \_ -> Expect.equal (List.map .id seatCourse.treasures) found
+                                , \_ -> Expect.equal True progress.finished
+                                , \_ -> Expect.within (Expect.Absolute 1.0e-6) (Physics.finalTime progress - 6) (Physics.finalTime withTreasure)
+                                ]
+                                ()
+                        )
+            , test "each seat calls at the same harbours in its own order and ends at the final harbour" <|
                 \_ ->
                     let
-                        ( progress, found ) =
-                            treasureHunt 200
+                        -- The island a harbour docks on: the one with the nearest shore.
+                        dockedOn wp =
+                            course.islands
+                                |> List.map
+                                    (\isl ->
+                                        ( sqrt ((Vec3.getX wp.position - isl.x) ^ 2 + (Vec3.getZ wp.position - isl.z) ^ 2) - isl.radius
+                                        , ( isl.x, isl.z )
+                                        )
+                                    )
+                                |> List.sortBy Tuple.first
+                                |> List.head
+                                |> Maybe.map Tuple.second
 
-                        withTreasure =
-                            { progress | treasureFound = found, treasureBonus = List.sum (List.map .bonusSeconds course.treasures) }
+                        order seatCourse =
+                            List.map dockedOn seatCourse.waypoints
+
+                        harbourSet seatCourse =
+                            List.filterMap dockedOn seatCourse.waypoints |> List.sort
+
+                        final seatCourse =
+                            List.reverse seatCourse.waypoints
+                                |> List.head
+                                |> Maybe.map (\wp -> ( wp.kind, Vec3.getX wp.position, Vec3.getZ wp.position ))
+
+                        positions seatCourse =
+                            List.map (\wp -> ( Vec3.getX wp.position, Vec3.getZ wp.position )) seatCourse.waypoints
+
+                        seat0 =
+                            Physics.courseForSeat 0
+
+                        seat1 =
+                            Physics.courseForSeat 1
                     in
                     Expect.all
-                        [ \_ -> Expect.equal (List.map .id course.treasures) found
-                        , \_ -> Expect.equal True progress.finished
-                        , \_ -> Expect.within (Expect.Absolute 1.0e-6) (Physics.finalTime progress - 6) (Physics.finalTime withTreasure)
+                        [ \_ -> Expect.atLeast 2 Physics.routeCount
+                        , \_ -> Expect.notEqual (order seat0) (order seat1)
+                        , \_ -> Expect.equal (harbourSet seat0) (harbourSet seat1)
+                        , \_ ->
+                            Expect.equal (List.length seatCourses)
+                                (List.length
+                                    (List.foldl
+                                        (\c acc ->
+                                            if List.member (order c) acc then
+                                                acc
+
+                                            else
+                                                order c :: acc
+                                        )
+                                        []
+                                        seatCourses
+                                    )
+                                )
+                        , \_ ->
+                            everySeat
+                                (\seatCourse ->
+                                    Expect.all
+                                        [ \_ -> Expect.equal (harbourSet seat0) (harbourSet seatCourse)
+                                        , \_ -> Expect.equal (List.length course.waypoints) (List.length seatCourse.waypoints)
+                                        , \_ -> Expect.equal (List.range 0 (List.length seatCourse.waypoints - 1)) (List.map .index seatCourse.waypoints)
+                                        , \_ -> Expect.equal (final course) (final seatCourse)
+                                        , \_ -> Expect.equal [ FinalHarbour ] (List.filter (\k -> k == FinalHarbour) (List.map .kind seatCourse.waypoints))
+                                        , \_ -> Expect.equal seatCourse.id course.id
+                                        ]
+                                        ()
+                                )
+                        , \_ -> Expect.equal (positions seat0) (positions (Physics.courseForSeat Physics.routeCount))
+                        , \_ -> Expect.equal (positions course) (positions seat0)
                         ]
                         ()
             , test "the scenery is built from catalog bricks and stands on the ground" <|

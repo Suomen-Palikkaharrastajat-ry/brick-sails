@@ -128,8 +128,11 @@ initSail :
     -> Int
     -> Int
     -> SailModel
-initSail language boat course audioMuted pb maybeMulti tilt width height =
+initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     let
+        course =
+            routeCourse maybeMulti baseCourse
+
         state =
             Physics.initSailingState course
 
@@ -184,6 +187,24 @@ initSail language boat course audioMuted pb maybeMulti tilt width height =
     , debris = []
     , language = language
     }
+
+
+{-| The course with this player's harbour order (`Physics.courseForSeat`):
+in a room, the order of the player's own seat, so each boat calls at the
+same harbours in its own order; alone, always the first order, so personal
+bests stay comparable. Other courses are left as they are.
+
+The other boats in a room report their progress as the share of their
+harbours docked at, which means the same whatever their order.
+
+-}
+routeCourse : Maybe RoomState -> Course -> Course
+routeCourse room course =
+    if course.id == Physics.defaultCourse.id then
+        Physics.courseForSeat (room |> Maybe.map (\r -> r.mySlot - 1) |> Maybe.withDefault 0)
+
+    else
+        course
 
 
 {-| Seed of the race's weather. In a room every player gets the room's

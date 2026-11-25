@@ -69,6 +69,14 @@ course =
     Physics.defaultCourse
 
 
+{-| The course of every harbour order, one per seat (see
+`Physics.courseForSeat`).
+-}
+seatCourses : List Sails.Types.Course
+seatCourses =
+    List.map Physics.courseForSeat (List.range 0 (Physics.routeCount - 1))
+
+
 {-| Run the boat for `seconds` with a fixed steering input.
 -}
 sail : Boat -> Float -> Float -> SailingState -> SailingState
@@ -85,12 +93,12 @@ sail boat steer seconds state0 =
         (List.range 1 frames)
 
 
-{-| Simple autopilot: steer at the next harbour, with the brake assist
-(`Physics.harbourThrottle`) to moor there, until the course is finished or
-the time limit runs out. Returns the progress.
+{-| Simple autopilot round a seat's course: steer at the next harbour,
+with the brake assist (`Physics.harbourThrottle`) to moor there, until the
+course is finished or the time limit runs out. Returns the progress.
 -}
-autopilot : Boat -> Float -> CourseProgress
-autopilot boat limit =
+autopilot : Sails.Types.Course -> Boat -> Float -> CourseProgress
+autopilot seatCourse boat limit =
     let
         go state progress =
             if progress.finished || progress.elapsedSeconds > limit then
@@ -99,7 +107,7 @@ autopilot boat limit =
             else
                 let
                     goal =
-                        List.drop progress.currentWaypointIndex course.waypoints
+                        List.drop progress.currentWaypointIndex seatCourse.waypoints
                             |> List.head
                             |> Maybe.map (.position >> Vec3.toRecord)
                             |> Maybe.withDefault { x = 0, y = 0, z = 0 }
@@ -114,14 +122,14 @@ autopilot boat limit =
                         clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
 
                     next =
-                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = Physics.harbourThrottle course.waypoints progress state, sea = 1, sail = 1 } course.wind boat course.islands state
+                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = Physics.harbourThrottle seatCourse.waypoints progress state, sea = 1, sail = 1 } seatCourse.wind boat seatCourse.islands state
 
                     ( nextProgress, _ ) =
-                        Physics.stepProgress 0.02 next course.waypoints progress
+                        Physics.stepProgress 0.02 next seatCourse.waypoints progress
                 in
                 go next nextProgress
     in
-    go (Physics.initSailingState course) (Physics.initProgress course)
+    go (Physics.initSailingState seatCourse) (Physics.initProgress seatCourse)
 
 
 {-| Part names and origins of a brick model, as `Ingest.ingestDocument` reads them.
@@ -492,10 +500,10 @@ suite =
                             sqrt ((p.x - island.x) ^ 2 + (p.z - island.z) ^ 2)
                     in
                     Expect.atLeast island.radius dist
-            , test "every boat can finish the course on autopilot within the 2-star time" <|
+            , test "every boat can finish every seat's course on autopilot within the 2-star time" <|
                 \_ ->
-                    Boats.all
-                        |> List.map (\b -> autopilot b 200)
+                    seatCourses
+                        |> List.concatMap (\seatCourse -> List.map (\b -> autopilot seatCourse b 200) Boats.all)
                         |> Expect.all
                             (List.indexedMap
                                 (\i _ list ->
@@ -510,12 +518,12 @@ suite =
                                         Nothing ->
                                             Expect.fail "missing run"
                                 )
-                                Boats.all
+                                (List.concatMap (\_ -> Boats.all) seatCourses)
                             )
-            , test "a clean autopilot run without hitting targets is not already 3 stars" <|
+            , test "a clean autopilot run on any seat's course without hitting targets is not already 3 stars" <|
                 \_ ->
-                    Boats.all
-                        |> List.map (\b -> (autopilot b 200).elapsedSeconds)
+                    seatCourses
+                        |> List.concatMap (\seatCourse -> List.map (\b -> (autopilot seatCourse b 200).elapsedSeconds) Boats.all)
                         |> List.minimum
                         |> Maybe.withDefault 0
                         |> Expect.greaterThan course.targetSeconds

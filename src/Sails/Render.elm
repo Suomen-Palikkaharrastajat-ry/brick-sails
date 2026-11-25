@@ -882,7 +882,7 @@ seaArchEntities ctx width height scenery =
             sceneryEntities ctx width height scenery Scenery.seaArch pos bearing
         )
         [ ( vec3 85 -1.0 120, 45 )
-        , ( vec3 -98 -1.0 162, 110 )
+        , ( vec3 -88 -1.0 178, 110 )
         ]
 
 
