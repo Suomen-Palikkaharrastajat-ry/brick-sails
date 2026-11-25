@@ -650,7 +650,7 @@ islandEntities draw course =
                         apart b =
                             abs (toFloat (modBy 360 (round (bearing - b) + 540)) - 180)
                     in
-                    List.all (\b -> apart b > 35) occupied
+                    List.all (\b -> apart b > 48) occupied
 
                 tree k =
                     let

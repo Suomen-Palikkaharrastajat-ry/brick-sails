@@ -105,14 +105,16 @@ defaultCourse =
     , islands =
         [ lighthouseIsland
         , harbourIsland
-        , { x = -170, z = 230, radius = 50, height = 12 }
-        , { x = 40, z = 330, radius = 45, height = 9 }
+        , anchorageIsland
+        , smugglerIsland
         , { x = -130, z = -60, radius = 35, height = 7 }
         , treasureIsland
         ]
     , towns =
         [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100 }
         , { name = "Port Royal Brick", island = harbourIsland, bearing = 268 }
+        , { name = "Governor's Anchorage", island = anchorageIsland, bearing = 130 }
+        , { name = "Smuggler's Reach", island = smugglerIsland, bearing = 195 }
         ]
     , treasures =
         [ { id = 0
@@ -141,6 +143,20 @@ lighthouseIsland =
 harbourIsland : Island
 harbourIsland =
     { x = 150, z = 90, radius = 40, height = 10 }
+
+
+{-| The large southern island with the governor's anchorage and harbour.
+-}
+anchorageIsland : Island
+anchorageIsland =
+    { x = -170, z = 230, radius = 50, height = 12 }
+
+
+{-| The northern island overlooking the outer reef and harbour.
+-}
+smugglerIsland : Island
+smugglerIsland =
+    { x = 40, z = 330, radius = 45, height = 9 }
 
 
 {-| A small island outside the loop between harbours 4 and 5, where the
