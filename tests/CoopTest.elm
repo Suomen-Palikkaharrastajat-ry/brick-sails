@@ -107,7 +107,7 @@ resultsText crew =
         , ending = Ending.start { targetSeconds = Archipelago.defaultCourse.targetSeconds, personalBest = Nothing } progress
         , crew = crew
         , language = En
-        , actions = { onSailAgain = (), onBackToMenu = () }
+        , actions = { onSailAgain = (), onNewMap = (), onBackToMenu = () }
         }
         |> Query.fromHtml
 

@@ -6,8 +6,9 @@ module Pages.Shipyard exposing
 {-| Start screen, with the options of Brick Racer's setup screen in the same
 order: the shared app header (title and mute), a framed preview of the boat
 bobbing on the water with its name, loading state, description and stats,
-the two main buttons (open the ship editor, set sail), the course with its
-best time, and online play (host a room of two or eight, or join one).
+the two main buttons (open the ship editor, set sail), the map with its
+best time and the map picker (`Game.MapPicker`: biome, season, weather and
+seed, each left to chance or chosen, and the previous map), and online play (host a room of two or eight, or join one).
 Every player sails on their own screen.
 -}
 
@@ -15,6 +16,8 @@ import Component.Navbar as Navbar
 import DesignTokens.Colors as Brand
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
+import Game.MapParams exposing (Biome, Pick, Season, Selection, WeatherKind)
+import Game.MapPicker as MapPicker
 import Game.Multiplayer as Multiplayer exposing (SessionMode(..))
 import Html exposing (Html, button, div, h2, input, p, span, text)
 import Html.Attributes as Attr
@@ -35,6 +38,12 @@ type alias ShipyardActions msg =
     , onToggleMute : msg
     , onStartBuild : String -> msg
     , onEditShip : msg
+    , onPickBiome : Pick Biome -> msg
+    , onPickSeason : Pick Season -> msg
+    , onPickWeather : Pick WeatherKind -> msg
+    , onChangeSeed : String -> msg
+    , onRandomSeed : msg
+    , onUsePreviousMap : Maybe msg
     }
 
 
@@ -60,6 +69,8 @@ viewShipyard :
     , language : Language
     , hulls : List { id : String, name : String }
     , canEditShip : Bool
+    , selection : Selection
+    , seedText : String
     , actions : ShipyardActions msg
     }
     -> Html msg
@@ -235,17 +246,43 @@ viewActionButtons { language, hulls, canEditShip, actions } =
         ]
 
 
-{-| The course card: its name and the best time with its stars, or the
-three-star goal while there is no best time yet.
+{-| The course card: the map's name and the best time on it with its stars,
+or the three-star goal while there is no best time yet, then the map
+picker.
 -}
 viewCourse :
     { a
         | course : Course
         , personalBest : Maybe LeaderboardEntry
         , language : Language
+        , selection : Selection
+        , seedText : String
+        , actions : ShipyardActions msg
     }
     -> Html msg
-viewCourse { course, personalBest, language } =
+viewCourse { course, personalBest, language, selection, seedText, actions } =
+    div [ Attr.class "flex flex-col gap-3 p-3.5 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
+        [ div [ Attr.class "flex flex-wrap items-center justify-between gap-2" ] (courseLine course personalBest language)
+        , div [ Attr.class "sails-map-picker" ]
+            [ MapPicker.view
+                { labels = T.mapPickerLabels language
+                , selection = selection
+                , seedText = seedText
+                , onBiome = actions.onPickBiome
+                , onSeason = actions.onPickSeason
+                , onWeather = actions.onPickWeather
+                , onSeedInput = actions.onChangeSeed
+                , onRandomSeed = actions.onRandomSeed
+                , onPrevious = actions.onUsePreviousMap
+                }
+            ]
+        ]
+
+
+{-| The map's name and the best time on it.
+-}
+courseLine : Course -> Maybe LeaderboardEntry -> Language -> List (Html msg)
+courseLine course personalBest language =
     let
         ( bestLine, hasBest ) =
             case personalBest of
@@ -255,24 +292,23 @@ viewCourse { course, personalBest, language } =
                 Nothing ->
                     ( T.bestLine language (Leaderboard.formatRaceTime course.targetSeconds), False )
     in
-    div [ Attr.class "flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
-        [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
-            [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-            , text (T.courseTitle language course.title)
-            ]
-        , span
-            [ Attr.class
-                ("text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 "
-                    ++ (if hasBest then
-                            "text-brand-yellow"
-
-                        else
-                            "text-slate-400"
-                       )
-                )
-            ]
-            [ text ("⏱ " ++ bestLine) ]
+    [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
+        [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+        , text (T.mapTitle language course.map)
         ]
+    , span
+        [ Attr.class
+            ("text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 "
+                ++ (if hasBest then
+                        "text-brand-yellow"
+
+                    else
+                        "text-slate-400"
+                   )
+            )
+        ]
+        [ text ("⏱ " ++ bestLine) ]
+    ]
 
 
 {-| Online play, as in Brick Racer: a card for each room size with its own

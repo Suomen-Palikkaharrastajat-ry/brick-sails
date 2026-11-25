@@ -3,11 +3,14 @@ module Sails.Ingest exposing
     , SharedShip(..)
     , decodeSharedShip
     , decodeShipInput
+    , encodeMapHash
     , encodeShipLink
     , hasShipPayload
+    , hashWithoutMap
     , ingestDocument
     , ingestFromPlacements
     , isSailPart
+    , mapFromHash
     , maxShipParts
     , validateShip
     )
@@ -23,6 +26,10 @@ the same vendor code:
   - text `#model=...&parts=...` links, read by `Studio.UrlPayload`,
   - raw LDraw `.ldr` / `.mpd` text from a file or a paste.
 
+A link may also name the map to sail on: `#map=<code>` on its own, or in
+front of a build, `#map=<code>&b/...` (`mapFromHash`, `encodeMapHash`). The
+map part is left out before a build is decoded (`hashWithoutMap`).
+
 `ingestDocument` then sorts the parts into hull, mast, sail and fittings, and
 `validateShip` turns that into a short error when the build is not a boat.
 
@@ -30,6 +37,7 @@ the same vendor code:
 
 import Base64
 import Flate
+import Game.MapParams as MapParams exposing (MapParams)
 import LDraw.Document as Document exposing (Document)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
@@ -100,7 +108,7 @@ decodeShipInput maybeBytes rawInput =
                                 Err "That build link is damaged and could not be read."
 
                     Nothing ->
-                        case (UrlPayload.decodeHash (HashPayload.extractFragment trimmed)).modelText of
+                        case (UrlPayload.decodeHash (hashWithoutMap trimmed)).modelText of
                             Just text ->
                                 Ok (named (Document.parse text))
 
@@ -184,6 +192,50 @@ encodeShipLink doc =
         |> Base64.fromBytes
         |> Maybe.map (\b64 -> "#b/" ++ HashPayload.standardToBase64Url b64)
         |> Maybe.withDefault ""
+
+
+{-| The map a link names with `map=<code>`, if it names a valid one.
+-}
+mapFromHash : String -> Maybe MapParams
+mapFromHash raw =
+    HashPayload.extractFragment (String.trim raw)
+        |> String.split "&"
+        |> List.map String.trim
+        |> List.filterMap
+            (\seg ->
+                if String.startsWith "map=" (String.toLower seg) then
+                    MapParams.fromCode (String.dropLeft 4 seg)
+
+                else
+                    Nothing
+            )
+        |> List.head
+
+
+{-| A link's fragment without its `map=` part, for the build decoders.
+-}
+hashWithoutMap : String -> String
+hashWithoutMap raw =
+    HashPayload.extractFragment (String.trim raw)
+        |> String.split "&"
+        |> List.filter (\seg -> not (String.startsWith "map=" (String.toLower (String.trim seg))))
+        |> String.join "&"
+
+
+{-| The page link of a map, with the player's build when there is one:
+`#map=<code>` or `#map=<code>&b/...`.
+-}
+encodeMapHash : MapParams -> Maybe Document -> String
+encodeMapHash map maybeDoc =
+    "#map="
+        ++ MapParams.toCode map
+        ++ (case maybeDoc of
+                Just doc ->
+                    "&" ++ String.dropLeft 1 (encodeShipLink doc)
+
+                Nothing ->
+                    ""
+           )
 
 
 isRawLdrText : String -> Bool

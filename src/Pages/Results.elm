@@ -8,7 +8,8 @@ module Pages.Results exposing
 own look: while bricks burst over the boat (`Sails.Ending`), a card rises
 with a bobbing boat, "Land ho!", the stars popping in one by one, the
 headline, the final time with its sailing time, hits and treasure, the new
-record badge, and two ways on: sail again, or back to the main menu.
+record badge, and the ways on: sail the same map again, roll a new map with
+the same picks (sailing alone), or back to the main menu.
 
 In an online room (`crew`) the result is the crew's, not this player's:
 while crewmates are still at sea it says how many ships are in port and runs
@@ -42,6 +43,7 @@ type alias CrewResult =
 
 type alias ResultsActions msg =
     { onSailAgain : msg
+    , onNewMap : msg
     , onBackToMenu : msg
     }
 
@@ -187,7 +189,7 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
               else
                 div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language stars) ] (List.map star [ 1, 2, 3 ])
             , p [ Attr.class "text-lg font-extrabold text-white text-balance" ] [ text headline ]
-            , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.courseTitle language course.title ++ " · " ++ T.boatName language boatName) ]
+            , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.mapTitle language course.map ++ " · " ++ T.boatName language boatName) ]
             , div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center gap-2" ]
                 [ if crew == Nothing then
                     span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
@@ -233,6 +235,19 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
                     [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
                     , text (T.sailAgain language)
                     ]
+                , if crew == Nothing then
+                    button
+                        [ Attr.type_ "button"
+                        , onClick actions.onNewMap
+                        , Attr.attribute "data-testid" "ending-new-map"
+                        , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
+                        ]
+                        [ FeatherIcons.map |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                        , text (T.newMapButton language)
+                        ]
+
+                  else
+                    text ""
                 , button
                     [ Attr.type_ "button"
                     , onClick actions.onBackToMenu

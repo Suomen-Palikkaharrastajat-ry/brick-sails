@@ -6,6 +6,7 @@ module Sails.I18n exposing
     , backToBoats
     , backToCourse
     , bestLine
+    , biomeName
     , blueCoatsName
     , boatDescription
     , boatName
@@ -15,7 +16,6 @@ module Sails.I18n exposing
     , copyLink
     , copyRoomLink
     , countdownHint
-    , courseTitle
     , crewHeading
     , crewHeadline
     , crewTimeLabel
@@ -59,8 +59,12 @@ module Sails.I18n exposing
     , loadingBricks
     , loadingShips
     , mainMenuButton
+    , mapPickerLabels
+    , mapTitle
+    , mapWeatherName
     , mooringHint
     , muteLabel
+    , newMapButton
     , newPersonalBest
     , nextGoal
     , nextHarbourTitle
@@ -86,6 +90,7 @@ module Sails.I18n exposing
     , sailLevelTitle
     , sailStep
     , sailingStat
+    , seasonName
     , setSail
     , shipLoadError
     , shipwrecked
@@ -134,6 +139,8 @@ the player reads is translated here.
 
 -}
 
+import Game.MapParams exposing (Biome(..), MapParams, Season(..), WeatherKind(..))
+import Game.MapPicker as MapPicker
 import I18n exposing (Language(..))
 import Sails.Types exposing (Faction(..))
 
@@ -197,17 +204,99 @@ subtitle lang =
     pick lang "Leluveneiden meriseikkailu" "Toy boat sea adventure"
 
 
-courseTitle : Language -> String -> String
-courseTitle lang name =
-    case ( lang, name ) of
-        ( Fi, "Island Loop" ) ->
-            "Aarresaarten kierros"
+{-| Name of a map biome (the same words as Brick Racer's, as a map code
+means the same map in both games).
+-}
+biomeName : Language -> Biome -> String
+biomeName lang biome =
+    case biome of
+        Farmland ->
+            pick lang "Maaseutu" "Farmland"
 
-        ( En, "Island Loop" ) ->
-            "Treasure Isles Loop"
+        Boreal ->
+            pick lang "Havumetsä" "Boreal"
 
-        _ ->
-            name
+        Fell ->
+            pick lang "Tunturi" "Fell"
+
+        Desert ->
+            pick lang "Aavikko" "Desert"
+
+
+{-| Name of a map season.
+-}
+seasonName : Language -> Season -> String
+seasonName lang season =
+    case season of
+        Spring ->
+            pick lang "Kevät" "Spring"
+
+        Summer ->
+            pick lang "Kesä" "Summer"
+
+        Autumn ->
+            pick lang "Syksy" "Autumn"
+
+        Winter ->
+            pick lang "Talvi" "Winter"
+
+
+{-| Name of a map's weather.
+-}
+mapWeatherName : Language -> WeatherKind -> String
+mapWeatherName lang weather =
+    case weather of
+        Clear ->
+            pick lang "Selkeä" "Clear"
+
+        Overcast ->
+            pick lang "Pilvinen" "Overcast"
+
+        Rain ->
+            pick lang "Sade" "Rain"
+
+        Storm ->
+            pick lang "Ukkonen" "Storm"
+
+        Fog ->
+            pick lang "Sumu" "Fog"
+
+        Snow ->
+            pick lang "Lumi" "Snow"
+
+
+{-| The course title of a map, such as "Boreal · Winter · Snow #48213".
+-}
+mapTitle : Language -> MapParams -> String
+mapTitle lang map =
+    String.join " · " [ biomeName lang map.biome, seasonName lang map.season, mapWeatherName lang map.weather ]
+        ++ " #"
+        ++ String.fromInt map.seed
+
+
+{-| The words of the shared map picker.
+-}
+mapPickerLabels : Language -> MapPicker.Labels
+mapPickerLabels lang =
+    { biome = pick lang "Maasto" "Biome"
+    , season = pick lang "Vuodenaika" "Season"
+    , weather = pick lang "Sää" "Weather"
+    , seed = pick lang "Siemen" "Seed"
+    , random = pick lang "Arvo" "Random"
+    , previous = pick lang "Edellinen kartta" "Previous map"
+    , any = pick lang "Mikä vain" "Any"
+    , code = pick lang "Karttakoodi (sama Pienajoissa)" "Map code (same in Brick Racer)"
+    , biomeName = biomeName lang
+    , seasonName = seasonName lang
+    , weatherName = mapWeatherName lang
+    }
+
+
+{-| Results button that rolls a new seed with the same picks.
+-}
+newMapButton : Language -> String
+newMapButton lang =
+    pick lang "Uusi kartta" "New map"
 
 
 {-| Shown name of a boat. Built-in boats keep their English `name` as their
@@ -1206,7 +1295,10 @@ check that none is missing (see `tests/LanguageTest.elm`).
 allPhrases : List ( String, Language -> String )
 allPhrases =
     [ ( "subtitle", subtitle )
-    , ( "courseTitle", \l -> courseTitle l "Island Loop" )
+    , ( "biome Desert", \l -> biomeName l Desert )
+    , ( "season Winter", \l -> seasonName l Winter )
+    , ( "map weather Snow", \l -> mapWeatherName l Snow )
+    , ( "newMapButton", newMapButton )
     , ( "faction Pirates", \l -> factionName l Pirates )
     , ( "faction BlueCoats", \l -> factionName l BlueCoats )
     , ( "faction RedCoats", \l -> factionName l RedCoats )

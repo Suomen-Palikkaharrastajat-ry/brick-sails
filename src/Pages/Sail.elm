@@ -5,6 +5,7 @@ module Pages.Sail exposing
     , subscriptions
     , update
     , viewSail
+    , waitingForRoom
     )
 
 {-| The voyage: a 3-2-1 start, then dock at the harbours in order while a
@@ -137,6 +138,7 @@ type SailMsg
     | ToggleMute
     | ReturnToShipyard
     | RestartCourse
+    | NewMap
     | CopyShareUrl
     | StartMultiplayerCountdown
     | UpdateMultiplayerRoom RoomState
@@ -240,6 +242,14 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , ghostShip = GhostShip.init
     , anchored = False
     }
+
+
+{-| Whether the race is held on the start line until the room's host
+starts it.
+-}
+waitingForRoom : SailModel -> Bool
+waitingForRoom model =
+    model.phase == WaitingForRoom
 
 
 {-| The course with this player's harbour order (`Archipelago.courseFor`
@@ -778,6 +788,9 @@ update msg model =
                     ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
 
         ReturnToShipyard ->
+            ( model, Cmd.none )
+
+        NewMap ->
             ( model, Cmd.none )
 
 
@@ -1660,6 +1673,7 @@ viewSail :
     ->
         { onReturnToShipyard : SailMsg
         , onRestartCourse : SailMsg
+        , onNewMap : SailMsg
         , meshFor : String -> Maybe ShipMesh
         , remoteShip : RemoteShipLookup
         , props : Render.Props
@@ -1671,7 +1685,7 @@ viewSail model callbacks =
 
 viewRace :
     SailModel
-    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup, props : Render.Props }
+    -> { onReturnToShipyard : SailMsg, onRestartCourse : SailMsg, onNewMap : SailMsg, meshFor : String -> Maybe ShipMesh, remoteShip : RemoteShipLookup, props : Render.Props }
     -> Maybe RoomState
     -> Html SailMsg
 viewRace model callbacks maybeRoom =
@@ -1851,6 +1865,7 @@ viewRace model callbacks maybeRoom =
                     , language = model.language
                     , actions =
                         { onSailAgain = callbacks.onRestartCourse
+                        , onNewMap = callbacks.onNewMap
                         , onBackToMenu = callbacks.onReturnToShipyard
                         }
                     }

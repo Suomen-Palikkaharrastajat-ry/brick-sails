@@ -239,7 +239,8 @@ type alias Wind =
 {-| One short course: harbours in order, targets along the way, a few islands,
 the towns on them and the treasure hidden on them, the decoration on the
 water and the circle of sea the boats may sail in (`arena`). Every course is
-made from a map (`Sails.Archipelago`); `id` is the map's leaderboard key.
+made from a map (`Sails.Archipelago`); `id` is the map's leaderboard key
+and `title` its map code (the screens show `Sails.I18n.mapTitle` of `map`).
 -}
 type alias Course =
     { id : String

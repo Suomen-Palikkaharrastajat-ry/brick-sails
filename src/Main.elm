@@ -43,6 +43,7 @@ import Browser.Events
 import Dict exposing (Dict)
 import Game.BrickProps as BrickProps
 import Game.Leaderboard as Leaderboard exposing (Leaderboard)
+import Game.MapParams as MapParams exposing (Biome, MapParams, Pick(..), Season, Selection, WeatherKind)
 import Game.Multiplayer as Multiplayer
 import Game.PartLoading as PartLoading
 import Game.Ports as GamePorts
@@ -64,6 +65,7 @@ import Sails.Handling as Handling
 import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
 import Sails.Physics as Physics
+import Sails.Records as Records
 import Sails.Render as Render
 import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
@@ -101,6 +103,9 @@ type alias Model =
     , remoteShips : Dict String RemoteShip
     , loadError : Maybe String
     , boat : Boat
+    , selection : Selection
+    , seedText : String
+    , lastMap : Maybe MapParams
     , course : Course
     , viewMode : ViewMode
     , sailModel : Maybe Sail.SailModel
@@ -138,6 +143,12 @@ type Msg
     | StartBuild String
     | EditShip
     | BuildMsg Build.Msg
+    | PickBiome (Pick Biome)
+    | PickSeason (Pick Season)
+    | PickWeather (Pick WeatherKind)
+    | ChangeSeed String
+    | RandomSeed
+    | UsePreviousMap
 
 
 main : Program Flags Model Msg
@@ -153,6 +164,25 @@ main =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     let
+        board =
+            Records.tidy (Leaderboard.fromJson flags.savedLeaderboardJson)
+
+        previous =
+            Records.lastMap board
+
+        -- A link's map, else the map sailed last, else every pick left to
+        -- chance with seed 1.
+        selection =
+            case ( Ingest.mapFromHash flags.initialHash, previous ) of
+                ( Just linked, _ ) ->
+                    exactSelection linked
+
+                ( Nothing, Just last ) ->
+                    exactSelection last
+
+                ( Nothing, Nothing ) ->
+                    MapParams.anySelection
+
         base =
             { resolver = PartLoading.resolverFromFlags flags
             , partCache = Resolve.initCache
@@ -166,11 +196,14 @@ init flags =
             , remoteShips = Dict.empty
             , loadError = Nothing
             , boat = Boats.default
-            , course = Archipelago.defaultCourse
+            , selection = selection
+            , seedText = String.fromInt selection.seed
+            , lastMap = previous
+            , course = courseOf selection
             , viewMode = ViewShipyard
             , sailModel = Nothing
             , audioMuted = flags.savedAudioMuted
-            , leaderboard = Leaderboard.fromJson flags.savedLeaderboardJson
+            , leaderboard = board
             , tilt = { available = False, enabled = False }
             , shipyardTime = 0
             , viewportWidth = 1024
@@ -191,6 +224,72 @@ init flags =
 
     else
         requestParts base
+
+
+{-| The first seat's course of the map a selection resolves to.
+-}
+courseOf : Selection -> Course
+courseOf selection =
+    Archipelago.courseFor (Archipelago.generate (MapParams.resolve selection)) 0
+
+
+{-| A selection with every part fixed to the map's values, so a shared link
+or the previous map shows its concrete map.
+-}
+exactSelection : MapParams -> Selection
+exactSelection map =
+    { biome = Exactly map.biome
+    , season = Exactly map.season
+    , weather = Exactly map.weather
+    , seed = map.seed
+    }
+
+
+{-| Set the picker selection and the course of the map it resolves to.
+-}
+withSelection : Selection -> Model -> Model
+withSelection selection model =
+    let
+        course =
+            if MapParams.resolve selection == model.course.map then
+                model.course
+
+            else
+                courseOf selection
+    in
+    { model | selection = selection, seedText = String.fromInt selection.seed, course = course }
+
+
+{-| Change the selection from the map picker and write the map (and the
+player's build) into the page link.
+-}
+applySelection : (Selection -> Selection) -> Model -> ( Model, Cmd Msg )
+applySelection change model =
+    let
+        next =
+            withSelection (change model.selection) model
+    in
+    ( next, GamePorts.setUrlHash (mapLink next) )
+
+
+{-| The page link of the shipyard: the map, and "Your ship" when selected.
+-}
+mapLink : Model -> String
+mapLink model =
+    Ingest.encodeMapHash model.course.map
+        (if model.boat.kind == CustomShip then
+            Dict.get model.boat.name model.documents
+
+         else
+            Nothing
+        )
+
+
+{-| The next seed from the dice button, 1 to 999999 (as Brick Racer's).
+-}
+nextRandomSeed : Int -> Int
+nextRandomSeed seed =
+    modBy 999999 (abs (seed * 1664525 + 1013904223)) + 1
 
 
 personalBest : Model -> Maybe Sails.Types.LeaderboardEntry
@@ -224,11 +323,61 @@ update msg model =
             requestParts { model | partCache = Resolve.updateCache name result Parser.parseFile model.partCache }
 
         HashChanged hash ->
-            if Ingest.hasShipPayload hash && model.viewMode == ViewShipyard then
-                loadShip Nothing hash model
+            if model.viewMode == ViewShipyard then
+                let
+                    mapped =
+                        case Ingest.mapFromHash hash of
+                            Just linked ->
+                                withSelection (exactSelection linked) model
+
+                            Nothing ->
+                                model
+                in
+                if Ingest.hasShipPayload hash then
+                    loadShip Nothing hash mapped
+
+                else
+                    ( mapped, Cmd.none )
 
             else
                 ( model, Cmd.none )
+
+        PickBiome pick ->
+            applySelection (\sel -> { sel | biome = pick }) model
+
+        PickSeason pick ->
+            applySelection (\sel -> { sel | season = pick }) model
+
+        PickWeather pick ->
+            applySelection (\sel -> { sel | weather = pick }) model
+
+        ChangeSeed raw ->
+            case MapParams.fromCode raw of
+                Just pasted ->
+                    applySelection (\_ -> exactSelection pasted) model
+
+                Nothing ->
+                    case String.toInt (String.trim raw) of
+                        Just n ->
+                            let
+                                ( next, cmd ) =
+                                    applySelection (\sel -> { sel | seed = clamp 1 999999 n }) model
+                            in
+                            ( { next | seedText = raw }, cmd )
+
+                        Nothing ->
+                            ( { model | seedText = raw }, Cmd.none )
+
+        RandomSeed ->
+            applySelection (\sel -> { sel | seed = nextRandomSeed sel.seed }) model
+
+        UsePreviousMap ->
+            case model.lastMap of
+                Just previous ->
+                    applySelection (\_ -> exactSelection previous) model
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         StartSailing ->
             ( { model | viewMode = ViewSailing, sailModel = Just (newSail Nothing model) }
@@ -239,7 +388,7 @@ update msg model =
             ( model
             , GamePorts.createMultiplayerRoom
                 { roomId = ""
-                , courseId = model.course.id
+                , courseId = MapParams.toCode model.course.map
                 , name = "Host"
                 , vehicleHash = sharedShip model
                 , maxPlayers = Multiplayer.sessionCapacity mode
@@ -265,16 +414,57 @@ update msg model =
                     ( { model | sailModel = model.sailModel |> Maybe.map (\s -> { s | multiplayer = Nothing }) }, Cmd.none )
 
                 SailsRoom.InRoom room ->
-                    case model.sailModel of
-                        Just sModel ->
+                    let
+                        -- A joiner sails the host's map.
+                        hostMap =
+                            if room.role == Multiplayer.JoinedPlayer then
+                                MapParams.fromCode room.courseId
+                                    |> Maybe.andThen
+                                        (\m ->
+                                            if m /= model.course.map then
+                                                Just m
+
+                                            else
+                                                Nothing
+                                        )
+
+                            else
+                                Nothing
+                    in
+                    case ( model.sailModel, hostMap ) of
+                        ( Just sModel, Just m ) ->
+                            if Sail.waitingForRoom sModel then
+                                let
+                                    switched =
+                                        withSelection (exactSelection m) model
+                                in
+                                ( { switched | sailModel = Just (newSail (Just room) switched) }, Cmd.none )
+
+                            else
+                                let
+                                    ( nextSail, sCmd ) =
+                                        Sail.update (Sail.UpdateMultiplayerRoom room) sModel
+                                in
+                                ( { model | sailModel = Just nextSail }, Cmd.map SailMessage sCmd )
+
+                        ( Just sModel, Nothing ) ->
                             let
                                 ( nextSail, sCmd ) =
                                     Sail.update (Sail.UpdateMultiplayerRoom room) sModel
                             in
                             ( { model | sailModel = Just nextSail }, Cmd.map SailMessage sCmd )
 
-                        Nothing ->
-                            ( { model | viewMode = ViewSailing, sailModel = Just (newSail (Just room) model) }
+                        ( Nothing, _ ) ->
+                            let
+                                joined =
+                                    case hostMap of
+                                        Just m ->
+                                            withSelection (exactSelection m) model
+
+                                        Nothing ->
+                                            model
+                            in
+                            ( { joined | viewMode = ViewSailing, sailModel = Just (newSail (Just room) joined) }
                             , Cmd.batch
                                 [ GamePorts.setUrlHash ("#room=" ++ room.roomId)
                                 , GamePorts.calibrateTilt ()
@@ -400,7 +590,7 @@ update msg model =
                             case next.loadError of
                                 Nothing ->
                                     ( { next | builder = Nothing }
-                                    , Cmd.batch [ cmd, GamePorts.setUrlHash (Ingest.encodeShipLink doc) ]
+                                    , Cmd.batch [ cmd, GamePorts.setUrlHash (Ingest.encodeMapHash next.course.map (Just doc)) ]
                                     )
 
                                 Just _ ->
@@ -415,6 +605,18 @@ update msg model =
 
         SailMessage Sail.ToggleMute ->
             update ToggleMute model
+
+        SailMessage Sail.NewMap ->
+            let
+                sel =
+                    model.selection
+
+                ( next, _ ) =
+                    update ReturnToShipyard (withSelection { sel | seed = nextRandomSeed sel.seed } model)
+            in
+            ( next
+            , Cmd.batch [ GamePorts.leaveMultiplayerRoom (), silenceAudio, GamePorts.setUrlHash (mapLink next) ]
+            )
 
         SailMessage Sail.RestartCourse ->
             case model.sailModel of
@@ -721,8 +923,8 @@ recordFinish sail model cmd =
                 }
                 model.leaderboard
     in
-    ( { model | leaderboard = board }
-    , Cmd.batch [ cmd, GamePorts.saveLeaderboard (Leaderboard.toJson board) ]
+    ( { model | leaderboard = Records.tidy board, lastMap = Just model.course.map }
+    , Cmd.batch [ cmd, GamePorts.saveLeaderboard (Leaderboard.toJson (Records.tidy board)) ]
     )
 
 
@@ -758,6 +960,7 @@ view model =
                 (Sail.viewSail sModel
                     { onReturnToShipyard = Sail.ReturnToShipyard
                     , onRestartCourse = Sail.RestartCourse
+                    , onNewMap = Sail.NewMap
                     , meshFor = \name -> Dict.get name model.meshes
                     , remoteShip = remoteShipFor model
                     , props = model.props
@@ -781,6 +984,8 @@ view model =
                 , language = model.language
                 , hulls = List.map (\b -> { id = b.id, name = shortHullName model.language b }) Editor.bases
                 , canEditShip = editableShip model /= Nothing
+                , selection = model.selection
+                , seedText = model.seedText
                 , actions =
                     { onStartSailing = StartSailing
                     , onStartHostMultiplayer = StartHostMultiplayer
@@ -789,5 +994,16 @@ view model =
                     , onToggleMute = ToggleMute
                     , onStartBuild = StartBuild
                     , onEditShip = EditShip
+                    , onPickBiome = PickBiome
+                    , onPickSeason = PickSeason
+                    , onPickWeather = PickWeather
+                    , onChangeSeed = ChangeSeed
+                    , onRandomSeed = RandomSeed
+                    , onUsePreviousMap =
+                        if model.lastMap /= Nothing && model.lastMap /= Just model.course.map then
+                            Just UsePreviousMap
+
+                        else
+                            Nothing
                     }
                 }

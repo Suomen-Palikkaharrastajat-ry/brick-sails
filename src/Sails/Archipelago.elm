@@ -115,8 +115,9 @@ type alias Archipelago =
 -- THE FIXED MAP
 
 
-{-| The map the shipyard starts until the map picker comes: the desert
-coast in a summer storm, seed 1, the closest map to the old fixed course.
+{-| A fixed map for tests: the desert coast in a summer storm, seed 1, the
+closest map to the old fixed course. The game itself starts from a link's
+map, the map sailed last, or every pick left to chance (see `Main`).
 -}
 defaultMap : MapParams
 defaultMap =
@@ -1547,7 +1548,7 @@ courseFor arch seat =
     in
     { id = MapParams.leaderboardKey arch.map
     , map = arch.map
-    , title = "Island Loop"
+    , title = MapParams.toCode arch.map
     , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on a small island beside the route."
     , waypoints = waypoints
     , targets = List.indexedMap (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 }) route.targets

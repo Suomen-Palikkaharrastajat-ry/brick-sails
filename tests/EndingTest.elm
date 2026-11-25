@@ -53,6 +53,7 @@ ticks n dt model =
 
 type Choice
     = Again
+    | NewMap
     | Menu
 
 
@@ -68,7 +69,7 @@ resultsFor model =
                 , ending = ending
                 , crew = Nothing
                 , language = Fi
-                , actions = { onSailAgain = Again, onBackToMenu = Menu }
+                , actions = { onSailAgain = Again, onNewMap = NewMap, onBackToMenu = Menu }
                 }
                 |> Query.fromHtml
 
@@ -142,4 +143,10 @@ suite =
                     |> Query.find [ testId "ending-sail-again" ]
                     |> Event.simulate Event.click
                     |> Event.expect Again
+        , test "the new map button rolls a new map, sailing alone" <|
+            \_ ->
+                resultsFor (tick (1 / 60) finishing)
+                    |> Query.find [ testId "ending-new-map" ]
+                    |> Event.simulate Event.click
+                    |> Event.expect NewMap
         ]
