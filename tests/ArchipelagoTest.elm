@@ -18,6 +18,7 @@ import Game.MapParams as MapParams exposing (Biome(..), MapParams, Pick(..), Sea
 import Math.Vector3 as Vec3 exposing (Vec3)
 import Sails.Archipelago as Archipelago exposing (Archipelago)
 import Sails.Boats as Boats
+import Sails.GhostShip as GhostShip
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, Island, IslandRole(..))
 import Sails.Weather as Weather exposing (Spell(..))
@@ -359,6 +360,30 @@ suite =
                                                 && List.all (\d -> partDistance a b 0 (dist a b) ( d.x, d.z ) >= Physics.courseFreeRange) c.decor
                                         )
                                         (legsOf c)
+                                )
+                                courses
+                        )
+            , test "the ghost ship's patrol circle keeps 30 m off every island, inside the arena" <|
+                \_ ->
+                    everyMap
+                        (\_ courses ->
+                            List.all
+                                (\c ->
+                                    let
+                                        loop =
+                                            GhostShip.patrolFor c
+
+                                        points =
+                                            List.map (\k -> flat (GhostShip.stateAt loop (loop.lapSeconds * toFloat k / 90)).position) (List.range 0 89)
+                                    in
+                                    List.all
+                                        (\p ->
+                                            dist p ( c.arena.x, c.arena.z )
+                                                <= c.arena.radius
+                                                + 0.01
+                                                && List.all (\i -> dist p ( i.x, i.z ) - i.radius >= 30 - 1.0e-6) c.islands
+                                        )
+                                        points
                                 )
                                 courses
                         )

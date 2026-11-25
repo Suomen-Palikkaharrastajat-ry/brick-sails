@@ -239,7 +239,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
             |> Maybe.map (\r -> Physics.factionForSlot r.mySlot)
             |> Maybe.withDefault Pirates
     , standards = Physics.initStandards
-    , ghostShip = GhostShip.init
+    , ghostShip = GhostShip.init course
     , anchored = False
     }
 

@@ -200,12 +200,19 @@ suite =
             [ test "spectral tint is trans-green (vec3 0.18 0.98 0.52)" <|
                 \_ ->
                     Expect.equal (vec3 0.18 0.98 0.52) GhostShip.spectralTint
-            , test "outer patrol loop has radius 175 m at (0, 140)" <|
+            , test "the patrol circle lies inside the course arena and keeps the old speed" <|
                 \_ ->
+                    let
+                        course =
+                            Archipelago.defaultCourse
+
+                        loop =
+                            GhostShip.patrolFor course
+                    in
                     Expect.all
-                        [ \_ -> Expect.equal 175 GhostShip.patrolLoop.radius
-                        , \_ -> Expect.equal 0 GhostShip.patrolLoop.centreX
-                        , \_ -> Expect.equal 140 GhostShip.patrolLoop.centreZ
+                        [ \_ -> Expect.atLeast (0.3 * course.arena.radius) loop.radius
+                        , \_ -> Expect.atMost course.arena.radius (sqrt ((loop.centreX - course.arena.x) ^ 2 + (loop.centreZ - course.arena.z) ^ 2) + loop.radius)
+                        , \_ -> Expect.within (Expect.Absolute 0.01) (2 * pi * 175 / 120) (2 * pi * loop.radius / loop.lapSeconds)
                         ]
                         ()
             , test "does not materialize during fair weather" <|
@@ -215,7 +222,7 @@ suite =
                             Weather.init Weather.stormProfile 42
 
                         ship =
-                            GhostShip.init
+                            GhostShip.init Archipelago.defaultCourse
 
                         ( updated, appeared, _ ) =
                             GhostShip.step 10.0 fairWeather [] ship
@@ -237,7 +244,7 @@ suite =
                             { base | squall = 0.3 }
 
                         ship =
-                            GhostShip.init
+                            GhostShip.init Archipelago.defaultCourse
 
                         ( updated, appeared, banished ) =
                             GhostShip.step 15.0 squallWeather [] ship
@@ -260,7 +267,7 @@ suite =
                             { base | thunder = 0.4 }
 
                         ship =
-                            GhostShip.init
+                            GhostShip.init Archipelago.defaultCourse
 
                         ( updated, appeared, banished ) =
                             GhostShip.step 20.0 thunderWeather [] ship
@@ -284,7 +291,7 @@ suite =
                         activeShip =
                             let
                                 ( s, _, _ ) =
-                                    GhostShip.step 5.0 stormWeather [] GhostShip.init
+                                    GhostShip.step 5.0 stormWeather [] (GhostShip.init Archipelago.defaultCourse)
                             in
                             s
 
@@ -310,7 +317,7 @@ suite =
                             { base | squall = 0.8 }
 
                         initShip =
-                            GhostShip.init
+                            GhostShip.init Archipelago.defaultCourse
 
                         banishedShip =
                             { initShip | banished = True, active = False }
@@ -329,7 +336,7 @@ suite =
                 \_ ->
                     let
                         state =
-                            GhostShip.stateAt 10.0
+                            GhostShip.stateAt (GhostShip.patrolFor Archipelago.defaultCourse) 10.0
 
                         pieces =
                             Wreck.breakUp Wreck.GhostShip state
