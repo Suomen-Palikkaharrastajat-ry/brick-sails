@@ -345,21 +345,37 @@ mySlot model =
 steerInput : SailModel -> Float
 steerInput model =
     let
-        held a b =
-            if a || b then
+        touch =
+            if model.touchRight && not model.touchLeft then
                 1
+
+            else if model.touchLeft && not model.touchRight then
+                -1
 
             else
                 0
 
-        tilt =
-            if model.tilt.enabled then
-                model.tiltSteer
+        keys =
+            if model.keyRight && not model.keyLeft then
+                1
+
+            else if model.keyLeft && not model.keyRight then
+                -1
 
             else
                 0
     in
-    clamp -1 1 (held model.keyRight model.touchRight - held model.keyLeft model.touchLeft + tilt)
+    if touch /= 0 then
+        touch
+
+    else if keys /= 0 then
+        keys
+
+    else if model.tilt.enabled then
+        clamp -1 1 model.tiltSteer
+
+    else
+        0
 
 
 nextHarbour : SailModel -> Maybe Vec3
@@ -542,13 +558,31 @@ update msg model =
         FireCannons ->
             if model.cannonCooldown <= 0 && model.phase == Racing && not (Hull.wrecked model.hull) then
                 let
-                    balls =
-                        Physics.fireCannons (mySlot model) model.state (aimPoints model) model.nextCannonId
+                    ( balls, maybeCamBias ) =
+                        case Physics.findBroadsideTarget model.state (aimPoints model) of
+                            Just ( _, aim, sideSign ) ->
+                                ( [ Physics.fireBroadside (mySlot model) model.state aim model.nextCannonId ]
+                                , Just (sideSign * 26.0)
+                                )
+
+                            Nothing ->
+                                ( Physics.fireCannons (mySlot model) model.state (aimPoints model) model.nextCannonId
+                                , Nothing
+                                )
+
+                    newFollow =
+                        case maybeCamBias of
+                            Just bias ->
+                                CameraRig.setBroadsideBias bias model.follow
+
+                            Nothing ->
+                                model.follow
                 in
                 ( { model
                     | cannonballs = model.cannonballs ++ balls
                     , cannonCooldown = cannonReload
                     , nextCannonId = model.nextCannonId + List.length balls
+                    , follow = newFollow
                   }
                 , sfx (GameAudio.Impact 0.8)
                 )
@@ -567,7 +601,15 @@ update msg model =
             ( { model | sailLevel = max 0 (model.sailLevel - 1) }, Cmd.none )
 
         DropAnchor ->
-            if Physics.canDropAnchor model.course.waypoints model.progress model.state then
+            if model.anchored then
+                ( { model
+                    | anchored = False
+                    , toast = Just ( T.anchorWeighedToast model.language, 1.5 )
+                  }
+                , sfx (GameAudio.Impact 0.4)
+                )
+
+            else if Physics.canDropAnchor model.course.waypoints model.progress model.state then
                 let
                     ( newProgress, passed ) =
                         Physics.dropAnchorProgress model.progress
@@ -582,10 +624,10 @@ update msg model =
                         case passed of
                             Just i ->
                                 if newProgress.finished then
-                                    Just ( T.finishToast model.language, 2.0 )
+                                    Just ( T.finishToast model.language, 2.5 )
 
                                 else
-                                    Just ( T.harbourToast model.language (i + 1) newProgress.totalWaypoints, 1.5 )
+                                    Just ( T.harbourToast model.language (i + 1) newProgress.totalWaypoints, 2.0 )
 
                             Nothing ->
                                 Nothing
@@ -608,17 +650,9 @@ update msg model =
                     , state = stoppedState
                     , toast = passedToast
                     , ending = ending
-                    , anchored = False
+                    , anchored = True
                   }
                 , sfx (GameAudio.Impact 0.7)
-                )
-
-            else if model.anchored then
-                ( { model
-                    | anchored = False
-                    , toast = Just ( T.anchorWeighedToast model.language, 1.2 )
-                  }
-                , Cmd.none
                 )
 
             else
@@ -630,7 +664,7 @@ update msg model =
                     | anchored = True
                     , sailLevel = 0
                     , state = { state | speed = 0 }
-                    , toast = Just ( T.anchorDroppedToast model.language, 1.2 )
+                    , toast = Just ( T.anchorDroppedToast model.language, 1.5 )
                   }
                 , sfx (GameAudio.Impact 0.6)
                 )
@@ -850,7 +884,11 @@ tick dt model =
                     , steer = steerInput model
                     , throttle =
                         if racing then
-                            Physics.harbourThrottle model.course.waypoints model.progress model.state
+                            if model.anchored then
+                                0
+
+                            else
+                                1
 
                         else
                             0
@@ -1512,49 +1550,18 @@ tick dt model =
             else
                 []
 
-        autoFiring =
-            if model.cannonCooldown <= 0 && racing && not (Hull.wrecked hull) then
-                case Physics.findBroadsideTarget state (aimPoints model) of
-                    Just ( _, aim, sideSign ) ->
-                        let
-                            shot =
-                                Physics.fireBroadside (mySlot model) state aim nextShotId
-
-                            camBias =
-                                sideSign * 26.0
-                        in
-                        { shot = [ shot ]
-                        , cooldown = cannonReload
-                        , nextId = nextShotId + 1
-                        , follow = CameraRig.setBroadsideBias camBias follow
-                        , sfx = [ sfx (GameAudio.Impact 0.8) ]
-                        }
-
-                    Nothing ->
-                        { shot = []
-                        , cooldown = max 0 (model.cannonCooldown - dt)
-                        , nextId = nextShotId
-                        , follow = follow
-                        , sfx = []
-                        }
-
-            else
-                { shot = []
-                , cooldown = max 0 (model.cannonCooldown - dt)
-                , nextId = nextShotId
-                , follow = follow
-                , sfx = []
-                }
+        newCooldown =
+            max 0 (model.cannonCooldown - dt)
     in
     ( { model
         | state = state
         , progress = progress
         , phase = phase
-        , follow = autoFiring.follow
+        , follow = follow
         , simTime = time
         , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
-        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots ++ autoFiring.shot
+        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , standards = regalia.standards
@@ -1564,8 +1571,8 @@ tick dt model =
 
             else
                 max 0 (model.pirateCooldown - dt)
-        , cannonCooldown = autoFiring.cooldown
-        , nextCannonId = autoFiring.nextId
+        , cannonCooldown = newCooldown
+        , nextCannonId = nextShotId
         , pirateGuns = pirateGuns
         , toast = toast
         , hull = hull
@@ -1592,7 +1599,7 @@ tick dt model =
         , crewTime = crewTime
         , ghostShip = updatedGhostShip
       }
-    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: autoFiring.sfx ++ sfxCmds)
+    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )
 
 

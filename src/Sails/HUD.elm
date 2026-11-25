@@ -576,15 +576,14 @@ viewHazards language hazards =
 
 holdEvents : msg -> msg -> List (Html.Attribute msg)
 holdEvents press release =
-    let
-        prevent m =
-            Events.preventDefaultOn m << Decode.succeed << (\x -> ( x, True ))
-    in
-    [ prevent "pointerdown" press
+    [ Events.preventDefaultOn "pointerdown" (Decode.succeed ( press, True ))
     , Events.on "pointerup" (Decode.succeed release)
     , Events.on "pointercancel" (Decode.succeed release)
-    , Events.on "pointerleave" (Decode.succeed release)
-    , Events.on "lostpointercapture" (Decode.succeed release)
+    , Events.preventDefaultOn "touchstart" (Decode.succeed ( press, True ))
+    , Events.on "touchend" (Decode.succeed release)
+    , Events.on "touchcancel" (Decode.succeed release)
+    , Events.preventDefaultOn "mousedown" (Decode.succeed ( press, True ))
+    , Events.on "mouseup" (Decode.succeed release)
     , Events.preventDefaultOn "contextmenu" (Decode.succeed ( release, True ))
     ]
 
@@ -601,7 +600,8 @@ steerButton language actions side =
                     ( T.steerLabel language False, FeatherIcons.chevronRight )
     in
     button
-        ([ Attr.title label
+        ([ Attr.type_ "button"
+         , Attr.title label
          , Attr.attribute "aria-label" label
          , Attr.attribute "data-steer"
             (case side of
@@ -612,7 +612,9 @@ steerButton language actions side =
                     "right"
             )
          , Attr.style "touch-action" "none"
-         , Attr.class "w-[72px] h-[72px] flex items-center justify-center rounded-2xl bg-slate-900/75 border-2 border-white/20 backdrop-blur-md active:bg-sky-600 active:border-sky-300 text-white shadow-lg"
+         , Attr.style "-webkit-user-select" "none"
+         , Attr.style "user-select" "none"
+         , Attr.class "w-[72px] h-[72px] flex items-center justify-center rounded-2xl bg-slate-900/80 border-2 border-white/20 backdrop-blur-md active:bg-sky-600 active:border-sky-300 text-white shadow-xl pointer-events-auto cursor-pointer"
          ]
             ++ holdEvents (actions.onSteer side True) (actions.onSteer side False)
         )
@@ -652,15 +654,19 @@ anchorButton :
     -> Html msg
 anchorButton { canAnchor, isAnchored, actions } =
     button
-        [ Events.onClick actions.onDropAnchor
+        [ Attr.type_ "button"
+        , Events.onClick actions.onDropAnchor
         , Attr.attribute "data-testid" "drop-anchor"
+        , Attr.style "touch-action" "manipulation"
+        , Attr.style "-webkit-user-select" "none"
+        , Attr.style "user-select" "none"
         , Attr.class
-            ("w-14 h-14 flex items-center justify-center rounded-2xl border-2 font-black shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto "
-                ++ (if canAnchor && not isAnchored then
-                        "bg-brand-yellow text-brand border-brand-yellow ring-4 ring-brand-yellow/60 animate-pulse scale-105"
+            ("w-16 h-16 flex items-center justify-center rounded-2xl border-2 font-black shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto cursor-pointer "
+                ++ (if isAnchored then
+                        "bg-amber-500 text-white border-amber-300 shadow-amber-500/40 ring-4 ring-amber-400/50"
 
-                    else if isAnchored then
-                        "bg-amber-500 text-white border-amber-300 shadow-amber-500/40"
+                    else if canAnchor then
+                        "bg-brand-yellow text-brand border-brand-yellow ring-4 ring-brand-yellow/60 animate-pulse scale-105"
 
                     else
                         "bg-slate-900/80 border-white/20 text-white active:bg-slate-800"
@@ -668,7 +674,7 @@ anchorButton { canAnchor, isAnchored, actions } =
             )
         ]
         [ FeatherIcons.anchor
-            |> FeatherIcons.withSize 28
+            |> FeatherIcons.withSize 32
             |> FeatherIcons.toHtml []
         ]
 
