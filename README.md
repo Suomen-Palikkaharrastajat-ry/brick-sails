@@ -1,6 +1,6 @@
 # Brick Sails (Palikkapurjehdus)
 
-Brick Sails is a toy boat Caribbean adventure by Suomen Palikkaharrastajat ry: ride the trade winds in a little brick-built ship past reefs and palm coves, hunt for treasure and fire at floating targets.
+Brick Sails is a toy boat sea adventure by Suomen Palikkaharrastajat ry: ride the trade winds in a little brick-built ship past reefs and palm coves, hunt for treasure and fire at floating targets.
 
 It runs on the shared Brick Frame game layer of `brick-studio` (git submodule
 `vendor/brick-studio`), which also brings in the family branding from

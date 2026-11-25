@@ -6,14 +6,17 @@ module Sails.Render exposing
     , renderWorld
     )
 
-{-| Draws the sailing world: sea, sky, islands, buoys, the finish gate,
-floating targets, cannonballs, the towns and the treasure on the islands,
-the toy boats, and the weather (spray, rain and lightning).
+{-| Draws the sailing world: the tropical sea and sky, palm islands with the
+fort's watchtower, the course markers, the pirate finish gate, coral reefs
+and a pirate wreck, floating targets, cannonballs, the colonial towns and
+the treasure on the islands, the toy boats, and the weather (spray, rain and
+lightning).
 
 The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
 pipeline's plastic shader and edge shader. The props around the course are
-brick models too, from catalog parts (`Game.BrickModels`, the same trees as
-Brick Racer's), built once (`Props`) and drawn per piece with
+brick models too, from catalog parts (`Game.BrickModels`, shared with Brick
+Racer, and `Sails.Scenery` for the palms, the fort, the reefs, the wreck and
+the pirate flags), built once (`Props`) and drawn per piece with
 `Game.BrickProps`, stretched to the sizes the course and the physics use.
 The sea and the sky have the shared brick look (`Game.BrickLook`). Only the
 ring round the next buoy, the guide arrow, the rain and the lightning are
@@ -82,9 +85,11 @@ propSources =
     , ( "beacon", BrickModels.beacon )
     , ( "floatingTarget", BrickModels.floatingTarget )
     , ( "island", BrickModels.island )
-    , ( "lighthouse", BrickModels.lighthouse )
-    , ( "pineTree", BrickModels.pineTree )
-    , ( "leafyTree", BrickModels.leafyTree )
+    , ( "fort", Scenery.fort )
+    , ( "palmTree", Scenery.palmTree )
+    , ( "reef", Scenery.reef )
+    , ( "wreck", Scenery.wreck )
+    , ( "pirateFlag", Scenery.pirateFlag )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
@@ -103,7 +108,7 @@ type alias RenderBoat =
     }
 
 
-{-| Render the full race scene.
+{-| Render the full voyage scene.
 -}
 renderWorld :
     { eye : Vec3, target : Vec3 }
@@ -162,6 +167,7 @@ renderWorld cam scene width height =
             , Ocean.oceanEntity ctx
             ]
                 ++ islandEntities draw scene.course
+                ++ reefEntities draw
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
@@ -486,11 +492,12 @@ buoyEntities ctx draw time nextIndex all wp =
 
             else
                 case wp.kind of
+                    -- Rum-barrel red and doubloon yellow markers.
                     PortBuoy ->
-                        vec3 0.9 0.15 0.12
+                        vec3 0.78 0.16 0.1
 
                     StarboardBuoy ->
-                        vec3 0.1 0.72 0.25
+                        vec3 0.98 0.74 0.12
 
                     FinishGate ->
                         vec3 1 0.8 0.1
@@ -525,6 +532,11 @@ buoyEntities ctx draw time nextIndex all wp =
 
                 frame =
                     Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
+
+                -- A pirate flag on top of each post of the arch (whose beam
+                -- tops out 7.68 m up in arch space).
+                flag x =
+                    draw.fitted "pirateFlag" (BrickProps.fitHeight 3.2) (Mat4.mul frame (Mat4.makeTranslate3 x 7.68 0)) plain
             in
             List.concatMap
                 (\b -> draw.prop b.part (Mat4.mul frame b.transform) (tint3 (BrickLook.colour b.color)))
@@ -536,6 +548,8 @@ buoyEntities ctx draw time nextIndex all wp =
                     , bannerColors = [ 0, 15 ]
                     }
                 )
+                ++ flag (negate wp.radius)
+                ++ flag wp.radius
                 ++ ring
 
         _ ->
@@ -571,8 +585,9 @@ targetEntities draw time t =
 
 
 {-| Islands of round bricks stretched to each island's radius and height
-(the radius the boats bump into), with brick trees on the grass (clear of
-the towns and the treasure) and the lighthouse on the first island's hill.
+(the radius the boats bump into), with brick palm trees on the grass (clear
+of the towns and the treasure) and the fort's watchtower on the first
+island's hill.
 The beach and the grass are at `Physics.beachHeight` and
 `Physics.grassHeight`, where the towns and the chest stand.
 -}
@@ -629,25 +644,21 @@ islandEntities draw course =
                         a =
                             degrees (120 + 40 * toFloat k + 17 * toFloat i)
 
-                        pine =
+                        tall =
                             modBy 2 (k + i) == 0
                     in
-                    draw.fitted
-                        (if pine then
-                            "pineTree"
-
-                         else
-                            "leafyTree"
-                        )
+                    draw.fitted "palmTree"
                         (BrickProps.fitHeight
-                            (if pine then
+                            (if tall then
                                 0.9 * isl.height
 
                              else
                                 0.75 * isl.height
                             )
                         )
-                        (Mat4.makeTranslate3 (isl.x + 0.7 * isl.radius * cos a) grassY (isl.z + 0.7 * isl.radius * sin a))
+                        (Mat4.makeTranslate3 (isl.x + 0.7 * isl.radius * cos a) grassY (isl.z + 0.7 * isl.radius * sin a)
+                            |> rotY (a + toFloat k)
+                        )
                         plain
             in
             draw.fitted "island"
@@ -656,7 +667,7 @@ islandEntities draw course =
                 plain
                 ++ List.concatMap tree (List.filter clear (List.range 0 (treeCount - 1)))
                 ++ (if i == 0 then
-                        draw.fitted "lighthouse"
+                        draw.fitted "fort"
                             (BrickProps.fitHeight 10.6)
                             (Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius))
                             plain
@@ -669,7 +680,7 @@ islandEntities draw course =
         |> List.concat
 
 
-{-| A sweeping lighthouse searchlight beam from the lantern on island 0.
+{-| The sweeping torch light from the fort's watchtower on island 0.
 -}
 lighthouseBeamEntity : Ctx -> Float -> Course -> List WebGL.Entity
 lighthouseBeamEntity ctx time course =
@@ -680,10 +691,25 @@ lighthouseBeamEntity ctx time course =
                     Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height + 9.5) (isl.z + 0.1 * isl.radius)
                         |> rotY (time * 0.75)
             in
-            [ ocean ctx model (vec3 1.0 0.95 0.55) lighthouseBeamMesh ]
+            [ ocean ctx model (vec3 1.0 0.72 0.32) lighthouseBeamMesh ]
 
         [] ->
             []
+
+
+{-| Decoration out on the water, clear of the route and the islands: coral
+reefs off the outer islands and a pirate wreck run aground far east of the
+loop. Visual only: nothing here is in the physics, so the boats sail through
+them as if they were not there.
+-}
+reefEntities : Draw -> List WebGL.Entity
+reefEntities draw =
+    List.concatMap
+        (\( x, z, yaw ) ->
+            draw.fitted "reef" (BrickProps.fitHeight 1.8) (Mat4.makeTranslate3 x -0.9 z |> rotY yaw) plain
+        )
+        [ ( -112, 250, 0.4 ), ( -92, -42, 2.1 ), ( 205, 140, 4.0 ) ]
+        ++ draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 110 -1.1 230 |> rotY 0.6) plain
 
 
 {-| A brick scenery piece standing at a point, its front facing `bearing`.
@@ -921,7 +947,7 @@ arrowMesh =
         (arm 1 ++ arm -1 ++ (arm 1 ++ arm -1 |> transformTris (Mat4.makeTranslate3 0 0 -1.4)))
 
 
-{-| Sweeping lighthouse beam mesh: 2 triangles extending from z = 0 to z = 160.
+{-| Sweeping torch beam mesh: 2 triangles extending from z = 0 to z = 90.
 -}
 lighthouseBeamMesh : WebGL.Mesh PropVertex
 lighthouseBeamMesh =
@@ -930,7 +956,7 @@ lighthouseBeamMesh =
             vec3
     in
     WebGL.triangles
-        (face (p -0.5 -0.4 0) (p 0.5 0.4 0) (p 14 2.5 160) (p -14 -2.5 160) white)
+        (face (p -0.5 -0.4 0) (p 0.5 0.4 0) (p 9 1.8 90) (p -9 -1.8 90) white)
 
 
 

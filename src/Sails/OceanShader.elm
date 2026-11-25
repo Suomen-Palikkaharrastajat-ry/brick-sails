@@ -10,8 +10,8 @@ module Sails.OceanShader exposing
     , withWeather
     )
 
-{-| WebGL shaders for Brick Sails: a sea of blue studded plates on the swell
-of `Sails.Physics.seaElevation` and the brick sky (both the shared brick look
+{-| WebGL shaders for Brick Sails: a tropical sea of turquoise studded plates
+on the swell of `Sails.Physics.seaElevation` and the brick sky (both the shared brick look
 of `Game.BrickLook`), the camera, sun and fog the brick-built props are drawn
 with (`propView`), and one flat-shaded shader for the course markers and the
 island scenery. The weather (`withWeather`) raises the sea, darkens the sea,
@@ -114,7 +114,7 @@ type alias WaterUniforms =
 
 skyColour : Vec3
 skyColour =
-    vec3 0.75 0.88 0.97
+    vec3 0.8 0.92 0.95
 
 
 {-| The low grey ceiling of storm clouds.
@@ -182,9 +182,9 @@ waterMesh =
         |> WebGL.triangles
 
 
-{-| The sea: blue studded plates (`Game.BrickLook.surfaceFragmentShader`),
-dark blue in the troughs and dark azure on the crests, with white caps on the
-highest crests, rising and falling with the swell. Under storm clouds the
+{-| The sea: tropical studded plates (`Game.BrickLook.surfaceFragmentShader`),
+dark azure in the troughs and light turquoise on the crests, with white caps
+on the highest crests, rising and falling with the swell. Under storm clouds the
 plates are a dull grey-blue and the sea loses its sheen.
 -}
 oceanEntity : Ctx -> WebGL.Entity
@@ -197,8 +197,8 @@ oceanEntity ctx =
         , u_perspective = ctx.perspective
         , u_time = ctx.time
         , u_sea = ctx.sea
-        , u_deep = flashLight ctx (mixV (BrickLook.colour 1) (vec3 0.05 0.16 0.24) ctx.gloom)
-        , u_shallow = flashLight ctx (mixV (BrickLook.colour 322) (vec3 0.16 0.3 0.38) ctx.gloom)
+        , u_deep = flashLight ctx (mixV (BrickLook.colour 321) (vec3 0.05 0.16 0.24) ctx.gloom)
+        , u_shallow = flashLight ctx (mixV (BrickLook.colour 11) (vec3 0.16 0.3 0.38) ctx.gloom)
         , u_cap = flashLight ctx (mixV (vec3 0.9 0.97 1.0) (vec3 0.7 0.76 0.8) ctx.gloom)
         , u_eyePos = ctx.eye
         , u_sunDir = sunDir
@@ -207,7 +207,7 @@ oceanEntity ctx =
         , u_fogFar = fogFar ctx
         , u_fogMax = 1
         , u_skyAmbient = horizonColour ctx
-        , u_groundAmbient = mixV (vec3 0.3 0.4 0.5) (vec3 0.15 0.18 0.22) ctx.gloom
+        , u_groundAmbient = mixV (vec3 0.32 0.44 0.46) (vec3 0.15 0.18 0.22) ctx.gloom
         , u_studPitch = 0.35
         , u_plateStuds = 16
         , u_gloss = 0.7 * (1 - 0.6 * ctx.gloom)
@@ -290,7 +290,7 @@ skyEntity ctx =
     BrickLook.skyEntity
         { viewProjection = Mat4.mul ctx.perspective ctx.view
         , eye = ctx.eye
-        , zenith = Vec3.add (mixV (vec3 0.2 0.52 0.9) (vec3 0.2 0.23 0.28) ctx.gloom) (Vec3.scale (0.75 * ctx.flash) (vec3 1 1 1))
+        , zenith = Vec3.add (mixV (vec3 0.1 0.5 0.92) (vec3 0.2 0.23 0.28) ctx.gloom) (Vec3.scale (0.75 * ctx.flash) (vec3 1 1 1))
         , horizon = horizonColour ctx
         , sunDir = sunDir
         , time = ctx.time

@@ -170,7 +170,7 @@ title lang =
 
 subtitle : Language -> String
 subtitle lang =
-    pick lang "Leluveneiden Karibian seikkailu" "Toy boat Caribbean adventure"
+    pick lang "Leluveneiden meriseikkailu" "Toy boat sea adventure"
 
 
 courseTitle : Language -> String -> String
@@ -290,13 +290,13 @@ controlsHint : Language -> Bool -> String
 controlsHint lang tilt =
     if tilt then
         pick lang
-            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta AMMU, kun olet lähellä maalitauluja."
-            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE when you're near the targets, captain."
+            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta AMMU, kun olet lähellä kelluvia maalitauluja, kapteeni."
+            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE when you're near the floating targets, captain."
 
     else
         pick lang
-            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). AMMU (välilyönti) maalitaulujen lähellä."
-            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) to blast nearby targets."
+            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). AMMU (välilyönti) kelluvien maalitaulujen lähellä."
+            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) to blast nearby floating targets."
 
 
 speedLabel : Language -> String

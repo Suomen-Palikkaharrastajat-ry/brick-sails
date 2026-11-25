@@ -93,14 +93,14 @@ analyzeShip spec =
 
                     speedNote =
                         if sad > 20.0 then
-                            "High-performance rig: fast acceleration in light to moderate breezes."
+                            "Corsair rig: quick off the mark in light to moderate trade winds."
 
                         else
-                            "Cruising rig: very stable and forgiving in heavy seas."
+                            "Galleon rig: very stable and forgiving in heavy seas."
 
                     cannonNote =
                         if spec.cannonCount > 0 then
-                            "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " naval cannons equipped. Press [Space] or tap FIRE to shoot!"
+                            "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " cannons run out. Press [Space] or tap FIRE to shoot!"
 
                         else
                             "Unarmed vessel: a swift smuggler's sloop with low displacement ballast."

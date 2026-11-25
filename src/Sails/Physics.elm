@@ -107,8 +107,8 @@ defaultCourse =
         , treasureIsland
         ]
     , towns =
-        [ { name = "Fisher's Cove", island = lighthouseIsland, bearing = 100 }
-        , { name = "Port Brick", island = harbourIsland, bearing = 268 }
+        [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100 }
+        , { name = "Port Royal Brick", island = harbourIsland, bearing = 268 }
         ]
     , treasures =
         [ { id = 0
@@ -124,14 +124,15 @@ defaultCourse =
     }
 
 
-{-| The island inside the loop, with the lighthouse and a fishing village.
+{-| The island inside the loop, with the fort's watchtower and a little
+colonial cove town.
 -}
 lighthouseIsland : Island
 lighthouseIsland =
     { x = -12, z = 100, radius = 24, height = 6 }
 
 
-{-| The big island east of the course, with the harbour town.
+{-| The big island east of the course, with the colonial harbour town.
 -}
 harbourIsland : Island
 harbourIsland =
