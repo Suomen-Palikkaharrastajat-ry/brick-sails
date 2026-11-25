@@ -74,3 +74,17 @@ system temp directory) and needs Python 3 with numpy:
 python3 starters/tools/build_starters.py /tmp/racer-bases starters/sails
 node starters/embed-starters.mjs
 ```
+
+The hull cards in the ship editor's hulls drawer show a picture of each hull,
+`public/base-previews/<name>.png`, as Brick Racer's bases drawer does. Redraw
+them after changing a hull:
+
+```bash
+node starters/tools/render_base_previews.mjs
+```
+
+It flattens the hull submodel with the shared thumbnail pipeline's
+`flattenPart` (`vendor/brick-studio/packages/brick-frame-viewport/runtime/thumbnail-pipeline.js`,
+so `make vendor` first), fetches the parts and LDConfig colours from the
+catalog, and draws each hull once with WebGL in headless Chromium, so it needs
+the `playwright` package and its Chromium.

@@ -1249,8 +1249,10 @@ catalogCard model entry =
 
 
 {-| The hulls drawer, as Brick Racer's bases drawer: a card for each starter
-hull with its name and part count, the current one framed in yellow.
-Picking another hull starts the ship again on it.
+hull with its prerendered picture (`public/base-previews/<id>.png`, drawn
+from the hull's real parts by `starters/tools/render_base_previews.mjs`), its
+name and part count, the current one framed in yellow. Picking another hull
+starts the ship again on it.
 -}
 hullsView : Model -> Html Msg
 hullsView model =
@@ -1298,8 +1300,24 @@ hullsView model =
                 , Attr.style "text-align" "left"
                 , Attr.style "touch-action" "manipulation"
                 ]
-                [ span [ Attr.style "color" Brand.legoYellow, Attr.style "flex-shrink" "0", Attr.style "display" "inline-flex" ]
-                    [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+                [ div
+                    [ Attr.style "width" "72px"
+                    , Attr.style "height" "72px"
+                    , Attr.style "flex-shrink" "0"
+                    , Attr.style "border-radius" "8px"
+                    , Attr.style "overflow" "hidden"
+                    , Attr.style "background" "#05131d"
+                    , Attr.style "border" "1px solid rgba(255, 255, 255, 0.08)"
+                    ]
+                    [ Html.img
+                        [ Attr.src ("base-previews/" ++ base.id ++ ".png")
+                        , Attr.alt (baseName lang base)
+                        , Attr.style "width" "100%"
+                        , Attr.style "height" "100%"
+                        , Attr.style "object-fit" "contain"
+                        ]
+                        []
+                    ]
                 , div [ Attr.style "min-width" "0" ]
                     [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px", Attr.style "line-height" "1.2" ] [ text (baseName lang base) ]
                     , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
