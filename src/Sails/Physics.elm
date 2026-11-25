@@ -4,7 +4,6 @@ module Sails.Physics exposing
     , beachHeight
     , bonusPerHit
     , cannonRange
-    , checkShipHits
     , checkTargetHits
     , courseCurrent
     , courseFreeRange
@@ -1298,23 +1297,6 @@ checkTargetHits balls targets =
                     ( ball :: alive, flashes, ( ts, count ) )
     in
     List.foldl step ( [], [], ( targets, 0 ) ) balls
-
-
-{-| Balls hitting other boats (multiplayer). Returns surviving balls, flashes
-and the slots hit.
--}
-checkShipHits : List Cannonball -> List { slot : Int, position : Vec3 } -> ( List Cannonball, List CombatImpact, List Int )
-checkShipHits balls ships =
-    let
-        step ball ( alive, flashes, slots ) =
-            case List.filter (\s -> s.slot /= ball.sourceSlot && Vec3.distance ball.position s.position <= 2.6) ships |> List.head of
-                Just ship ->
-                    ( alive, { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes, ship.slot :: slots )
-
-                Nothing ->
-                    ( ball :: alive, flashes, slots )
-    in
-    List.foldl step ( [], [], [] ) balls
 
 
 {-| Age sinking targets; keep their bob in sync with the water of the sea

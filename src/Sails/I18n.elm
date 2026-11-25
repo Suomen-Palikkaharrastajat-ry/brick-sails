@@ -18,6 +18,9 @@ module Sails.I18n exposing
     , countdownHint
     , courseTitle
     , crewHeading
+    , crewHeadline
+    , crewTimeLabel
+    , crewWaiting
     , editShipButton
     , exitRace
     , finishToast
@@ -893,7 +896,7 @@ raceStatus lang s =
 
         Nothing ->
             if s.finished then
-                pick lang "SEIKKAILU PÄÄTTYI" "VOYAGE OVER"
+                pick lang "KOKO MIEHISTÖ SATAMASSA" "WHOLE CREW IN PORT"
 
             else
                 pick lang "SEIKKAILU KÄYNNISSÄ" "VOYAGE UNDER WAY"
@@ -919,6 +922,43 @@ you lang =
 finishedBadge : Language -> String
 finishedBadge lang =
     pick lang "SATAMASSA" "IN PORT"
+
+
+{-| Headline of a room's finish screen while crewmates are still at sea:
+how many ships of the crew are in port.
+-}
+crewWaiting : Language -> Int -> Int -> String
+crewWaiting lang inPort total =
+    pick lang "Odotetaan miehistöä " "Waiting for the crew "
+        ++ String.fromInt inPort
+        ++ "/"
+        ++ String.fromInt total
+
+
+{-| Headline of a room's finish screen once the whole crew is in port, by
+the crew's stars.
+-}
+crewHeadline : Language -> Int -> String
+crewHeadline lang starCount =
+    case starCount of
+        3 ->
+            pick lang "Merirosvokuninkaan miehistö!" "A pirate king's crew!"
+
+        2 ->
+            pick lang "Hienoa yhteispurjehdusta!" "Fine sailing together!"
+
+        _ ->
+            pick lang "Koko miehistö satamassa!" "The whole crew made port!"
+
+
+{-| Under the crew's time: what it is, and how many ships are in port.
+-}
+crewTimeLabel : Language -> Int -> Int -> String
+crewTimeLabel lang inPort total =
+    pick lang "Miehistön aika · satamassa " "Crew time · in port "
+        ++ String.fromInt inPort
+        ++ "/"
+        ++ String.fromInt total
 
 
 
@@ -1049,6 +1089,11 @@ allPhrases =
     , ( "slotOpen", \l -> slotOpen l 2 )
     , ( "you", you )
     , ( "finishedBadge", finishedBadge )
+    , ( "crewWaiting", \l -> crewWaiting l 1 2 )
+    , ( "crewHeadline 3", \l -> crewHeadline l 3 )
+    , ( "crewHeadline 2", \l -> crewHeadline l 2 )
+    , ( "crewHeadline 1", \l -> crewHeadline l 1 )
+    , ( "crewTimeLabel", \l -> crewTimeLabel l 2 2 )
     , ( "buildShipHeading", buildShipHeading )
     , ( "buildOnHullTitle", \l -> buildOnHullTitle l "Runko" )
     , ( "editShipButton", editShipButton )
@@ -1113,12 +1158,12 @@ crewHeading lang =
 
 twoPlayerHostDesc : Language -> String
 twoPlayerHostDesc lang =
-    pick lang "Avaa huone kahdelle kapteenille." "Open a room for two captains."
+    pick lang "Kaksi laivaa, yksi yhteinen seikkailu." "Two ships, one voyage together."
 
 
 gridHostDesc : Language -> String
 gridHostDesc lang =
-    pick lang "Avaa huone jopa kahdeksalle laivalle." "Open a room for up to eight ships."
+    pick lang "Jopa kahdeksan laivaa purjehtii samaa reittiä yhdessä." "Up to eight ships sail the course together."
 
 
 joinRaceDesc : Language -> String

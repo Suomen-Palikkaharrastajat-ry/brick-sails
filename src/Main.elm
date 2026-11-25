@@ -32,6 +32,10 @@ name, a loaded build as a `#b/...` build link. Room updates only name it by
 and geometry pipeline as "Your ship" and is kept in `documents` and `meshes`
 under `remoteKey id`, so it is built once per id.
 
+Play in a room is cooperative: the players are one crew on one course, and
+the room's result is the crew's shared time (`Sails.Crew`, `Pages.Sail`), so
+only solo runs go to the local leaderboard.
+
 -}
 
 import Browser
@@ -496,7 +500,9 @@ update msg model =
                         justFinished =
                             nextSail.progress.finished && not sModel.progress.finished
                     in
-                    if justFinished then
+                    -- Only a solo run is a personal record: a room's
+                    -- result is the crew's (see `Sails.Crew`).
+                    if justFinished && nextSail.multiplayer == Nothing then
                         recordFinish nextSail { model | sailModel = Just nextSail } (Cmd.map SailMessage sCmd)
 
                     else

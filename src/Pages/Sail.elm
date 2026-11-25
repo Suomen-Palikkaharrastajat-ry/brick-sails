@@ -10,9 +10,18 @@ module Pages.Sail exposing
 {-| The voyage: a 3-2-1 start, then dock at the harbours in order while a
 follow camera keeps the boat and the next harbour on screen. Cannons lob a ball
 at the nearest floating target in range; each hit takes 2 s off the time.
+
+In an online room the players are one crew (`Sails.Crew`): the host's start
+puts every ship, the host's too, back on the start line, cannons never aim at
+or hit a crewmate, and the voyage is done when the whole crew is in port. The
+crew clock (`crewClock`) runs from the room's start; each ship tells the crew
+the clock it moored at (`moorings`, by slot), and the crew's shared time
+(`crewTime`) is the latest of them once the whole crew is in port.
+
 -}
 
 import Browser.Events
+import Dict exposing (Dict)
 import FeatherIcons
 import Game.Audio as GameAudio
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
@@ -26,6 +35,7 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
 import Sails.CameraRig as CameraRig exposing (Follow)
+import Sails.Crew as Crew exposing (Crew)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
@@ -86,6 +96,9 @@ type alias SailModel =
     , seaStrain : Float
     , debris : List Wreck.Piece
     , language : Language
+    , crewClock : Float
+    , moorings : Dict Int Float
+    , crewTime : Maybe Float
     }
 
 
@@ -183,6 +196,9 @@ initSail language boat course audioMuted pb maybeMulti tilt width height =
     , seaStrain = 0
     , debris = []
     , language = language
+    , crewClock = 0
+    , moorings = Dict.empty
+    , crewTime = Nothing
     }
 
 
@@ -282,16 +298,35 @@ nextHarbour model =
             |> Maybe.map .position
 
 
+{-| What the cannons aim at: the floating targets still afloat. Never a
+crewmate's ship.
+-}
 aimPoints : SailModel -> List Vec3
 aimPoints model =
-    let
-        targets =
-            model.targets |> List.filter (not << .sunk) |> List.map .position
+    model.targets |> List.filter (not << .sunk) |> List.map .position
 
-        ships =
-            remotePlayers model |> List.map .position
-    in
-    targets ++ ships
+
+{-| The crew of the room this player sails in, while the room is on its
+voyage (see `Sails.Crew`).
+-}
+crewOf : SailModel -> Maybe Crew
+crewOf model =
+    Crew.ofRoom model.multiplayer model.progress.finished
+
+
+{-| The room's voyage is under way (or done): the crew clock runs.
+-}
+roomVoyage : SailModel -> Bool
+roomVoyage model =
+    case model.multiplayer |> Maybe.map .status of
+        Just InRace ->
+            True
+
+        Just Finished ->
+            True
+
+        _ ->
+            False
 
 
 remotePlayers : SailModel -> List Multiplayer.RemotePlayer
@@ -473,6 +508,11 @@ update msg model =
                 , run = model.run + 1
                 , weather = Weather.init (weatherSeed model.course model.multiplayer (model.run + 1))
                 , sailLevel = model.sailLevel
+
+                -- Back to the start line alone: the crew's voyage goes on.
+                , crewClock = model.crewClock
+                , moorings = Dict.remove (mySlot model) model.moorings
+                , crewTime = model.crewTime
               }
             , GamePorts.calibrateTilt ()
             )
@@ -488,6 +528,10 @@ update msg model =
 
         UpdateMultiplayerRoom room ->
             let
+                -- The crewmates' moorings this room state tells of.
+                heard =
+                    Crew.heardMoorings room model.moorings
+
                 wasCounting =
                     case model.multiplayer |> Maybe.map .status of
                         Just (Multiplayer.Countdown _) ->
@@ -496,28 +540,29 @@ update msg model =
                         _ ->
                             False
             in
-            case ( room.status, room.role ) of
-                ( Multiplayer.Countdown _, JoinedPlayer ) ->
+            case room.status of
+                Multiplayer.Countdown _ ->
                     if wasCounting then
-                        ( { model | multiplayer = Just room }, Cmd.none )
+                        ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
 
                     else
-                        -- The host started the race: everyone back to the start line.
+                        -- The host started the voyage: the whole crew, the
+                        -- host too, back to the start line to sail together.
                         let
                             fresh =
                                 initSail model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
                         ( { fresh | phase = WaitingForRoom }, GamePorts.calibrateTilt () )
 
-                ( InRace, _ ) ->
+                InRace ->
                     if model.phase == WaitingForRoom then
-                        ( { model | multiplayer = Just room, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
+                        ( { model | multiplayer = Just room, moorings = heard, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
 
                     else
-                        ( { model | multiplayer = Just room }, Cmd.none )
+                        ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
 
                 _ ->
-                    ( { model | multiplayer = Just room }, Cmd.none )
+                    ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
 
         ReturnToShipyard ->
             ( model, Cmd.none )
@@ -621,10 +666,6 @@ tick dt model =
         ( afterTargets, hitFlashes, ( targets, hits ) ) =
             Physics.checkTargetHits flying model.targets
 
-        ( afterShips, shipFlashes, _ ) =
-            Physics.checkShipHits afterTargets
-                (remotePlayers model |> List.map (\p -> { slot = p.slot, position = p.position }))
-
         countedHits =
             if model.progress.finished then
                 0
@@ -712,7 +753,7 @@ tick dt model =
 
                 Nothing ->
                     Cmd.none
-            , if not (List.isEmpty hitFlashes && List.isEmpty shipFlashes) then
+            , if not (List.isEmpty hitFlashes) then
                 sfx (GameAudio.Impact 1.0)
 
               else if not (List.isEmpty splashes) then
@@ -811,6 +852,50 @@ tick dt model =
 
                 Nothing ->
                     Cmd.none
+
+        crewClock =
+            if roomVoyage model then
+                model.crewClock + dt
+
+            else
+                model.crewClock
+
+        -- This ship just moored on the room's voyage: tell the crew when.
+        justMoored =
+            roomVoyage model && progress.finished && not (Dict.member (mySlot model) model.moorings)
+
+        moorings =
+            if justMoored then
+                Dict.insert (mySlot model) crewClock model.moorings
+
+            else
+                model.moorings
+
+        mooredCmd =
+            if justMoored then
+                GamePorts.sendMultiplayerEvents [ Crew.mooredEvent crewClock state.position ]
+
+            else
+                Cmd.none
+
+        -- The latest mooring of the crew, once all are in port, is the
+        -- crew's time.
+        crewTime =
+            case ( model.crewTime, model.multiplayer ) of
+                ( Nothing, Just room ) ->
+                    case Crew.ofRoom model.multiplayer progress.finished of
+                        Just crew ->
+                            if Crew.allInPort crew then
+                                Just (Crew.sharedTime room moorings crewClock)
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    model.crewTime
     in
     ( { model
         | state = state
@@ -820,8 +905,8 @@ tick dt model =
         , simTime = time
         , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
-        , cannonballs = afterShips
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ shipFlashes)
+        , cannonballs = afterTargets
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes)
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
         , toast = toast
         , hull = hull
@@ -838,8 +923,11 @@ tick dt model =
             else
                 0
         , debris = debris
+        , crewClock = crewClock
+        , moorings = moorings
+        , crewTime = crewTime
       }
-    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: sfxCmds)
+    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )
 
 
@@ -1037,7 +1125,7 @@ viewRace model callbacks maybeRoom =
                     , onExit = callbacks.onReturnToShipyard
                     }
                 }
-        , hostHeader model.language maybeRoom
+        , hostHeader model.language (crewDone model) maybeRoom
         , lobbyRoster model.language maybeRoom
         , case maybeRoom of
             Just room ->
@@ -1063,6 +1151,16 @@ viewRace model callbacks maybeRoom =
                 , progress = model.progress
                 , boatName = model.boat.name
                 , personalBest = model.personalBest
+                , crew =
+                    crewOf model
+                        |> Maybe.map
+                            (\crew ->
+                                { inPort = crew.inPort
+                                , total = crew.total
+                                , clock = model.crewClock
+                                , crewTime = model.crewTime
+                                }
+                            )
                 , language = model.language
                 , actions =
                     { onSailAgain = callbacks.onRestartCourse
@@ -1100,18 +1198,26 @@ roomPill language loadingShips room =
         ]
 
 
-{-| Commentator controls (room code, player count, copy link, start) for the
-host of a room. In portrait it sits below the HUD's status panel and the
+{-| The whole crew of the room is in port: its voyage is complete.
+-}
+crewDone : SailModel -> Bool
+crewDone model =
+    model.crewTime /= Nothing
+
+
+{-| Host controls (room code, player count, copy link, start) for the host
+of a room. Once the whole crew is in port (`done`) the host can start the
+crew's next voyage. In portrait it sits below the HUD's status panel and the
 countdown, which share the top of a narrow screen.
 -}
-hostHeader : Language -> Maybe RoomState -> Html SailMsg
-hostHeader language maybeRoom =
+hostHeader : Language -> Bool -> Maybe RoomState -> Html SailMsg
+hostHeader language done maybeRoom =
     case maybeRoom of
         Just room ->
             case room.role of
                 HostCommentator ->
                     div
-                        [ Attr.class "absolute top-[200px] landscape:top-3 inset-x-0 mx-auto w-fit max-w-[calc(100%-16px)] z-30 flex flex-wrap justify-center items-center gap-2 landscape:gap-3 px-3 landscape:px-4 py-2 rounded-2xl bg-brand/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
+                        [ Attr.class "absolute top-[200px] landscape:top-3 inset-x-0 mx-auto w-fit max-w-[calc(100%-16px)] z-40 flex flex-wrap justify-center items-center gap-2 landscape:gap-3 px-3 landscape:px-4 py-2 rounded-2xl bg-brand/90 backdrop-blur-md border border-white/10 shadow-2xl pointer-events-auto"
                         , Attr.attribute "data-testid" "host-header"
                         ]
                         [ span [ Attr.class "font-mono font-extrabold text-sky-400 text-xs px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 whitespace-nowrap" ]
@@ -1124,26 +1230,24 @@ hostHeader language maybeRoom =
                             , Attr.class "text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 whitespace-nowrap border border-white/10"
                             ]
                             [ text (T.copyLink language) ]
-                        , case room.status of
-                            Lobby ->
-                                button
-                                    [ Attr.type_ "button"
-                                    , onClick StartMultiplayerCountdown
-                                    , Attr.class "text-xs font-black px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 active:scale-95 text-slate-950 shadow-lg shadow-emerald-500/25 whitespace-nowrap"
-                                    ]
-                                    [ text (T.startRace language) ]
+                        , case ( room.status, done ) of
+                            ( Lobby, _ ) ->
+                                startButton language
 
-                            Multiplayer.Countdown n ->
+                            ( Multiplayer.Countdown n, _ ) ->
                                 statusChip "text-amber-400 bg-amber-500/10 border-amber-500/20"
                                     (T.raceStatus language { countdown = Just n, finished = False })
 
-                            InRace ->
+                            ( _, True ) ->
+                                span [ Attr.class "contents", Attr.attribute "data-testid" "crew-done" ]
+                                    [ statusChip "text-purple-400 bg-purple-500/10 border-purple-500/20"
+                                        (T.raceStatus language { countdown = Nothing, finished = True })
+                                    , startButton language
+                                    ]
+
+                            ( _, False ) ->
                                 statusChip "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
                                     (T.raceStatus language { countdown = Nothing, finished = False })
-
-                            Finished ->
-                                statusChip "text-purple-400 bg-purple-500/10 border-purple-500/20"
-                                    (T.raceStatus language { countdown = Nothing, finished = True })
                         ]
 
                 JoinedPlayer ->
@@ -1151,6 +1255,16 @@ hostHeader language maybeRoom =
 
         Nothing ->
             text ""
+
+
+startButton : Language -> Html SailMsg
+startButton language =
+    button
+        [ Attr.type_ "button"
+        , onClick StartMultiplayerCountdown
+        , Attr.class "text-xs font-black px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 active:scale-95 text-slate-950 shadow-lg shadow-emerald-500/25 whitespace-nowrap"
+        ]
+        [ text (T.startRace language) ]
 
 
 statusChip : String -> String -> Html msg
