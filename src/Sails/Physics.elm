@@ -80,40 +80,39 @@ import Sails.Types
 -- COURSE
 
 
-{-| A short loop around a small island: seven harbours to dock at in
-order, the last one the final harbour under the pirate arch back near the
-start. Each harbour lies about 3 m off the shore of its own islet
-(`harbourIslets`), on the side facing the route, so the boat moors
-alongside the islet's pier.
-Seven floating targets sit beside the legs for bonus time.
+{-| A loop round the islands: six harbours to dock at in order, each one a
+dock on the shore of one of the course's islands (see `harbour`). The loop
+leaves from the lighthouse island in the middle (its first harbour beside
+Tortuga Cove), calls at the east, northern, southern and outer islands
+beside their towns, and comes back to the lighthouse island's final harbour
+under the pirate arch, on the side facing the start. Seven floating targets
+sit beside the legs for bonus time.
 -}
 defaultCourse : Course
 defaultCourse =
     { id = "harbour-loop"
     , title = "Island Loop"
-    , description = "Dock at each harbour in order, round the island and back to the final harbour. Pirate treasure lies on the islet past harbour 4."
+    , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on the small island past harbour 3."
     , waypoints =
-        [ harbour 0 30 38
-        , harbour 1 68 98
-        , harbour 2 30 158
-        , harbour 3 -30 188
-        , harbour 4 -82 142
-        , harbour 5 -68 75
-        , { index = 6, position = vec3 -22 0 22, radius = harbourRadius, kind = FinalHarbour }
+        [ harbour 0 Harbour lighthouseIsland 135
+        , harbour 1 Harbour harbourIsland 297
+        , harbour 2 Harbour smugglerIsland 212
+        , harbour 3 Harbour anchorageIsland 110
+        , harbour 4 Harbour outerIsland 20
+        , harbour 5 FinalHarbour lighthouseIsland 215
         ]
     , targets =
         List.indexedMap
             (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 })
-            [ ( 26, 8 ), ( 62, 60 ), ( 64, 134 ), ( 4, 190 ), ( -66, 175 ), ( -92, 108 ), ( -56, 36 ) ]
+            [ ( -11, 42 ), ( 63, 81 ), ( 64, 165 ), ( 52, 251 ), ( -45, 238 ), ( -134, 105 ), ( -84, 37 ) ]
     , islands =
         [ lighthouseIsland
         , harbourIsland
         , anchorageIsland
         , smugglerIsland
-        , { x = -130, z = -60, radius = 35, height = 7 }
+        , outerIsland
         , treasureIsland
         ]
-            ++ harbourIslets
     , towns =
         [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100 }
         , { name = "Port Royal Brick", island = harbourIsland, bearing = 268 }
@@ -122,20 +121,21 @@ defaultCourse =
         ]
     , treasures =
         [ { id = 0
-          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland 140 0.86)
-          , bearing = 140
+          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland 330 0.86)
+          , bearing = 330
           , bonusSeconds = 6
           }
         ]
     , wind = { speed = 7.0, direction = 270.0 }
     , startPosition = vec3 0 0 0
-    , startHeading = 38.0
-    , targetSeconds = 62.0
+    , startHeading = 5.0
+    , targetSeconds = 110.0
     }
 
 
-{-| The island inside the loop, with the fort's watchtower and a little
-colonial cove town.
+{-| The island in the middle of the course, with the fort's watchtower and
+a little colonial cove town: the loop leaves from its first harbour and
+ends at its final harbour, both on the shore facing the start.
 -}
 lighthouseIsland : Island
 lighthouseIsland =
@@ -163,31 +163,20 @@ smugglerIsland =
     { x = 40, z = 330, radius = 45, height = 9 }
 
 
-{-| A small island outside the loop between harbours 4 and 5, where the
-pirates buried their chest: a short detour off the route.
+{-| The island out past the reef behind the start line.
+-}
+outerIsland : Island
+outerIsland =
+    { x = -130, z = -60, radius = 35, height = 7 }
+
+
+{-| A small island beside the leg from harbour 3 to harbour 4, where the
+pirates buried their chest on the shore facing the route: a short detour
+off the route.
 -}
 treasureIsland : Island
 treasureIsland =
     { x = -78, z = 205, radius = 10, height = 5 }
-
-
-{-| The islets the harbours dock at, in the harbours' order: each one's
-shore is about 3 m (2.6 to 3.6 m) from its harbour, just outside the rock
-the boat bumps into (`boatRadius` off the shore, see `pushOutOfIsland`),
-on the side of the harbour away from the route, so the legs pass outside
-them. The final harbour's islet lies straight ahead of the
-boat sailing in, behind the arch.
--}
-harbourIslets : List Island
-harbourIslets =
-    [ { x = 41, z = 30, radius = 10, height = 5 }
-    , { x = 80, z = 98, radius = 9, height = 4 }
-    , { x = 39, z = 168, radius = 10, height = 5 }
-    , { x = -26, z = 199, radius = 9, height = 4 }
-    , { x = -93, z = 141, radius = 8, height = 4 }
-    , { x = -80, z = 69, radius = 10, height = 5 }
-    , { x = -15, z = 14, radius = 8, height = 4 }
-    ]
 
 
 {-| A point on an island at a compass bearing from its centre, `share` of
@@ -217,12 +206,26 @@ grassHeight island =
     0.58 * island.height - 0.6
 
 
-{-| A harbour on the way, with index `i`, at (x, z): just off the shore of
-its islet in `harbourIslets`.
+{-| A harbour on the way, with index `i`, docked on the shore of an island
+at a compass bearing from its centre: `harbourOffshore` off the beach, just
+outside the rock the boat bumps into (`boatRadius` off the shore, see
+`pushOutOfIsland`). With the brake assist the boat stops a few metres short
+of the harbour's centre, out in open water, and moors alongside the pier.
 -}
-harbour : Int -> Float -> Float -> Waypoint
-harbour i x z =
-    { index = i, position = vec3 x 0 z, radius = harbourRadius, kind = Harbour }
+harbour : Int -> HarbourKind -> Island -> Float -> Waypoint
+harbour i kind island bearing =
+    { index = i
+    , position = shorePoint island bearing ((island.radius + harbourOffshore) / island.radius)
+    , radius = harbourRadius
+    , kind = kind
+    }
+
+
+{-| How far off an island's shore its harbours lie, in metres.
+-}
+harbourOffshore : Float
+harbourOffshore =
+    3.0
 
 
 {-| How close to a harbour's centre the boat must be to dock there.

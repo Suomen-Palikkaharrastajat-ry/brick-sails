@@ -250,14 +250,6 @@ waterVertexShader =
             d = min(d, length(p - vec2(40.0, 330.0)) - 45.0);
             d = min(d, length(p - vec2(-130.0, -60.0)) - 35.0);
             d = min(d, length(p - vec2(-78.0, 205.0)) - 10.0);
-            // The harbours' islets (Sails.Physics.harbourIslets).
-            d = min(d, length(p - vec2(41.0, 30.0)) - 10.0);
-            d = min(d, length(p - vec2(80.0, 98.0)) - 9.0);
-            d = min(d, length(p - vec2(39.0, 168.0)) - 10.0);
-            d = min(d, length(p - vec2(-26.0, 199.0)) - 9.0);
-            d = min(d, length(p - vec2(-93.0, 141.0)) - 8.0);
-            d = min(d, length(p - vec2(-80.0, 69.0)) - 10.0);
-            d = min(d, length(p - vec2(-15.0, 14.0)) - 8.0);
             return d;
         }
 

@@ -478,8 +478,9 @@ tint3 c =
     vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
 
 
-{-| A harbour: a pier from the shore of its islet out towards the harbour,
-with a pirate flag where it leaves the beach, a pulsing ring and a
+{-| A harbour: a pier from the shore of the island it docks on out towards
+the harbour, with a pirate flag where it leaves the beach, a red and a
+green channel beacon either side of the approach, a pulsing ring and a
 spinning beacon over the next harbour to dock at and a grey ring round the
 ones already visited. The final harbour also has the pirate arch across the
 approach. The piers are decoration: nothing bumps into them.
@@ -529,9 +530,9 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
         ( dx, dz ) =
             ( sin approach, cos approach )
 
-        -- The pier runs from the beach of the islet the harbour lies off
-        -- (the island with the nearest shore) out towards the harbour, like
-        -- a town's pier, with a pirate flag where it leaves the beach.
+        -- The pier runs from the beach of the island the harbour docks on
+        -- (the one with the nearest shore) out towards the harbour, like a
+        -- town's pier, with a pirate flag where it leaves the beach.
         pier =
             case dockIsland course.islands p of
                 Just isl ->
@@ -551,17 +552,19 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
                 Nothing ->
                     []
 
+        -- The channel beacons stand 12 m out along the approach, 6 m to
+        -- either side of it, in the open water off the shore.
         portX =
-            p.x - 12 * dz - 6 * dx
+            p.x - 12 * dx + 6 * dz
 
         portZ =
-            p.z + 12 * dx - 6 * dz
+            p.z - 12 * dz - 6 * dx
 
         starboardX =
-            p.x - 12 * dz + 6 * dx
+            p.x - 12 * dx - 6 * dz
 
         starboardZ =
-            p.z + 12 * dx + 6 * dz
+            p.z - 12 * dz + 6 * dx
 
         channelBeacons =
             [ ocean ctx (Mat4.makeTranslate3 portX 0.35 portZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.95 0.15 0.15) ringMesh
@@ -879,7 +882,7 @@ seaArchEntities ctx width height scenery =
             sceneryEntities ctx width height scenery Scenery.seaArch pos bearing
         )
         [ ( vec3 85 -1.0 120, 45 )
-        , ( vec3 -115 -1.0 160, 110 )
+        , ( vec3 -98 -1.0 162, 110 )
         ]
 
 

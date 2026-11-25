@@ -217,7 +217,8 @@ legs =
     List.map2 Tuple.pair pts (List.drop 1 pts)
 
 
-{-| Autopilot that detours to the treasure after harbour 4 and then finishes.
+{-| Autopilot that detours to the treasure after harbour 3 (on the leg to
+harbour 4, which passes the treasure island) and then finishes.
 -}
 treasureHunt : Float -> ( CourseProgress, List Int )
 treasureHunt limit =
@@ -234,7 +235,7 @@ treasureHunt limit =
                     goal =
                         case chest of
                             Just t ->
-                                if progress.currentWaypointIndex == 4 && not (List.member t.id found) then
+                                if progress.currentWaypointIndex == 3 && not (List.member t.id found) then
                                     Vec3.toRecord t.position
 
                                 else
@@ -515,34 +516,57 @@ suite =
                         ()
             ]
         , describe "Islands, towns and treasure"
-            [ test "every island is clear of the route, bar the islets the legs' harbours lie off" <|
+            [ test "every island is clear of the route, bar 12 m into and out of a harbour on its own shore" <|
                 \_ ->
                     let
-                        -- An island a leg's end docks at: its shore within 6 m.
-                        docksAt ( px, pz ) isl =
+                        -- A leg's end docks on an island: a harbour within 6 m of its shore.
+                        docksOn ( px, pz ) isl =
                             sqrt ((px - isl.x) ^ 2 + (pz - isl.z) ^ 2) <= isl.radius + 6
 
-                        -- 8 m clear of every other island, and outside the
-                        -- rock the boat bumps into (2 m off the shore) of an
-                        -- islet it docks at.
-                        tooClose ( a, b ) isl =
-                            if docksAt a isl || docksAt b isl then
-                                segmentDistance ( isl.x, isl.z ) a b <= isl.radius + 2
+                        -- The leg without the 12 m at each end that docks on the island.
+                        trimmed ( ( ax, az ), ( bx, bz ) ) isl =
+                            let
+                                legLength =
+                                    sqrt ((bx - ax) ^ 2 + (bz - az) ^ 2)
 
-                            else
-                                segmentDistance ( isl.x, isl.z ) a b < isl.radius + 8
+                                cut end =
+                                    if docksOn end isl then
+                                        12 / legLength
+
+                                    else
+                                        0
+
+                                at t =
+                                    ( ax + t * (bx - ax), az + t * (bz - az) )
+                            in
+                            ( at (cut ( ax, az )), at (1 - cut ( bx, bz )) )
+
+                        -- 8 m clear of every island, but for the approach to
+                        -- (and the way out of) a harbour on its shore, and
+                        -- never as close as the rock the boat bumps into.
+                        tooClose (( a, b ) as leg) isl =
+                            let
+                                ( ta, tb ) =
+                                    trimmed leg isl
+                            in
+                            segmentDistance ( isl.x, isl.z ) ta tb < isl.radius + 8 || segmentDistance ( isl.x, isl.z ) a b <= isl.radius + 2
                     in
                     course.islands
                         |> List.filter (\isl -> List.any (\leg -> tooClose leg isl) legs)
                         |> Expect.equal []
-            , test "the start is in open water and every harbour lies just off an island's shore" <|
+            , test "the start is in open water and every harbour lies just off one island's shore, clear of the others" <|
                 \_ ->
                     let
                         distance v isl =
                             sqrt ((Vec3.getX v - isl.x) ^ 2 + (Vec3.getZ v - isl.z) ^ 2)
 
-                        offShore v =
-                            List.any (\isl -> distance v isl > isl.radius + 2 && distance v isl <= isl.radius + 6) course.islands
+                        offShore v isl =
+                            distance v isl > isl.radius + 2 && distance v isl <= isl.radius + 6
+
+                        docked v =
+                            List.length (List.filter (offShore v) course.islands)
+                                == 1
+                                && List.all (\isl -> offShore v isl || distance v isl >= isl.radius + 10) course.islands
                     in
                     Expect.all
                         [ \_ ->
@@ -551,12 +575,7 @@ suite =
                                 |> Expect.equal []
                         , \_ ->
                             course.waypoints
-                                |> List.filter (\wp -> not (offShore wp.position))
-                                |> List.map .index
-                                |> Expect.equal []
-                        , \_ ->
-                            course.waypoints
-                                |> List.filter (\wp -> List.any (\isl -> distance wp.position isl <= isl.radius + 2) course.islands)
+                                |> List.filter (\wp -> not (docked wp.position))
                                 |> List.map .index
                                 |> Expect.equal []
                         ]
