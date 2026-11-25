@@ -93,6 +93,7 @@ propSources =
     , ( "reef", Scenery.reef )
     , ( "wreck", Scenery.wreck )
     , ( "pirateFlag", Scenery.pirateFlag )
+    , ( "seabird", Scenery.seabird )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
@@ -172,6 +173,7 @@ renderWorld cam scene width height =
                 ++ islandEntities draw scene.course
                 ++ reefEntities draw
                 ++ seaArchEntities ctx width height scene.scenery
+                ++ seabirdFlockEntities draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
@@ -742,6 +744,60 @@ reefEntities draw =
         )
         [ ( -112, 250, 0.4 ), ( -92, -42, 2.1 ), ( 205, 140, 4.0 ) ]
         ++ draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 110 -1.1 230 |> rotY 0.6) plain
+
+
+{-| A flock of tiny brick gulls wheeling on thermal updrafts high above the lighthouse island.
+-}
+seabirdFlockEntities : Draw -> Float -> Course -> List WebGL.Entity
+seabirdFlockEntities draw time course =
+    case course.islands of
+        isl :: _ ->
+            let
+                centerX =
+                    isl.x + 0.2 * isl.radius
+
+                centerZ =
+                    isl.z + 0.1 * isl.radius
+
+                baseY =
+                    isl.height + 14.0
+
+                bird i =
+                    let
+                        phase =
+                            toFloat i * (2.0 * pi / 5.0)
+
+                        orbitRadius =
+                            18.0 + 3.0 * sin (toFloat i * 1.7)
+
+                        ang =
+                            time * 0.45 + phase
+
+                        x =
+                            centerX + orbitRadius * cos ang
+
+                        z =
+                            centerZ + orbitRadius * sin ang
+
+                        y =
+                            baseY + 2.0 * sin (time * 1.2 + toFloat i)
+
+                        yaw =
+                            -ang + (pi / 2.0)
+
+                        model =
+                            Mat4.makeTranslate3 x y z
+                                |> rotY yaw
+                    in
+                    draw.fitted "seabird"
+                        (BrickProps.fitBox { width = 1.2, height = 0.4, depth = 0.8 })
+                        model
+                        plain
+            in
+            List.concatMap bird (List.range 0 4)
+
+        [] ->
+            []
 
 
 {-| A brick scenery piece standing at a point, its front facing `bearing`.

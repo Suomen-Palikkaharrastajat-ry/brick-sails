@@ -12,6 +12,7 @@ module Sails.Scenery exposing
     , pirateFlag
     , reef
     , seaArch
+    , seabird
     , wreck
     )
 
@@ -646,4 +647,19 @@ pirateFlag =
         , line 70 ( 0, -48, 0 ) upright "3062b.dat"
         , line 0 ( 0, -56, 0 ) upright "3957a.dat"
         , line 0 ( 0, -132, 0 ) upright "2335.dat"
+        ]
+
+
+{-| A tiny brick-built seagull: white 1x1 plate body, yellow 1x1 round plate beak, and angled 1x1 wings.
+-}
+seabird : String
+seabird =
+    String.join "\n"
+        [ "0 FILE seabird.ldr"
+        , "0 Name: Brick Sails seabird"
+        , "0 Author: Brick Sails"
+        , line 15 ( 0, 0, 0 ) upright "3024.dat"
+        , line 14 ( 0, 0, -10 ) upright "6141.dat"
+        , line 15 ( -10, 0, 0 ) upright "3024.dat"
+        , line 15 ( 10, 0, 0 ) upright "3024.dat"
         ]
