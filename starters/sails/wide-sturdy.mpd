@@ -3,10 +3,10 @@
 0 Name: Wide Sturdy Hull
 0 Author: Brick Family starter bases
 0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
-0 // Description: Micro 4 x 6 stud beamy galleon with twin bow slopes and broad deck.
-0 // Parts: 7 (all inside the grouped submodel wide-sturdy-base.ldr)
+0 // Description: Micro 4 x 6 stud beamy galleon with twin bow slopes, broad deck and flat bottom.
+0 // Parts: 6 (all inside the grouped submodel wide-sturdy-base.ldr)
 0 // Hull only: no mast or sail (add them in the editor)
-0 // Bounds LDU: x -40..40, y -12..48, z -70..50 (size 80 x 60 x 120)
+0 // Bounds LDU: x -40..40, y -12..24, z -70..50 (size 80 x 36 x 120)
 0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
 1 16 0 0 0 1 0 0 0 1 0 0 0 1 wide-sturdy-base.ldr
 0 NOFILE
@@ -17,11 +17,9 @@
 0 // Deck (y -8..0): 4x4 main deck and 2x4 aft deck
 1 19 0 -8 -30 1 0 0 0 1 0 0 0 1 3031.dat
 1 19 0 -8 30 1 0 0 0 1 0 0 0 1 3020.dat
-0 // Upper hull (y 0..24): twin 2x2 inverted slopes at bow, port/starboard 2x4 bricks
+0 // Flat-bottom hull (y 0..24): twin inverted slope bows and port/starboard 2x4 bricks
 1 70 -20 0 -40 1 0 0 0 1 0 0 0 1 3660b.dat
 1 70 20 0 -40 1 0 0 0 1 0 0 0 1 3660b.dat
 1 70 -20 0 10 0 0 1 0 1 0 -1 0 0 3001.dat
 1 70 20 0 10 0 0 1 0 1 0 -1 0 0 3001.dat
-0 // Lower hull keelson (y 24..48): ties port, starboard and bow together
-1 70 0 24 -10 0 0 1 0 1 0 -1 0 0 3001.dat
 0 NOFILE

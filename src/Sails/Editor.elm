@@ -159,6 +159,18 @@ partCategories =
             , part "3068b.dat" "Tile 2 x 2" "Laatta 2 x 2"
             ]
       }
+    , { titleEn = "Connectors and clips"
+      , titleFi = "Liittimet ja klipsit"
+      , parts =
+            [ part "15712.dat" "Tile 1 x 1 with clip" "Laatta 1 x 1 klipsillä"
+            , part "4081b.dat" "Plate 1 x 1 with clip light" "Levy 1 x 1 valoklipsillä"
+            , part "4085c.dat" "Plate 1 x 1 with vertical clip" "Levy 1 x 1 pystyklipsillä"
+            , part "61252.dat" "Plate 1 x 1 with horizontal clip" "Levy 1 x 1 vaakaklipsillä"
+            , part "85861.dat" "Round plate 1 x 1 with open stud" "Pyöreä levy 1 x 1 avonastalla"
+            , part "87580.dat" "Jumper plate 2 x 2" "Hyppääjälevy 2 x 2"
+            , part "87087.dat" "Brick 1 x 1 with stud on side" "Palikka 1 x 1 sivunastalla"
+            ]
+      }
     , { titleEn = "Masts, sails and fittings"
       , titleFi = "Mastot, purjeet ja varusteet"
       , parts =
