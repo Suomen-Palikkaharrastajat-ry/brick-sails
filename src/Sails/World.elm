@@ -339,7 +339,7 @@ weatherProfile map =
             , baseGloom = 0.1
             , baseSea = 0.8
             , windScale = 0.7
-            , fogScale = 0.3
+            , fogScale = 0.55
             , precip = Weather.RainFall
             }
 

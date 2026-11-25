@@ -7,6 +7,7 @@ module Sails.OceanShader exposing
     , propView
     , skyEntity
     , sunDirection
+    , visibility
     , withCourse
     , withMap
     , withWeather
@@ -227,6 +228,15 @@ fogNear ctx =
 fogFar : Ctx -> Float
 fogFar ctx =
     (520 - 240 * ctx.gloom) * ctx.fog
+
+
+{-| How far one can see, in metres: where the fog has turned everything to
+sky colour (`fogFar`). About 500 m on a clear day; a fog map (fogScale 0.55,
+gloom 0.1) keeps about 270 m, so the next harbour's beacon still shows.
+-}
+visibility : Ctx -> Float
+visibility =
+    fogFar
 
 
 {-| How much a lightning flash brightens what it lights.

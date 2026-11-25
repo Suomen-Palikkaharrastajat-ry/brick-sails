@@ -19,6 +19,7 @@ import Math.Vector3 as Vec3 exposing (Vec3)
 import Sails.Archipelago as Archipelago exposing (Archipelago)
 import Sails.Boats as Boats
 import Sails.GhostShip as GhostShip
+import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, Island, IslandRole(..))
 import Sails.Weather as Weather exposing (Spell(..))
@@ -471,6 +472,39 @@ suite =
                             { speed = 6.3, direction = 123 }
                     in
                     Expect.equal (Weather.fair wind) (Weather.conditions wind (Weather.init Weather.clearProfile 9))
+            , test "fog weather still lets you see at least 250 m (the next harbour's beacon)" <|
+                \_ ->
+                    let
+                        fogMaps =
+                            MapParams.allBiomes
+                                |> List.concatMap (\b -> List.map (\s -> { biome = b, season = s, weather = Fog, seed = 1 }) MapParams.allSeasons)
+                                |> List.filter (\m -> List.member Fog (MapParams.allowedWeathers m.biome m.season))
+
+                        ctx =
+                            Ocean.makeCtx { eye = Vec3.vec3 0 10 20, target = Vec3.vec3 0 0 0 } 0 800 600
+
+                        visibilities m =
+                            List.range 0 120
+                                |> List.foldl
+                                    (\_ ( w, acc ) ->
+                                        let
+                                            stepped =
+                                                List.foldl (\_ x -> Tuple.first (Weather.step 0.1 x)) w (List.range 1 50)
+                                        in
+                                        ( stepped, Ocean.visibility (Ocean.withWeather (Weather.conditions { speed = 7, direction = 0 } stepped) ctx) :: acc )
+                                    )
+                                    ( Weather.init (World.weatherProfile m) 3, [] )
+                                |> Tuple.second
+
+                        lowest =
+                            List.concatMap visibilities fogMaps |> List.minimum |> Maybe.withDefault 0
+                    in
+                    Expect.all
+                        [ \_ -> Expect.notEqual [] fogMaps
+                        , \_ -> Expect.atLeast 250 lowest
+                        , \_ -> Expect.lessThan 350 lowest
+                        ]
+                        ()
             , test "fog pulls the fog in and overcast greys the sky" <|
                 \_ ->
                     let
@@ -478,7 +512,8 @@ suite =
                             Weather.conditions { speed = 7, direction = 0 } (Weather.init (World.weatherProfile { biome = Farmland, season = Autumn, weather = w, seed = 1 }) 3)
                     in
                     Expect.all
-                        [ \_ -> Expect.lessThan 0.5 (at Fog).fog
+                        [ \_ -> Expect.lessThan (at Rain).fog (at Fog).fog
+                        , \_ -> Expect.lessThan 0.6 (at Fog).fog
                         , \_ -> Expect.greaterThan 0.2 (at Overcast).gloom
                         , \_ -> Expect.greaterThan 0.3 (at Rain).rain
                         ]
