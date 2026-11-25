@@ -11,6 +11,7 @@ module Sails.Scenery exposing
     , pier
     , pirateFlag
     , reef
+    , seaArch
     , wreck
     )
 
@@ -52,7 +53,7 @@ metersPerLdu =
 
 all : List Piece
 all =
-    [ houses, pier, chest ]
+    [ houses, pier, chest, seaArch ]
 
 
 {-| Key of a piece in `Main`'s documents and meshes, apart from the boats.
@@ -355,12 +356,78 @@ pier =
                    , line 70 ( -50, deckY - 24, -160 ) upright "3005.dat"
                    , line 70 ( -50, deckY - 48, -160 ) upright "3005.dat"
                    , line 28 ( 50, deckY - 24, -160 ) upright "3062b.dat"
+                   , "0 // Dockside cargo derrick crane"
+                   , line 70 ( -30, deckY, -140 ) upright "3020.dat"
+                   , line 70 ( -30, deckY - 32, -140 ) upright "3957a.dat"
+                   , line 70 ( -30, deckY - 72, -130 ) upright "3460.dat"
+                   , line 14 ( -30, deckY - 48, -110 ) upright "6141.dat"
+                   , line 28 ( -30, deckY - 32, -110 ) upright "3062b.dat"
                    , "0 // Dock lanterns"
                    , line 0 ( -30, deckY - 32, -40 ) upright "3957a.dat"
                    , line 14 ( -30, deckY - 128, -40 ) upright "3062b.dat"
                    , line 0 ( 30, deckY - 32, -120 ) upright "3957a.dat"
                    , line 14 ( 30, deckY - 128, -120 ) upright "3062b.dat"
                    ]
+            )
+    }
+
+
+{-| A natural wave-carved stone arch standing in the sea: two grey stone pillars
+anchored in the water, bridged by a stone arch span with sea spray corbels and
+guano-topped rock peaks.
+-}
+seaArch : Piece
+seaArch =
+    let
+        layerY k =
+            -24 * toFloat (k + 1)
+
+        leftPillar =
+            List.range 0 4
+                |> List.concatMap
+                    (\k ->
+                        [ line 72 ( -80, layerY k, -20 ) upright "3001.dat"
+                        , line 72 ( -80, layerY k, 20 ) upright "3001.dat"
+                        ]
+                    )
+
+        rightPillar =
+            List.range 0 4
+                |> List.concatMap
+                    (\k ->
+                        [ line 72 ( 80, layerY k, -20 ) upright "3001.dat"
+                        , line 72 ( 80, layerY k, 20 ) upright "3001.dat"
+                        ]
+                    )
+
+        span =
+            [ line 71 ( -40, layerY 4, 0 ) upright "3004.dat"
+            , line 71 ( 40, layerY 4, 0 ) upright "3004.dat"
+            , line 71 ( 0, layerY 4 - 8, 0 ) upright "3034.dat"
+            , line 71 ( 0, layerY 4 - 16, 0 ) upright "3020.dat"
+            ]
+
+        peaks =
+            [ line 72 ( -80, layerY 5, 0 ) upright "3037.dat"
+            , line 15 ( -80, layerY 5 - 8, 0 ) upright "3024.dat"
+            , line 72 ( 80, layerY 5, 0 ) upright "3037.dat"
+            , line 15 ( 80, layerY 5 - 8, 0 ) upright "3024.dat"
+            ]
+    in
+    { name = "seaArch"
+    , ldraw =
+        String.join "\n"
+            ([ "0 FILE seaArch.ldr"
+             , "0 Name: Brick Sails coastal sea arch"
+             , "0 Author: Brick Sails"
+             , "0 // Pillars"
+             ]
+                ++ leftPillar
+                ++ rightPillar
+                ++ [ "0 // Arch span" ]
+                ++ span
+                ++ [ "0 // Peaks" ]
+                ++ peaks
             )
     }
 

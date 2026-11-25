@@ -171,6 +171,7 @@ renderWorld cam scene width height =
             ]
                 ++ islandEntities draw scene.course
                 ++ reefEntities draw
+                ++ seaArchEntities ctx width height scene.scenery
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
@@ -539,6 +540,23 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
                     (BrickProps.fitHeight 3.2)
                     (Mat4.makeTranslate3 (pierX + 6.5 * dx) 1.3 (pierZ + 6.5 * dz) |> rotY approach)
                     plain
+
+        portX =
+            p.x - 12 * dz - 6 * dx
+
+        portZ =
+            p.z + 12 * dx - 6 * dz
+
+        starboardX =
+            p.x - 12 * dz + 6 * dx
+
+        starboardZ =
+            p.z + 12 * dx + 6 * dz
+
+        channelBeacons =
+            [ ocean ctx (Mat4.makeTranslate3 portX 0.35 portZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.95 0.15 0.15) ringMesh
+            , ocean ctx (Mat4.makeTranslate3 starboardX 0.35 starboardZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.15 0.9 0.2) ringMesh
+            ]
     in
     case wp.kind of
         FinalHarbour ->
@@ -565,9 +583,10 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
                 ++ flag wp.radius
                 ++ pier
                 ++ ring
+                ++ channelBeacons
 
         Harbour ->
-            pier ++ ring
+            pier ++ ring ++ channelBeacons
 
 
 targetEntities : Draw -> Float -> Target -> List WebGL.Entity
@@ -762,6 +781,19 @@ townEntities ctx width height scenery towns =
                 ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) town.bearing
         )
         towns
+
+
+{-| Coastal natural stone arches standing in the waves.
+-}
+seaArchEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> List WebGL.Entity
+seaArchEntities ctx width height scenery =
+    List.concatMap
+        (\( pos, bearing ) ->
+            sceneryEntities ctx width height scenery Scenery.seaArch pos bearing
+        )
+        [ ( vec3 85 -1.0 120, 45 )
+        , ( vec3 -115 -1.0 160, 110 )
+        ]
 
 
 {-| Treasure still to find: the chest, and a gold ring on the water showing
