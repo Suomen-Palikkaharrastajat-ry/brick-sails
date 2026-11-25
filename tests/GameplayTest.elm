@@ -809,7 +809,7 @@ suite =
                 \_ ->
                     let
                         catalogParts =
-                            [ "3001.dat", "3004.dat", "3005.dat", "3020.dat", "3024.dat", "3034.dat", "3037.dat", "3062b.dat", "3460.dat", "3957a.dat", "2335.dat", "6141.dat" ]
+                            [ "3001.dat", "3003.dat", "3004.dat", "3005.dat", "3020.dat", "3024.dat", "3034.dat", "3037.dat", "3062b.dat", "3460.dat", "3957a.dat", "2335.dat", "6141.dat" ]
 
                         box =
                             Parser.parseFile "4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"

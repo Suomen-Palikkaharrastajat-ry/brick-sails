@@ -117,10 +117,26 @@ propSources =
     , ( "seabird", Scenery.seabird )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
+    , ( "waterArrow", waterArrowModel )
+    , ( "plateRound", BrickModels.singlePart "6141.dat" )
+    , ( "plateOpenRound", BrickModels.singlePart "85861.dat" )
+    , ( "plate1x1", BrickModels.singlePart "3024.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     ]
         ++ World.islandModels
+
+
+waterArrowModel : String
+waterArrowModel =
+    String.join "\n"
+        [ "0 FILE waterArrow.ldr"
+        , "0 Name: Water Arrow"
+        , "0 Author: Brick Sails"
+        , "1 16 0 0 -20 1 0 0 0 1 0 0 0 1 85984.dat"
+        , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 3023.dat"
+        , "1 16 0 0 20 1 0 0 0 1 0 0 0 1 3024.dat"
+        ]
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
@@ -218,7 +234,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (boatEntities ctx width height draw) scene.boats
                 ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
-                ++ guideEntities ctx scene.guide
+                ++ goalArrowEntities ctx draw scene.time scene.boats scene.guide scene.standards scene.targets
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
                 ++ List.concatMap (sprayEntities ctx draw scene.time) (List.take 1 scene.boats)
@@ -1321,35 +1337,116 @@ treasureEntities ctx width height scenery time found treasures =
             )
 
 
-guideEntities : Ctx -> Maybe { from : Vec3, to : Vec3 } -> List WebGL.Entity
-guideEntities ctx guide =
-    case guide of
-        Just g ->
+goalArrowEntities : Ctx -> Draw -> Float -> List RenderBoat -> Maybe { from : Vec3, to : Vec3 } -> List StandardState -> List Target -> List WebGL.Entity
+goalArrowEntities ctx draw time boats guide standards targets =
+    case List.head boats of
+        Just playerBoat ->
             let
-                a =
-                    Vec3.toRecord g.from
+                p =
+                    Vec3.toRecord playerBoat.state.position
 
-                b =
-                    Vec3.toRecord g.to
+                bob =
+                    sin (time * 3.2) * 0.03
 
-                dx =
-                    b.x - a.x
+                drawArrow ( goalX, goalZ ) color radius =
+                    let
+                        dx =
+                            goalX - p.x
 
-                dz =
-                    b.z - a.z
+                        dz =
+                            goalZ - p.z
 
-                d =
-                    sqrt (dx * dx + dz * dz)
+                        dist =
+                            sqrt (dx * dx + dz * dz)
+                    in
+                    if dist > 8.0 then
+                        let
+                            angle =
+                                atan2 dx dz
+
+                            ax =
+                                p.x + sin angle * radius
+
+                            az =
+                                p.z + cos angle * radius
+
+                            mat =
+                                Mat4.makeTranslate3 ax (0.08 + bob) az
+                                    |> Mat4.mul (Mat4.makeRotate angle (vec3 0 1 0))
+                        in
+                        draw.fitted "waterArrow" (BrickProps.fitLength 1.6) mat color
+
+                    else
+                        []
+
+                -- 1. Next Waypoint / Harbour (Emerald Green)
+                harbourArrow =
+                    case guide of
+                        Just g ->
+                            let
+                                b =
+                                    Vec3.toRecord g.to
+                            in
+                            drawArrow ( b.x, b.z ) (vec4 0.15 0.95 0.35 1.0) 3.6
+
+                        Nothing ->
+                            []
+
+                -- 2. Nearest Lost Standard at Sea (Gold)
+                nearestStandard =
+                    standards
+                        |> List.filterMap
+                            (\s ->
+                                case s of
+                                    AtSea _ spos _ ->
+                                        Just ( Physics.horizontalDistance playerBoat.state.position spos, spos )
+
+                                    _ ->
+                                        Nothing
+                            )
+                        |> List.sortBy Tuple.first
+                        |> List.head
+
+                standardArrow =
+                    case nearestStandard of
+                        Just ( d, spos ) ->
+                            if d < 350 then
+                                let
+                                    sr =
+                                        Vec3.toRecord spos
+                                in
+                                drawArrow ( sr.x, sr.z ) (vec4 1.0 0.85 0.1 1.0) 4.3
+
+                            else
+                                []
+
+                        Nothing ->
+                            []
+
+                -- 3. Nearest Target / Enemy (Fiery Red)
+                nearestTarget =
+                    targets
+                        |> List.map (\t -> ( Physics.horizontalDistance playerBoat.state.position t.position, t.position ))
+                        |> List.sortBy Tuple.first
+                        |> List.head
+
+                targetArrow =
+                    case nearestTarget of
+                        Just ( d, tpos ) ->
+                            if d < 180 then
+                                let
+                                    tr =
+                                        Vec3.toRecord tpos
+                                in
+                                drawArrow ( tr.x, tr.z ) (vec4 0.95 0.2 0.2 1.0) 5.0
+
+                            else
+                                []
+
+                        Nothing ->
+                            []
             in
-            if d > 14 then
-                [ ocean ctx
-                    (Mat4.makeTranslate3 (a.x + dx / d * 6.5) 0.45 (a.z + dz / d * 6.5) |> rotY (atan2 dx dz))
-                    (vec3 1 0.88 0.2)
-                    arrowMesh
-                ]
-
-            else
-                []
+            harbourArrow ++ standardArrow ++ targetArrow
 
         Nothing ->
             []
@@ -1372,18 +1469,18 @@ ballEntity draw ball =
         smokeEntities =
             if ball.age < 0.4 then
                 let
-                    smokeRadius =
-                        0.22 + ball.age * 0.8
+                    phase =
+                        ball.age / 0.4
 
-                    smokeHeight =
-                        0.2 + ball.age * 0.6
+                    smokeRadius =
+                        0.3 + phase * 0.6
 
                     smokeAlpha =
-                        clamp 0.0 1.0 (1.0 - ball.age / 0.4)
+                        clamp 0.0 1.0 (1.0 - phase)
                 in
-                draw.fitted "splash"
-                    (BrickProps.fitBox { width = 2 * smokeRadius, height = smokeHeight, depth = 2 * smokeRadius })
-                    (Mat4.makeTranslate3 (p.x - v.x * 0.08) (p.y - 0.2) (p.z - v.z * 0.08))
+                draw.fitted "plateOpenRound"
+                    (BrickProps.fitWidth smokeRadius)
+                    (Mat4.makeTranslate3 (p.x - v.x * 0.06) (p.y - 0.1) (p.z - v.z * 0.06))
                     (vec4 0.92 0.93 0.96 smokeAlpha)
 
             else
@@ -1399,23 +1496,39 @@ impactEntity draw imp =
             Vec3.toRecord imp.position
 
         t =
-            clamp 0 1 (imp.age / 0.7)
+            clamp 0 1 (imp.age / 0.6)
 
-        h =
-            max 0.1 (sin (t * pi)) * 3
+        splashR =
+            0.5 + t * 1.8
 
-        r =
-            0.6 + t * 2.2
+        splashH =
+            0.1 + sin (t * pi) * 1.2
+
+        alpha =
+            1.0 - t
+
+        puff ringI =
+            let
+                angle =
+                    toFloat ringI * (2 * pi / 6)
+
+                px =
+                    p.x + cos angle * splashR
+
+                pz =
+                    p.z + sin angle * splashR
+            in
+            draw.fitted "plateRound"
+                (BrickProps.fitWidth 0.5)
+                (Mat4.makeTranslate3 px (p.y + splashH) pz)
+                (if imp.isHit then
+                    vec4 1.0 0.6 0.1 alpha
+
+                 else
+                    vec4 0.9 0.96 1.0 alpha
+                )
     in
-    draw.fitted "splash"
-        (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
-        (Mat4.makeTranslate3 p.x p.y p.z)
-        (if imp.isHit then
-            vec4 1 0.6 0.15 1
-
-         else
-            vec4 1 1 1 1
-        )
+    List.concatMap puff (List.range 0 5)
 
 
 
@@ -1541,7 +1654,7 @@ lighthouseBeamMesh =
 
 
 {-| Spray thrown up at the bow when the boat drives through a rough sea:
-small white brick splashes (the `splash` prop).
+authentic LEGO 1x1 round plates.
 -}
 sprayEntities : Ctx -> Draw -> Float -> RenderBoat -> List WebGL.Entity
 sprayEntities ctx draw time rb =
@@ -1568,7 +1681,7 @@ sprayEntities ctx draw time rb =
         puff i =
             let
                 phase =
-                    fract (time * 1.4 + toFloat i * 0.5)
+                    fract (time * 1.8 + toFloat i * 0.5)
 
                 side =
                     if i == 0 then
@@ -1577,60 +1690,30 @@ sprayEntities ctx draw time rb =
                     else
                         -1
 
-                r =
-                    (0.4 + phase * 1.4) * crestRough
-
-                h =
-                    max 0.05 (sin (phase * pi)) * 1.6 * crestRough
-            in
-            draw.fitted "splash"
-                (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
-                (Mat4.makeTranslate3
-                    (p.x + sin rad * 2.3 + side * cos rad * (0.6 + phase))
-                    (p.y + 0.2)
-                    (p.z + cos rad * 2.3 - side * sin rad * (0.6 + phase))
-                )
-                plain
-
-        crestPuff i =
-            let
-                phase =
-                    fract (time * 1.6 + toFloat i * 0.37)
-
-                side =
-                    if modBy 2 i == 0 then
-                        1
-
-                    else
-                        -1
-
                 distAlong =
-                    0.5 - toFloat (i // 2) * 1.1
+                    2.0 + phase * 0.4
 
-                r =
-                    (0.35 + phase * 1.1) * crestRough
-
-                h =
-                    max 0.04 (sin (phase * pi)) * 1.3 * crestRough
+                sprayH =
+                    0.05 + sin (phase * pi) * 0.35 * crestRough
             in
-            draw.fitted "splash"
-                (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
+            draw.fitted "plateRound"
+                (BrickProps.fitWidth 0.35)
                 (Mat4.makeTranslate3
-                    (p.x + sin rad * distAlong + side * cos rad * (0.8 + phase * 0.4))
-                    (p.y + 0.15)
-                    (p.z + cos rad * distAlong - side * sin rad * (0.8 + phase * 0.4))
+                    (p.x + sin rad * distAlong + side * cos rad * (0.6 + phase * 0.3))
+                    (p.y + sprayH)
+                    (p.z + cos rad * distAlong - side * sin rad * (0.6 + phase * 0.3))
                 )
-                plain
+                (vec4 1.0 1.0 1.0 (1.0 - phase * 0.5))
     in
     if rough > 0.03 || ctx.sea > 1.2 then
-        puff 0 ++ puff 1 ++ crestPuff 0 ++ crestPuff 1 ++ crestPuff 2 ++ crestPuff 3
+        puff 0 ++ puff 1
 
     else
         []
 
 
-{-| Dynamic LEGO brick foam wake trailing behind a boat's keel when moving.
-Emits flattened foam wash tiers along the boat's stern wake wash.
+{-| Dynamic LEGO brick foam wake trailing behind a boat when moving:
+authentic 1x1 round plates and open-stud plates floating on the water surface.
 -}
 wakeEntities : Ctx -> Draw -> Float -> RenderBoat -> List WebGL.Entity
 wakeEntities ctx draw time rb =
@@ -1652,33 +1735,37 @@ wakeEntities ctx draw time rb =
             tier i =
                 let
                     phase =
-                        fract (time * 1.3 + toFloat i * 0.33)
+                        fract (time * 1.6 + toFloat i * 0.33)
 
                     dist =
-                        1.8 + toFloat i * 1.5 + phase * 0.5
+                        1.4 + toFloat i * 1.2 + phase * 0.6
 
                     spread =
-                        0.35 + toFloat i * 0.3
+                        0.4 + toFloat i * 0.35
 
-                    w =
-                        0.8 + toFloat i * 0.5
+                    propName =
+                        if modBy 2 i == 0 then
+                            "plateRound"
 
-                    h =
-                        0.06
+                        else
+                            "plateOpenRound"
 
                     wakePuff side =
-                        draw.fitted "splash"
-                            (BrickProps.fitBox { width = w, height = h, depth = w })
-                            (Mat4.makeTranslate3
-                                (p.x - sin rad * dist + side * cos rad * spread)
-                                (p.y + 0.05)
-                                (p.z - cos rad * dist - side * sin rad * spread)
-                            )
-                            plain
+                        let
+                            wx =
+                                p.x - sin rad * dist + side * cos rad * spread
+
+                            wz =
+                                p.z - cos rad * dist - side * sin rad * spread
+                        in
+                        draw.fitted propName
+                            (BrickProps.fitWidth 0.42)
+                            (Mat4.makeTranslate3 wx 0.03 wz)
+                            (vec4 0.9 0.96 1.0 (1.0 - phase * 0.6))
                 in
                 wakePuff 1 ++ wakePuff -1
         in
-        tier 0 ++ tier 1 ++ tier 2
+        tier 0 ++ tier 1 ++ tier 2 ++ tier 3
 
     else
         []

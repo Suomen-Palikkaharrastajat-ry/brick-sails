@@ -7,6 +7,7 @@ module Sails.CameraRig exposing
     , jolt
     , knockShake
     , lookAt
+    , setBroadsideBias
     , stepFollow
     )
 
@@ -78,6 +79,7 @@ type alias Follow =
     , sink : Float
     , shake : Float
     , clock : Float
+    , broadsideBias : Float
     }
 
 
@@ -114,6 +116,7 @@ initFollow boat heading =
     , sink = 0
     , shake = 0
     , clock = 0
+    , broadsideBias = 0
     }
 
 
@@ -189,6 +192,13 @@ then rising to about 0.8 for a full-speed crash (9 m/s).
 knockShake : Float -> Float
 knockShake speed =
     clamp 0 1 (max 0 (speed - 2.5) * 0.12)
+
+
+{-| Smoothly pivot camera towards a broadside shot direction to frame the cannonballs.
+-}
+setBroadsideBias : Float -> Follow -> Follow
+setBroadsideBias bias follow =
+    { follow | broadsideBias = clamp -38.0 38.0 bias }
 
 
 {-| Add a shake (0 to 1) to the camera; shakes add up to at most 1.
@@ -299,6 +309,12 @@ stepFollow dt aspect boat heading speed next follow =
         else
             follow.shake * max 0 (1 - shakeDecay * dt)
     , clock = follow.clock + dt
+    , broadsideBias =
+        if abs follow.broadsideBias < 0.1 then
+            0
+
+        else
+            follow.broadsideBias * max 0 (1 - 1.6 * dt)
     }
 
 
@@ -307,11 +323,14 @@ stepFollow dt aspect boat heading speed next follow =
 followView : Follow -> { eye : Vec3, target : Vec3 }
 followView follow =
     let
+        effectiveYaw =
+            follow.yaw + follow.broadsideBias
+
         yawRad =
-            degrees follow.yaw
+            degrees effectiveYaw
 
         eyeRad =
-            degrees (follow.yaw + sideDegrees)
+            degrees (effectiveYaw + sideDegrees)
 
         pitch =
             degrees (pitchDegrees - follow.sink)

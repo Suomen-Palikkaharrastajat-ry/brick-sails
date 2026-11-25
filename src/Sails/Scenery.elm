@@ -54,7 +54,7 @@ house is about the size of a boat's sail on the course.
 -}
 metersPerLdu : Float
 metersPerLdu =
-    0.05
+    0.035
 
 
 all : List Piece
@@ -102,8 +102,7 @@ line colour ( x, y, z ) matrix part =
         ]
 
 
-{-| One house: a 4 x 4 stud block of 2 x 4 bricks `layers` high, a door
-and two windows on the front, a gable roof of 2 x 4 slopes and a chimney.
+{-| One house: a 4 x 4 stud block of 2 x 4 bricks `layers` high, and a gable roof of 2 x 4 slopes.
 -}
 house : Float -> Int -> Int -> Int -> List String
 house x layers wall roof =
@@ -120,29 +119,19 @@ house x layers wall roof =
                         ]
                     )
 
-        front =
-            [ line 70 ( x, layerY 0, -50 ) upright "3004.dat"
-            , line 70 ( x, layerY 1, -50 ) upright "3004.dat"
-            , line 43 ( x - 30, layerY 2, -50 ) upright "3005.dat"
-            , line 43 ( x + 30, layerY 2, -50 ) upright "3005.dat"
-            ]
-
         top =
             layerY layers
 
         roofs =
-            [ line roof ( x, top, -20 ) upright "3037.dat"
-            , line roof ( x, top, 20 ) turned "3037.dat"
-            , line 72 ( x + 30, top, 30 ) upright "3005.dat"
-            , line 72 ( x + 30, top - 24, 30 ) upright "3005.dat"
+            [ line roof ( x, top, -10 ) upright "3037.dat"
+            , line roof ( x, top, 10 ) turned "3037.dat"
             ]
     in
-    walls ++ front ++ roofs
+    walls ++ roofs
 
 
-{-| A grand colonial town hall with a four-layer main hall, entrance steps,
-and a central clock and bell tower rising three layers higher, topped with a
-belfry, a golden bell, a slope roof and a gold spire.
+{-| A grand colonial town hall with a four-layer main hall, flat balustrade roof,
+and a central clock tower and spire.
 -}
 townHall : Float -> List String
 townHall x =
@@ -159,91 +148,20 @@ townHall x =
                         ]
                     )
 
-        frontEntrance =
-            [ line 71 ( x, -8, -50 ) upright "3020.dat"
-            , line 70 ( x, layerY 0, -50 ) upright "3004.dat"
-            , line 70 ( x, layerY 1, -50 ) upright "3004.dat"
-            , line 14 ( x - 20, layerY 2, -50 ) upright "3005.dat"
-            , line 14 ( x + 20, layerY 2, -50 ) upright "3005.dat"
-            ]
-
         mainRoof =
-            [ line 4 ( x, layerY 4, -20 ) upright "3037.dat"
-            , line 4 ( x, layerY 4, 20 ) turned "3037.dat"
+            [ line 4 ( x, layerY 4, -20 ) upright "3020.dat"
+            , line 4 ( x, layerY 4, 20 ) upright "3020.dat"
             ]
 
-        towerBase =
-            [ line 15 ( x - 10, layerY 4, -10 ) upright "3005.dat"
-            , line 15 ( x + 10, layerY 4, -10 ) upright "3005.dat"
-            , line 15 ( x - 10, layerY 4, 10 ) upright "3005.dat"
-            , line 15 ( x + 10, layerY 4, 10 ) upright "3005.dat"
-            ]
-
-        belfryOpen =
-            [ line 15 ( x - 10, layerY 5, -10 ) upright "3005.dat"
-            , line 15 ( x + 10, layerY 5, -10 ) upright "3005.dat"
-            , line 15 ( x - 10, layerY 5, 10 ) upright "3005.dat"
-            , line 15 ( x + 10, layerY 5, 10 ) upright "3005.dat"
-            , line 14 ( x, layerY 5, 0 ) upright "6141.dat"
-            , line 14 ( x, layerY 5 - 8, 0 ) upright "3062b.dat"
-            ]
-
-        towerRoof =
-            [ line 4 ( x, layerY 6, 0 ) upright "3037.dat"
-            , line 14 ( x, layerY 6 - 24, 0 ) upright "3957a.dat"
+        tower =
+            [ line 15 ( x, layerY 5, 0 ) upright "3003.dat"
+            , line 15 ( x, layerY 6, 0 ) upright "3003.dat"
             ]
     in
-    mainWalls ++ frontEntrance ++ mainRoof ++ towerBase ++ belfryOpen ++ towerRoof
+    mainWalls ++ mainRoof ++ tower
 
 
-{-| A waterfront tavern with an overhanging upper storey, stone chimney,
-and front entrance.
--}
-tavern : Float -> List String
-tavern x =
-    let
-        layerY k =
-            -24 * toFloat (k + 1)
-
-        groundFloor =
-            [ line 320 ( x, layerY 0, -20 ) upright "3001.dat"
-            , line 320 ( x, layerY 0, 20 ) upright "3001.dat"
-            , line 70 ( x, layerY 0, -50 ) upright "3004.dat"
-            ]
-
-        upperFloors =
-            List.range 1 3
-                |> List.concatMap
-                    (\k ->
-                        [ line 70 ( x, layerY k, -20 ) upright "3001.dat"
-                        , line 70 ( x, layerY k, 20 ) upright "3001.dat"
-                        ]
-                    )
-
-        windows =
-            [ line 14 ( x - 20, layerY 1, -50 ) upright "3005.dat"
-            , line 14 ( x + 20, layerY 1, -50 ) upright "3005.dat"
-            , line 14 ( x - 20, layerY 2, -50 ) upright "3005.dat"
-            , line 14 ( x + 20, layerY 2, -50 ) upright "3005.dat"
-            ]
-
-        top =
-            layerY 4
-
-        roof =
-            [ line 72 ( x, top, -20 ) upright "3037.dat"
-            , line 72 ( x, top, 20 ) turned "3037.dat"
-            , line 71 ( x + 20, top, 20 ) upright "3005.dat"
-            , line 71 ( x + 20, top - 24, 20 ) upright "3005.dat"
-            ]
-    in
-    groundFloor ++ upperFloors ++ windows ++ roof
-
-
-{-| A colonial Caribbean brick town: five buildings side by side (a waterfront
-tavern, an apothecary shop, the grand town hall with clock and bell tower, a
-pink colonial residence, and a customs warehouse) along a wide cobblestone quay
-with market stalls, a town well, defence cannons, street lanterns and cargo.
+{-| A colonial Caribbean brick town: five buildings side by side along a cobblestone quay.
 -}
 houses : Piece
 houses =
@@ -253,68 +171,38 @@ houses =
             ([ "0 FILE houses.ldr"
              , "0 Name: Brick Sails island houses"
              , "0 Author: Brick Sails"
-             , "0 // Cobblestone quay street and plaza"
-             , line 71 ( -120, -8, -70 ) upright "3034.dat"
-             , line 71 ( -40, -8, -70 ) upright "3034.dat"
-             , line 71 ( 40, -8, -70 ) upright "3034.dat"
-             , line 71 ( 120, -8, -70 ) upright "3034.dat"
-             , line 72 ( -50, -8, -90 ) upright "3020.dat"
-             , line 72 ( 50, -8, -90 ) upright "3020.dat"
+             , "0 // Cobblestone quay walkway"
+             , line 71 ( -80, -8, -60 ) upright "3034.dat"
+             , line 71 ( 80, -8, -60 ) upright "3034.dat"
              , "0 // Waterfront Tavern"
              ]
-                ++ tavern -140
+                ++ house -160 3 320 72
                 ++ [ "0 // Colonial Apothecary" ]
-                ++ house -70 3 118 4
+                ++ house -80 3 118 4
                 ++ [ "0 // Governor's Town Hall and Belfry" ]
                 ++ townHall 0
                 ++ [ "0 // Colonial Residence" ]
-                ++ house 70 3 77 1
+                ++ house 80 3 77 1
                 ++ [ "0 // Customs Warehouse" ]
-                ++ house 140 4 28 70
-                ++ [ "0 // Town Plaza Well"
-                   , line 71 ( 0, -24, -90 ) upright "3062b.dat"
-                   , line 1 ( 0, -32, -90 ) upright "6141.dat"
-                   , line 70 ( -10, -48, -90 ) upright "3005.dat"
-                   , line 70 ( 10, -48, -90 ) upright "3005.dat"
-                   , line 70 ( 0, -56, -90 ) upright "3020.dat"
-                   , "0 // Market Stalls"
-                   , line 70 ( -105, -24, -90 ) upright "3004.dat"
-                   , line 70 ( -105, -48, -90 ) upright "3005.dat"
-                   , line 4 ( -110, -56, -90 ) upright "3024.dat"
-                   , line 15 ( -100, -56, -90 ) upright "3024.dat"
-                   , line 14 ( -105, -32, -90 ) upright "6141.dat"
-                   , line 70 ( 105, -24, -90 ) upright "3004.dat"
-                   , line 70 ( 105, -48, -90 ) upright "3005.dat"
-                   , line 1 ( 100, -56, -90 ) upright "3024.dat"
-                   , line 14 ( 110, -56, -90 ) upright "3024.dat"
-                   , line 28 ( 105, -32, -90 ) upright "3062b.dat"
-                   , "0 // Defence Cannons"
-                   , line 72 ( -160, -12, -90 ) upright "3004.dat"
-                   , line 0 ( -160, -24, -90 ) alongZ "3062b.dat"
-                   , line 72 ( 160, -12, -90 ) upright "3004.dat"
-                   , line 0 ( 160, -24, -90 ) alongZ "3062b.dat"
-                   , "0 // Quayside Cargo"
-                   , line 70 ( -30, -24, -90 ) upright "3005.dat"
-                   , line 70 ( 30, -24, -90 ) upright "3062b.dat"
-                   , "0 // Street Lanterns"
-                   , line 0 ( -130, -32, -90 ) upright "3957a.dat"
-                   , line 14 ( -130, -128, -90 ) upright "3062b.dat"
-                   , line 0 ( 130, -32, -90 ) upright "3957a.dat"
-                   , line 14 ( 130, -128, -90 ) upright "3062b.dat"
+                ++ house 160 4 28 70
+                ++ [ "0 // Quayside Lanterns"
+                   , line 0 ( -70, -32, -50 ) upright "3062b.dat"
+                   , line 14 ( -70, -40, -50 ) upright "6141.dat"
+                   , line 0 ( 70, -32, -50 ) upright "3062b.dat"
+                   , line 14 ( 70, -40, -50 ) upright "6141.dat"
                    ]
             )
     }
 
 
-{-| A wooden harbour pier, four studs wide, with a wide cross-dock head,
-round brick pilings, stone shore abutment, mooring bollards, cargo crates,
-barrels and dock lanterns. Runs from the shore out along -Z.
+{-| A wooden harbour pier, four studs wide, with round brick pilings, mooring bollards,
+and dock lanterns. Runs from the shore out along -Z.
 -}
 pier : Piece
 pier =
     let
         deckY =
-            -56
+            -48
 
         post ( x, z ) =
             [ line 72 ( x, -24, z ) upright "3062b.dat"
@@ -322,16 +210,14 @@ pier =
             ]
 
         posts =
-            [ ( -20, -20 )
-            , ( 20, -20 )
-            , ( -20, -70 )
-            , ( 20, -70 )
-            , ( -20, -120 )
-            , ( 20, -120 )
-            , ( -60, -160 )
-            , ( -20, -160 )
-            , ( 20, -160 )
-            , ( 60, -160 )
+            [ ( -30, -30 )
+            , ( 30, -30 )
+            , ( -30, -70 )
+            , ( 30, -70 )
+            , ( -30, -110 )
+            , ( 30, -110 )
+            , ( -30, -150 )
+            , ( 30, -150 )
             ]
     in
     { name = "pier"
@@ -340,39 +226,24 @@ pier =
             ([ "0 FILE pier.ldr"
              , "0 Name: Brick Sails harbour pier"
              , "0 Author: Brick Sails"
-             , "0 // Stone shore threshold"
-             , line 71 ( 0, deckY, 0 ) upright "3034.dat"
              , "0 // Main walkway deck (4 studs wide)"
-             , line 70 ( -20, deckY, -80 ) alongZ "3034.dat"
-             , line 70 ( 20, deckY, -80 ) alongZ "3034.dat"
-             , "0 // Cross-dock T-head"
-             , line 70 ( -40, deckY, -160 ) upright "3034.dat"
-             , line 70 ( 40, deckY, -160 ) upright "3034.dat"
+             , line 70 ( -20, deckY - 8, -80 ) alongZ "3034.dat"
+             , line 70 ( 20, deckY - 8, -80 ) alongZ "3034.dat"
              , "0 // Pilings"
              ]
                 ++ List.concatMap post posts
                 ++ [ "0 // Mooring bollards"
-                   , line 0 ( -30, deckY - 24, -20 ) upright "3062b.dat"
-                   , line 0 ( 30, deckY - 24, -20 ) upright "3062b.dat"
-                   , line 0 ( -30, deckY - 24, -80 ) upright "3062b.dat"
-                   , line 0 ( 30, deckY - 24, -80 ) upright "3062b.dat"
-                   , line 0 ( -70, deckY - 24, -160 ) upright "3062b.dat"
-                   , line 0 ( 70, deckY - 24, -160 ) upright "3062b.dat"
-                   , "0 // Dockside cargo"
-                   , line 70 ( -50, deckY - 24, -160 ) upright "3005.dat"
-                   , line 70 ( -50, deckY - 48, -160 ) upright "3005.dat"
-                   , line 28 ( 50, deckY - 24, -160 ) upright "3062b.dat"
-                   , "0 // Dockside cargo derrick crane"
-                   , line 70 ( -30, deckY, -140 ) upright "3020.dat"
-                   , line 70 ( -30, deckY - 32, -140 ) upright "3957a.dat"
-                   , line 70 ( -30, deckY - 72, -130 ) upright "3460.dat"
-                   , line 14 ( -30, deckY - 48, -110 ) upright "6141.dat"
-                   , line 28 ( -30, deckY - 32, -110 ) upright "3062b.dat"
+                   , line 0 ( -30, deckY - 32, -30 ) upright "3062b.dat"
+                   , line 0 ( 30, deckY - 32, -30 ) upright "3062b.dat"
+                   , line 0 ( -30, deckY - 32, -70 ) upright "3062b.dat"
+                   , line 0 ( 30, deckY - 32, -70 ) upright "3062b.dat"
+                   , line 0 ( -30, deckY - 32, -150 ) upright "3062b.dat"
+                   , line 0 ( 30, deckY - 32, -150 ) upright "3062b.dat"
                    , "0 // Dock lanterns"
-                   , line 0 ( -30, deckY - 32, -40 ) upright "3957a.dat"
-                   , line 14 ( -30, deckY - 128, -40 ) upright "3062b.dat"
-                   , line 0 ( 30, deckY - 32, -120 ) upright "3957a.dat"
-                   , line 14 ( 30, deckY - 128, -120 ) upright "3062b.dat"
+                   , line 0 ( -30, deckY - 32, -110 ) upright "3062b.dat"
+                   , line 14 ( -30, deckY - 40, -110 ) upright "6141.dat"
+                   , line 0 ( 30, deckY - 32, -110 ) upright "3062b.dat"
+                   , line 14 ( 30, deckY - 40, -110 ) upright "6141.dat"
                    ]
             )
     }
@@ -407,17 +278,13 @@ seaArch =
                     )
 
         span =
-            [ line 71 ( -40, layerY 4, 0 ) upright "3004.dat"
-            , line 71 ( 40, layerY 4, 0 ) upright "3004.dat"
-            , line 71 ( 0, layerY 4 - 8, 0 ) upright "3034.dat"
-            , line 71 ( 0, layerY 4 - 16, 0 ) upright "3020.dat"
+            [ line 71 ( 0, -128, 0 ) upright "3034.dat"
+            , line 71 ( 0, -136, 0 ) upright "3020.dat"
             ]
 
         peaks =
-            [ line 72 ( -80, layerY 5, 0 ) upright "3037.dat"
-            , line 15 ( -80, layerY 5 - 8, 0 ) upright "3024.dat"
-            , line 72 ( 80, layerY 5, 0 ) upright "3037.dat"
-            , line 15 ( 80, layerY 5 - 8, 0 ) upright "3024.dat"
+            [ line 72 ( -60, -152, 0 ) upright "3003.dat"
+            , line 72 ( 60, -152, 0 ) upright "3003.dat"
             ]
     in
     { name = "seaArch"
@@ -453,7 +320,6 @@ chest =
             , line 70 ( 0, -24, 0 ) upright "3001.dat"
             , line 14 ( 0, -32, 0 ) upright "3020.dat"
             , line 70 ( 0, -56, 0 ) upright "3001.dat"
-            , line 14 ( 0, -40, -30 ) upright "3024.dat"
             , "0 // Gold"
             , line 14 ( -30, -64, -10 ) upright "6141.dat"
             , line 14 ( -10, -64, 10 ) upright "6141.dat"
@@ -463,9 +329,9 @@ chest =
             , line 14 ( 10, -72, -10 ) upright "6141.dat"
             , line 14 ( 10, -80, -10 ) upright "6141.dat"
             , "0 // Pirate flag"
-            , line 0 ( 70, -24, 0 ) upright "3062b.dat"
-            , line 0 ( 70, -32, 0 ) upright "3957a.dat"
-            , line 0 ( 70, -108, 0 ) upright "2335.dat"
+            , line 0 ( 70, -24, 10 ) upright "3062b.dat"
+            , line 0 ( 70, -32, 10 ) upright "3957a.dat"
+            , line 0 ( 70, -108, 10 ) upright "2335.dat"
             ]
     }
 

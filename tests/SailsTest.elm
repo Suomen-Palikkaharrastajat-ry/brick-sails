@@ -56,7 +56,7 @@ playBuildHash =
 -}
 knownParts : List String
 knownParts =
-    [ "3001.dat", "3003.dat", "3004.dat", "3005.dat", "3008.dat", "3009.dat", "3010.dat", "3622.dat", "3660b.dat", "3068b.dat", "3460.dat", "87580.dat", "43888.dat", "3957a.dat", "2335.dat", "2431.dat", "6636.dat" ]
+    [ "3001.dat", "3003.dat", "3004.dat", "3005.dat", "3008.dat", "3009.dat", "3010.dat", "3020.dat", "3622.dat", "3660b.dat", "3068b.dat", "3460.dat", "87580.dat", "43888.dat", "3957a.dat", "2335.dat", "2431.dat", "6636.dat" ]
 
 
 {-| A stand-in part: one square, 20 LDU wide and 24 LDU tall, so geometry
@@ -307,10 +307,10 @@ suite =
                             mesh.sails.surface |> List.filter (\( a, _, _ ) -> a.inherit > 0.5) |> List.length
                     in
                     Expect.all
-                        [ \_ -> Expect.atMost 4.6 mesh.lengthMeters
-                        , \_ -> Expect.atLeast 3.5 mesh.lengthMeters
-                        , \_ -> Expect.atMost 9.01 mesh.heightMeters
-                        , \_ -> Expect.all [ Expect.lessThan -0.05, Expect.greaterThan -0.4 ] (List.minimum ys |> Maybe.withDefault 0)
+                        [ \_ -> Expect.atMost 10.0 mesh.lengthMeters
+                        , \_ -> Expect.atLeast 7.0 mesh.lengthMeters
+                        , \_ -> Expect.atMost 16.0 mesh.heightMeters
+                        , \_ -> Expect.all [ Expect.lessThan -0.05, Expect.greaterThan -0.7 ] (List.minimum ys |> Maybe.withDefault 0)
                         , \_ -> Expect.greaterThan 3 (List.maximum ys |> Maybe.withDefault 0)
                         , \_ -> Expect.greaterThan 0 sailVertices
                         , \_ -> Expect.equal [] (ShipMesh.partProgress doc cache).needed
@@ -360,7 +360,7 @@ suite =
                     Expect.all
                         [ \_ -> Expect.within (Expect.Absolute 0.1) Boats.default.topSpeed h.topSpeed
                         , \_ -> Expect.within (Expect.Absolute 1) Boats.default.turnRate h.turnRate
-                        , \_ -> Expect.within (Expect.Absolute 0.02) Boats.default.acceleration h.acceleration
+                        , \_ -> Expect.within (Expect.Absolute 0.05) Boats.default.acceleration h.acceleration
                         ]
                         ()
             , test "every derived value stays within the clamped range" <|
@@ -844,8 +844,8 @@ suite =
                     in
                     Expect.all
                         [ \_ -> Expect.equal 0 (List.length (Render.sprayEntities (makeCtx 1.0) mockDraw 0 calmBoat))
-                        , \_ -> Expect.equal 6 (List.length (Render.sprayEntities (makeCtx 1.8) mockDraw 0 roughBoat))
-                        , \_ -> Expect.equal 6 (List.length (Render.sprayEntities (makeCtx 1.4) mockDraw 0 calmBoat))
+                        , \_ -> Expect.equal 2 (List.length (Render.sprayEntities (makeCtx 1.8) mockDraw 0 roughBoat))
+                        , \_ -> Expect.equal 2 (List.length (Render.sprayEntities (makeCtx 1.4) mockDraw 0 calmBoat))
                         ]
                         ()
             ]

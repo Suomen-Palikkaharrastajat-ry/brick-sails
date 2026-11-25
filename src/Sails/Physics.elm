@@ -29,11 +29,14 @@ module Sails.Physics exposing
     , factionHarbourPoint
     , factionTown
     , finalTime
+    , findBroadsideTarget
+    , fireBroadside
     , fireCannons
     , grassHeight
     , harbourRadius
     , harbourThrottle
     , helmCurve
+    , horizontalDistance
     , initProgress
     , initSailingState
     , initStandards
@@ -1175,6 +1178,112 @@ muzzleSpeed =
 gravity : Float
 gravity =
     9.81
+
+
+{-| Find the nearest broadside target in range and arc (port or starboard).
+Returns (distance, position, sideSign) where sideSign is +1 for starboard, -1 for port.
+-}
+findBroadsideTarget : SailingState -> List Vec3 -> Maybe ( Float, Vec3, Float )
+findBroadsideTarget state aimPoints =
+    let
+        origin =
+            Vec3.add state.position (vec3 0 1.0 0)
+
+        o =
+            Vec3.toRecord origin
+
+        headingRad =
+            degrees state.heading
+
+        fwdX =
+            sin headingRad
+
+        fwdZ =
+            cos headingRad
+
+        rightX =
+            cos headingRad
+
+        rightZ =
+            0 - sin headingRad
+
+        scorePoint aim =
+            let
+                a =
+                    Vec3.toRecord aim
+
+                dx =
+                    a.x - o.x
+
+                dz =
+                    a.z - o.z
+
+                dist =
+                    sqrt (dx * dx + dz * dz)
+            in
+            if dist > 2.0 && dist <= cannonRange then
+                let
+                    dotRight =
+                        (dx * rightX + dz * rightZ) / dist
+                in
+                if abs dotRight >= 0.4 then
+                    let
+                        sideSign =
+                            if dotRight > 0 then
+                                1.0
+
+                            else
+                                -1.0
+                    in
+                    Just ( dist, aim, sideSign )
+
+                else
+                    Nothing
+
+            else
+                Nothing
+    in
+    aimPoints
+        |> List.filterMap scorePoint
+        |> List.sortBy (\( d, _, _ ) -> d)
+        |> List.head
+
+
+{-| Fire one single cannonball towards a specific broadside target.
+-}
+fireBroadside : Int -> SailingState -> Vec3 -> Int -> Cannonball
+fireBroadside slot state aim id =
+    let
+        origin =
+            Vec3.add state.position (vec3 0 1.0 0)
+
+        o =
+            Vec3.toRecord origin
+
+        a =
+            Vec3.toRecord aim
+
+        dx =
+            a.x - o.x
+
+        dz =
+            a.z - o.z
+
+        d =
+            max 1.0 (sqrt (dx * dx + dz * dz))
+
+        t =
+            max 0.25 (d / muzzleSpeed)
+
+        vy =
+            (a.y + 0.6 - o.y + 0.5 * gravity * t * t) / t
+    in
+    { id = id
+    , sourceSlot = slot
+    , position = origin
+    , velocity = vec3 (dx / t) vy (dz / t)
+    , age = 0
+    }
 
 
 {-| Fire. If something is within range, one ball is lobbed straight at the

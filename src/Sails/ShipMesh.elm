@@ -7,6 +7,7 @@ module Sails.ShipMesh exposing
     , partProgress
     , sailByColour
     , sailByPartName
+    , studScale
     )
 
 {-| Turn a brick model into the geometry the game draws.
@@ -72,8 +73,17 @@ type alias ShipPart =
     }
 
 
-{-| Hull length every boat is scaled to, in metres. The buoy course, the
-cameras and the cannons are tuned for boats of this size.
+{-| Unified stud scale for all boats, ships and vehicles in the game, in metres per LDU.
+At 0.035 m/LDU, 1 stud (20 LDU) is 0.70 m, and every ship—player builds,
+pirate schooners, navy cutters, and ghost ships—shares this exact scale so
+all bricks and studs match 1:1.
+-}
+studScale : Float
+studScale =
+    0.035
+
+
+{-| Hull length baseline for a standard 6-stud boat, in metres.
 -}
 targetLength : Float
 targetLength =
@@ -176,7 +186,7 @@ build isSail doc rawCache =
                 )
 
         scale =
-            min (targetLength / lengthLdu) (9 / max 1 size.y)
+            studScale
 
         centre =
             Vec3.scale 0.5 (Vec3.add bounds.min bounds.max) |> Vec3.toRecord

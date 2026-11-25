@@ -120,6 +120,7 @@ type alias SailModel =
     , standards : List StandardState
     , ghostShip : GhostShip
     , anchored : Bool
+    , showHelp : Bool
     }
 
 
@@ -136,6 +137,7 @@ type SailMsg
     | RaiseSail
     | LowerSail
     | ToggleMute
+    | ToggleHelp
     | ReturnToShipyard
     | RestartCourse
     | NewMap
@@ -241,6 +243,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , standards = Physics.initStandards
     , ghostShip = GhostShip.init course
     , anchored = False
+    , showHelp = False
     }
 
 
@@ -635,6 +638,9 @@ update msg model =
         ToggleMute ->
             ( { model | audioMuted = not model.audioMuted }, GamePorts.setAudioMuted (not model.audioMuted) )
 
+        ToggleHelp ->
+            ( { model | showHelp = not model.showHelp }, Cmd.none )
+
         KeyDown key ->
             case key of
                 "ArrowLeft" ->
@@ -649,17 +655,19 @@ update msg model =
                 "KeyD" ->
                     ( { model | keyRight = True }, Cmd.none )
 
-                "Space" ->
-                    if Physics.canDropAnchor model.course.waypoints model.progress model.state then
-                        update DropAnchor model
-
-                    else
-                        update FireCannons model
+                "KeyQ" ->
+                    update LowerSail model
 
                 "KeyE" ->
-                    update DropAnchor model
+                    update RaiseSail model
 
                 "KeyH" ->
+                    update ToggleHelp model
+
+                "Slash" ->
+                    update ToggleHelp model
+
+                "Space" ->
                     update DropAnchor model
 
                 "KeyB" ->
@@ -669,7 +677,10 @@ update msg model =
                     update FireCannons model
 
                 "ArrowUp" ->
-                    update FireCannons model
+                    update RaiseSail model
+
+                "ArrowDown" ->
+                    update LowerSail model
 
                 "KeyW" ->
                     update RaiseSail model
@@ -1500,16 +1511,50 @@ tick dt model =
 
             else
                 []
+
+        autoFiring =
+            if model.cannonCooldown <= 0 && racing && not (Hull.wrecked hull) then
+                case Physics.findBroadsideTarget state (aimPoints model) of
+                    Just ( _, aim, sideSign ) ->
+                        let
+                            shot =
+                                Physics.fireBroadside (mySlot model) state aim nextShotId
+
+                            camBias =
+                                sideSign * 26.0
+                        in
+                        { shot = [ shot ]
+                        , cooldown = cannonReload
+                        , nextId = nextShotId + 1
+                        , follow = CameraRig.setBroadsideBias camBias follow
+                        , sfx = [ sfx (GameAudio.Impact 0.8) ]
+                        }
+
+                    Nothing ->
+                        { shot = []
+                        , cooldown = max 0 (model.cannonCooldown - dt)
+                        , nextId = nextShotId
+                        , follow = follow
+                        , sfx = []
+                        }
+
+            else
+                { shot = []
+                , cooldown = max 0 (model.cannonCooldown - dt)
+                , nextId = nextShotId
+                , follow = follow
+                , sfx = []
+                }
     in
     ( { model
         | state = state
         , progress = progress
         , phase = phase
-        , follow = follow
+        , follow = autoFiring.follow
         , simTime = time
         , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
-        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
+        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots ++ autoFiring.shot
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , standards = regalia.standards
@@ -1519,8 +1564,8 @@ tick dt model =
 
             else
                 max 0 (model.pirateCooldown - dt)
-        , cannonCooldown = max 0 (model.cannonCooldown - dt)
-        , nextCannonId = nextShotId
+        , cannonCooldown = autoFiring.cooldown
+        , nextCannonId = autoFiring.nextId
         , pirateGuns = pirateGuns
         , toast = toast
         , hull = hull
@@ -1547,7 +1592,7 @@ tick dt model =
         , crewTime = crewTime
         , ghostShip = updatedGhostShip
       }
-    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
+    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: autoFiring.sfx ++ sfxCmds)
     )
 
 
@@ -1814,11 +1859,13 @@ viewRace model callbacks maybeRoom =
                 , language = model.language
                 , canAnchor = Physics.canDropAnchor model.course.waypoints model.progress model.state
                 , isAnchored = model.anchored
+                , showHelp = model.showHelp
                 , actions =
                     { onSteer = Steer
                     , onRaiseSail = RaiseSail
                     , onLowerSail = LowerSail
                     , onToggleMute = ToggleMute
+                    , onToggleHelp = ToggleHelp
                     , onRestart = callbacks.onRestartCourse
                     , onExit = callbacks.onReturnToShipyard
                     , onDropAnchor = DropAnchor

@@ -52,6 +52,7 @@ type alias HudActions msg =
     , onRaiseSail : msg
     , onLowerSail : msg
     , onToggleMute : msg
+    , onToggleHelp : msg
     , onRestart : msg
     , onExit : msg
     , onDropAnchor : msg
@@ -81,6 +82,7 @@ viewHud :
     , language : Language
     , canAnchor : Bool
     , isAnchored : Bool
+    , showHelp : Bool
     , actions : HudActions msg
     }
     -> Html msg
@@ -92,12 +94,11 @@ viewHud cfg =
         [ viewFlash cfg.flash
         , div [ Attr.class "relative w-full h-full" ]
             [ div [ Attr.class "absolute top-0 left-0 right-0 flex justify-between items-start gap-2" ]
-                [ viewStatus cfg
+                [ viewMinimalHealth cfg.hull
                 , viewTopButtons cfg
                 ]
             , viewToast cfg.toast
             , viewCountdown cfg.language cfg.countdown
-            , viewBackToCourse cfg.language cfg.cameraYaw cfg.courseBearing
             , div [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto" ]
                 [ if showSteerButtons cfg.tilt then
                     div [ Attr.class "flex gap-3" ]
@@ -110,11 +111,56 @@ viewHud cfg =
                 ]
             , div [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto" ]
                 [ anchorButton cfg
-                , sailControl cfg
-                , shootHint cfg
                 ]
+            , viewHelpModal cfg.showHelp cfg.actions.onToggleHelp
             ]
         ]
+
+
+{-| Sleek, minimal graphical health bar shown in top-left only when the hull is damaged.
+-}
+viewMinimalHealth : Hull -> Html msg
+viewMinimalHealth hull =
+    let
+        hp =
+            hull.health / Hull.maxHealth
+    in
+    if hp < 0.99 then
+        div
+            [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-md shadow-lg" ]
+            [ FeatherIcons.shield
+                |> FeatherIcons.withSize 16
+                |> FeatherIcons.toHtml
+                    [ Attr.class
+                        (if hp < 0.35 then
+                            "text-red-400 animate-pulse"
+
+                         else
+                            "text-sky-300"
+                        )
+                    ]
+            , div [ Attr.class "w-20 h-2 rounded-full bg-slate-700 overflow-hidden" ]
+                [ div
+                    [ Attr.class
+                        ("h-full transition-all duration-300 "
+                            ++ (if hp < 0.35 then
+                                    "bg-red-500"
+
+                                else if hp < 0.65 then
+                                    "bg-amber-400"
+
+                                else
+                                    "bg-emerald-400"
+                               )
+                        )
+                    , Attr.style "width" (String.fromFloat (hp * 100) ++ "%")
+                    ]
+                    []
+                ]
+            ]
+
+    else
+        text ""
 
 
 panel : String
@@ -319,31 +365,36 @@ viewTopButtons :
     -> Html msg
 viewTopButtons { audioMuted, stopped, language, actions } =
     div [ Attr.class "flex flex-col items-end gap-1.5 pointer-events-auto shrink-0" ]
-        (iconButton [ Events.onClick actions.onToggleMute ]
-            (T.muteLabel language audioMuted)
-            (if audioMuted then
-                FeatherIcons.volumeX
+        [ div [ Attr.class "flex items-center gap-1.5" ]
+            [ iconButton [ Events.onClick actions.onToggleMute ]
+                (T.muteLabel language audioMuted)
+                (if audioMuted then
+                    FeatherIcons.volumeX
 
-             else
-                FeatherIcons.volume2
-            )
-            :: (if stopped then
-                    [ button
-                        [ Events.onClick actions.onExit
-                        , Attr.title (T.backToBoats language)
-                        , Attr.attribute "data-testid" "exit-race"
-                        , Attr.class "h-11 px-3 flex items-center gap-1.5 rounded-xl bg-brand-yellow text-brand font-black text-sm shadow-lg active:scale-95"
-                        ]
-                        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                        , text (T.exitRace language)
-                        ]
-                    , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
+                 else
+                    FeatherIcons.volume2
+                )
+            , iconButton [ Events.onClick actions.onToggleHelp ]
+                "Controls (? / H)"
+                FeatherIcons.helpCircle
+            ]
+        , if stopped then
+            div [ Attr.class "flex flex-col items-end gap-1.5 mt-1" ]
+                [ button
+                    [ Events.onClick actions.onExit
+                    , Attr.title (T.backToBoats language)
+                    , Attr.attribute "data-testid" "exit-race"
+                    , Attr.class "h-11 px-3 flex items-center gap-1.5 rounded-xl bg-brand-yellow text-brand font-black text-sm shadow-lg active:scale-95"
                     ]
+                    [ FeatherIcons.arrowLeft |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                    , text (T.exitRace language)
+                    ]
+                , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
+                ]
 
-                else
-                    []
-               )
-        )
+          else
+            text ""
+        ]
 
 
 {-| The on-screen steering buttons show unless tilt steering is on (and
@@ -589,60 +640,85 @@ shootHint { cannonReady, touchShoot, language } =
         [ text (T.shootHint language touchShoot) ]
 
 
-{-| Drop anchor / weigh anchor button. Shows prominently when in harbour ready to moor,
-or when the boat is anchored.
+{-| Anchor button in the bottom right corner for dropping and raising anchor.
+Pulses with bright yellow ring when inside harbour mooring zone.
 -}
 anchorButton :
     { a
         | canAnchor : Bool
         , isAnchored : Bool
-        , language : Language
         , actions : HudActions msg
     }
     -> Html msg
-anchorButton { canAnchor, isAnchored, language, actions } =
-    if canAnchor || isAnchored then
-        button
-            [ Events.onClick actions.onDropAnchor
-            , Attr.title
-                (if isAnchored then
-                    T.weighAnchor language ++ " (E)"
+anchorButton { canAnchor, isAnchored, actions } =
+    button
+        [ Events.onClick actions.onDropAnchor
+        , Attr.attribute "data-testid" "drop-anchor"
+        , Attr.class
+            ("w-14 h-14 flex items-center justify-center rounded-2xl border-2 font-black shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto "
+                ++ (if canAnchor && not isAnchored then
+                        "bg-brand-yellow text-brand border-brand-yellow ring-4 ring-brand-yellow/60 animate-pulse scale-105"
 
-                 else
-                    T.dropAnchor language ++ " (E)"
-                )
-            , Attr.attribute "aria-label"
-                (if isAnchored then
-                    T.weighAnchor language
+                    else if isAnchored then
+                        "bg-amber-500 text-white border-amber-300 shadow-amber-500/40"
 
-                 else
-                    T.dropAnchor language
-                )
-            , Attr.attribute "data-testid" "drop-anchor"
-            , Attr.class
-                ("h-11 px-3.5 flex items-center gap-1.5 rounded-2xl border-2 font-black text-sm shadow-xl backdrop-blur-md transition-all active:scale-95 "
-                    ++ (if canAnchor && not isAnchored then
-                            "bg-amber-500 hover:bg-amber-400 text-slate-900 border-amber-300 animate-pulse"
+                    else
+                        "bg-slate-900/80 border-white/20 text-white active:bg-slate-800"
+                   )
+            )
+        ]
+        [ FeatherIcons.anchor
+            |> FeatherIcons.withSize 28
+            |> FeatherIcons.toHtml []
+        ]
 
-                        else if isAnchored then
-                            "bg-sky-600/90 hover:bg-sky-500 text-white border-sky-300"
 
-                        else
-                            "bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-white/20"
-                       )
-                )
+{-| Graphic icon keybinding help modal toggled by ? or H or the top-right button.
+-}
+viewHelpModal : Bool -> msg -> Html msg
+viewHelpModal isOpen onClose =
+    if isOpen then
+        div
+            [ Attr.class "absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto p-4"
+            , Events.onClick onClose
             ]
-            [ FeatherIcons.anchor
-                |> FeatherIcons.withSize 20
-                |> FeatherIcons.toHtml []
-            , span [ Attr.class "uppercase tracking-wide text-xs" ]
-                [ text
-                    (if isAnchored then
-                        T.weighAnchor language
-
-                     else
-                        T.dropAnchor language
-                    )
+            [ div
+                [ Attr.class "relative max-w-sm w-full bg-slate-900/95 border border-white/15 rounded-3xl p-6 shadow-2xl text-white flex flex-col gap-5"
+                , Attr.style "box-shadow" "0 25px 50px -12px rgba(0, 0, 0, 0.7)"
+                ]
+                [ div [ Attr.class "flex items-center justify-between border-b border-white/10 pb-3" ]
+                    [ span [ Attr.class "text-lg font-black tracking-wide flex items-center gap-2" ]
+                        [ FeatherIcons.compass |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml []
+                        , text "Controls"
+                        ]
+                    , button
+                        [ Attr.class "w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:bg-white/20"
+                        , Events.onClick onClose
+                        ]
+                        [ FeatherIcons.x |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
+                    ]
+                , div [ Attr.class "grid grid-cols-2 gap-3 text-sm font-semibold" ]
+                    [ div [ Attr.class "flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10" ]
+                        [ span [ Attr.class "px-2 py-1 rounded-lg bg-white/15 font-mono text-xs font-bold" ] [ text "A / D" ]
+                        , span [ Attr.class "text-slate-300" ] [ text "Steer" ]
+                        ]
+                    , div [ Attr.class "flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10" ]
+                        [ span [ Attr.class "px-2 py-1 rounded-lg bg-white/15 font-mono text-xs font-bold" ] [ text "Q / E" ]
+                        , span [ Attr.class "text-slate-300" ] [ text "Sails" ]
+                        ]
+                    , div [ Attr.class "flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10" ]
+                        [ span [ Attr.class "px-2 py-1 rounded-lg bg-white/15 font-mono text-xs font-bold" ] [ text "Space" ]
+                        , span [ Attr.class "text-slate-300" ] [ text "Anchor" ]
+                        ]
+                    , div [ Attr.class "flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10" ]
+                        [ FeatherIcons.crosshair |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [ Attr.class "text-brand-yellow shrink-0" ]
+                        , span [ Attr.class "text-slate-300 text-xs" ] [ text "Auto-aim & Fire" ]
+                        ]
+                    ]
+                , div [ Attr.class "flex items-center gap-2 text-xs text-slate-400 bg-white/5 p-3 rounded-xl" ]
+                    [ FeatherIcons.smartphone |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [ Attr.class "text-sky-300 shrink-0" ]
+                    , text "Mobile: Tilt to steer and adjust sails. Tap anchor icon to moor."
+                    ]
                 ]
             ]
 
