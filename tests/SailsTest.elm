@@ -18,10 +18,13 @@ import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
 import Sails.Handling as Handling
 import Sails.Ingest as Ingest
+import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
+import Sails.Render as Render
 import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (Boat, CourseProgress, SailingState)
 import Test exposing (Test, describe, test)
+import WebGL
 
 
 sampleShipPlacements : List ( String, Vec3.Vec3 )
@@ -712,6 +715,97 @@ suite =
                         [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (CameraRig.knockShake 2)
                         , \_ -> Expect.greaterThan 0.6 knocked.shake
                         , \_ -> Expect.lessThan 0.01 settled.shake
+                        ]
+                        ()
+            , test "cannonballs emit trailing smoke puffs while young, fading after 0.4s" <|
+                \_ ->
+                    let
+                        dummyContext =
+                            { view = Mat4.identity
+                            , perspective = Mat4.identity
+                            , eye = vec3 0 10 20
+                            , time = 1.0
+                            , sea = 1.0
+                            , gloom = 0
+                            , flash = 0
+                            }
+
+                        dummyEntity =
+                            Ocean.propEntity dummyContext Mat4.identity (vec3 1 1 1) (WebGL.triangles [])
+
+                        mockDraw =
+                            { prop = \_ _ _ -> [ dummyEntity ]
+                            , fitted = \_ _ _ _ -> [ dummyEntity ]
+                            }
+
+                        youngBall =
+                            { id = 1
+                            , sourceSlot = 0
+                            , position = vec3 0 2 0
+                            , velocity = vec3 10 2 0
+                            , age = 0.2
+                            }
+
+                        oldBall =
+                            { id = 2
+                            , sourceSlot = 0
+                            , position = vec3 20 2 0
+                            , velocity = vec3 10 0 0
+                            , age = 0.5
+                            }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 2 (List.length (Render.ballEntity mockDraw youngBall))
+                        , \_ -> Expect.equal 1 (List.length (Render.ballEntity mockDraw oldBall))
+                        ]
+                        ()
+            , test "wave crest spray puffs flank the hull when rough or cutting through heavy seas" <|
+                \_ ->
+                    let
+                        makeCtx sea =
+                            { view = Mat4.identity
+                            , perspective = Mat4.identity
+                            , eye = vec3 0 10 20
+                            , time = 1.0
+                            , sea = sea
+                            , gloom = 0
+                            , flash = 0
+                            }
+
+                        dummyEntity =
+                            Ocean.propEntity (makeCtx 1.0) Mat4.identity (vec3 1 1 1) (WebGL.triangles [])
+
+                        mockDraw =
+                            { prop = \_ _ _ -> [ dummyEntity ]
+                            , fitted = \_ _ _ _ -> [ dummyEntity ]
+                            }
+
+                        calmBoat =
+                            { mesh = Nothing
+                            , state =
+                                let
+                                    s =
+                                        Physics.initSailingState course
+                                in
+                                { s | speed = 1.0 }
+                            , sailTint = Nothing
+                            }
+
+                        roughBoat =
+                            { mesh = Nothing
+                            , state =
+                                let
+                                    s =
+                                        Physics.initSailingState course
+                                in
+                                { s | speed = 5.0 }
+                            , sailTint = Nothing
+                            }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 0 (List.length (Render.sprayEntities (makeCtx 1.0) mockDraw 0 calmBoat))
+                        , \_ -> Expect.equal 6 (List.length (Render.sprayEntities (makeCtx 1.8) mockDraw 0 roughBoat))
+                        , \_ -> Expect.equal 6 (List.length (Render.sprayEntities (makeCtx 1.4) mockDraw 0 calmBoat))
                         ]
                         ()
             ]

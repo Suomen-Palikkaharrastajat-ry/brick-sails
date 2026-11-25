@@ -1,9 +1,12 @@
 module Sails.Render exposing
-    ( Props
+    ( Draw
+    , Props
     , RenderBoat
+    , ballEntity
     , propSources
     , renderShipyard
     , renderWorld
+    , sprayEntities
     )
 
 {-| Draws the sailing world: the tropical sea and sky, palm islands with the
@@ -92,6 +95,7 @@ propSources =
     , ( "pirateFlag", Scenery.pirateFlag )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
+    , ( "pennant", BrickModels.singlePart "2335.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     ]
@@ -173,7 +177,7 @@ renderWorld cam scene width height =
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
-                ++ List.concatMap (boatEntities ctx width height) scene.boats
+                ++ List.concatMap (boatEntities ctx width height (Dict.get "pennant" scene.props)) scene.boats
                 ++ List.concatMap (debrisEntities draw) scene.debris
                 ++ guideEntities ctx scene.guide
                 ++ List.concatMap (ballEntity draw) scene.balls
@@ -269,7 +273,7 @@ renderShipyard mesh time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height { mesh = mesh, state = state, sailTint = Nothing }
+            ++ boatEntities ctx width height Nothing { mesh = mesh, state = state, sailTint = Nothing }
         )
 
 
@@ -297,11 +301,11 @@ white =
     vec3 1 1 1
 
 
-{-| Draw one brick boat: the hull and rig, and the sails hoisted as far as
-the boat's sail setting.
+{-| Draw one brick boat: the hull and rig, the sails hoisted as far as
+the boat's sail setting, and the windvane masthead pennant streaming downwind.
 -}
-boatEntities : Ctx -> Int -> Int -> RenderBoat -> List WebGL.Entity
-boatEntities ctx width height rb =
+boatEntities : Ctx -> Int -> Int -> Maybe PropModel -> RenderBoat -> List WebGL.Entity
+boatEntities ctx width height pennantProp rb =
     case rb.mesh of
         Nothing ->
             []
@@ -344,9 +348,41 @@ boatEntities ctx width height rb =
                             |> Mat4.scale3 1 hoist 1
                             |> Mat4.translate3 0 -mesh.sailFoot 0
                         )
+
+                mastTopY =
+                    mesh.heightMeters * 0.96
+
+                apparentDrift =
+                    s.sailAngle * 0.35 / (1 + s.speed * 0.25)
+
+                flutter =
+                    0.15 * sin (ctx.time * 7 + ctx.sea * 4 + s.speed * 2)
+
+                flutterAngle =
+                    pi + degrees apparentDrift + flutter
+
+                pennantEntities =
+                    case pennantProp of
+                        Just prop ->
+                            let
+                                pennantMatrix =
+                                    Mat4.mul world
+                                        (Mat4.makeTranslate3 0 mastTopY 0
+                                            |> rotY flutterAngle
+                                            |> (\m -> Mat4.mul m (BrickProps.fitHeight 0.55 prop))
+                                        )
+
+                                pv =
+                                    Ocean.propView ctx width height
+                            in
+                            BrickProps.draw pv pennantMatrix (vec4 0.9 0.15 0.1 1) (edgeWidthAt ctx (Mat4.transform pennantMatrix (vec3 0 0 0))) prop
+
+                        Nothing ->
+                            []
             in
             brickPasses ctx width height distance tint model mesh.scene
                 ++ brickPasses ctx width height distance tint sailModel mesh.sails
+                ++ pennantEntities
 
 
 {-| Draw one brick scene: the plastic surface pass, then the brick edges
@@ -806,13 +842,41 @@ guideEntities ctx guide =
             []
 
 
+{-| A flying cannonball and its trailing broadside smoke puff when in flight.
+-}
 ballEntity : Draw -> Cannonball -> List WebGL.Entity
 ballEntity draw ball =
     let
         p =
             Vec3.toRecord ball.position
+
+        v =
+            Vec3.toRecord ball.velocity
+
+        ballEntities =
+            draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
+
+        smokeEntities =
+            if ball.age < 0.4 then
+                let
+                    smokeRadius =
+                        0.5 + ball.age * 2.2
+
+                    smokeHeight =
+                        0.4 + ball.age * 1.6
+
+                    smokeAlpha =
+                        clamp 0.0 1.0 (1.0 - ball.age / 0.4)
+                in
+                draw.fitted "splash"
+                    (BrickProps.fitBox { width = 2 * smokeRadius, height = smokeHeight, depth = 2 * smokeRadius })
+                    (Mat4.makeTranslate3 (p.x - v.x * 0.08) (p.y - 0.2) (p.z - v.z * 0.08))
+                    (vec4 0.92 0.93 0.96 smokeAlpha)
+
+            else
+                []
     in
-    draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
+    ballEntities ++ smokeEntities
 
 
 impactEntity : Draw -> CombatImpact -> List WebGL.Entity
@@ -978,6 +1042,13 @@ sprayEntities ctx draw time rb =
         rough =
             clamp 0 1 ((ctx.sea - 1.1) / 1.2) * clamp 0 1 ((s.speed - 2) / 5)
 
+        crestRough =
+            if ctx.sea > 1.2 then
+                max 0.05 (max rough (clamp 0 1 ((ctx.sea - 1.1) / 1.2) * 0.5))
+
+            else
+                rough
+
         rad =
             degrees s.heading
 
@@ -994,10 +1065,10 @@ sprayEntities ctx draw time rb =
                         -1
 
                 r =
-                    (0.4 + phase * 1.4) * rough
+                    (0.4 + phase * 1.4) * crestRough
 
                 h =
-                    max 0.05 (sin (phase * pi)) * 1.6 * rough
+                    max 0.05 (sin (phase * pi)) * 1.6 * crestRough
             in
             draw.fitted "splash"
                 (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
@@ -1007,9 +1078,39 @@ sprayEntities ctx draw time rb =
                     (p.z + cos rad * 2.3 - side * sin rad * (0.6 + phase))
                 )
                 plain
+
+        crestPuff i =
+            let
+                phase =
+                    fract (time * 1.6 + toFloat i * 0.37)
+
+                side =
+                    if modBy 2 i == 0 then
+                        1
+
+                    else
+                        -1
+
+                distAlong =
+                    0.5 - toFloat (i // 2) * 1.1
+
+                r =
+                    (0.35 + phase * 1.1) * crestRough
+
+                h =
+                    max 0.04 (sin (phase * pi)) * 1.3 * crestRough
+            in
+            draw.fitted "splash"
+                (BrickProps.fitBox { width = 2 * r, height = h, depth = 2 * r })
+                (Mat4.makeTranslate3
+                    (p.x + sin rad * distAlong + side * cos rad * (0.8 + phase * 0.4))
+                    (p.y + 0.15)
+                    (p.z + cos rad * distAlong - side * sin rad * (0.8 + phase * 0.4))
+                )
+                plain
     in
-    if rough > 0.05 then
-        puff 0 ++ puff 1
+    if rough > 0.03 || ctx.sea > 1.2 then
+        puff 0 ++ puff 1 ++ crestPuff 0 ++ crestPuff 1 ++ crestPuff 2 ++ crestPuff 3
 
     else
         []
