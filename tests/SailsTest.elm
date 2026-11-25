@@ -812,6 +812,7 @@ suite =
                                 in
                                 { s | speed = 1.0 }
                             , sailTint = Nothing
+                            , isGhost = False
                             }
 
                         roughBoat =
@@ -823,6 +824,7 @@ suite =
                                 in
                                 { s | speed = 5.0 }
                             , sailTint = Nothing
+                            , isGhost = False
                             }
                     in
                     Expect.all

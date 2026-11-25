@@ -29,6 +29,8 @@ module Sails.I18n exposing
     , fireButton
     , fireTitle
     , fromFlag
+    , ghostShipAppearedToast
+    , ghostShipBanishedToast
     , goBanner
     , gridHost
     , gridHostDesc
@@ -69,6 +71,7 @@ module Sails.I18n exposing
     , pointOfSailText
     , raceStatus
     , redCoatsName
+    , reefScrapeToast
     , reefWarning
     , restartRace
     , roomCodeLabel
@@ -851,6 +854,27 @@ standardRepatriatedToast faction lang =
             pick lang "Kuninkaallinen sotalippu kotiutettu! −15 s!" "Royal Ensign repatriated! −15 s bonus!"
 
 
+{-| A warning when a deep keel scrapes a shallow coral reef.
+-}
+reefScrapeToast : Lang -> String
+reefScrapeToast lang =
+    pick lang "Riutta raapii köliä!" "The reef scrapes your keel!"
+
+
+{-| The spectral ghost ship emerges from the squall mist.
+-}
+ghostShipAppearedToast : Lang -> String
+ghostShipAppearedToast lang =
+    pick lang "Aavelaiva nousee sumusta!" "The Ghost Ship rises from the mist!"
+
+
+{-| The ghost ship was hit by cannon fire and banished into the spirit realm.
+-}
+ghostShipBanishedToast : Lang -> String
+ghostShipBanishedToast lang =
+    pick lang "Aavelaiva karkotettu!" "Ghost Ship banished! -5 s bonus!"
+
+
 {-| A pirate ship came alongside and boarded the boat.
 Kept for backwards compatibility.
 -}
@@ -1257,6 +1281,9 @@ allPhrases =
     , ( "standardRepatriatedToast Pirates", standardRepatriatedToast Pirates )
     , ( "standardRepatriatedToast BlueCoats", standardRepatriatedToast BlueCoats )
     , ( "standardRepatriatedToast RedCoats", standardRepatriatedToast RedCoats )
+    , ( "reefScrapeToast", reefScrapeToast )
+    , ( "ghostShipAppearedToast", ghostShipAppearedToast )
+    , ( "ghostShipBanishedToast", ghostShipBanishedToast )
     , ( "finalTimeLabel", finalTimeLabel )
     , ( "sailingStat", sailingStat )
     , ( "hitsStat", hitsStat )

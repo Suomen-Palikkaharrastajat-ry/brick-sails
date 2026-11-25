@@ -3,6 +3,7 @@ module Sails.Render exposing
     , Props
     , RenderBoat
     , ballEntity
+    , ghostBoat
     , propSources
     , renderShipyard
     , renderWorld
@@ -118,6 +119,18 @@ type alias RenderBoat =
     { mesh : Maybe ShipMesh
     , state : SailingState
     , sailTint : Maybe Vec3
+    , isGhost : Bool
+    }
+
+
+{-| A ghost boat vessel rendered with ethereal glowing trans-green spectral tint.
+-}
+ghostBoat : Maybe ShipMesh -> SailingState -> RenderBoat
+ghostBoat mesh state =
+    { mesh = mesh
+    , state = state
+    , sailTint = Just (vec3 0.18 0.98 0.52)
+    , isGhost = True
     }
 
 
@@ -219,6 +232,14 @@ debrisEntities ctx width height draw shipMeshOf piece =
     in
     case piece.look of
         Wreck.Brick part colour ->
+            let
+                brickColor =
+                    if colour == 20 then
+                        vec3 0.18 0.98 0.52
+
+                    else
+                        BrickLook.colour colour
+            in
             draw.prop part
                 (Mat4.makeTranslate3 p.x p.y p.z
                     |> rotY piece.yaw
@@ -226,7 +247,7 @@ debrisEntities ctx width height draw shipMeshOf piece =
                     |> Mat4.translate3 0 (12 * u) 0
                     |> Mat4.scale3 u u u
                 )
-                (tint3 (BrickLook.colour colour))
+                (tint3 brickColor)
 
         Wreck.ShipPart source slot ->
             case shipMeshOf source of
@@ -329,7 +350,7 @@ renderShipyard mesh time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing }
+            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing, isGhost = False }
         )
 
 
@@ -431,9 +452,101 @@ boatEntities ctx width height draw rb =
                         Nothing ->
                             []
             in
-            brickPasses ctx width height distance tint model mesh.scene
-                ++ brickPasses ctx width height distance tint sailModel mesh.sails
-                ++ hoistedBanner
+            if rb.isGhost then
+                ghostBrickPasses ctx width height distance (vec4 0.18 0.98 0.52 1) model mesh.scene
+                    ++ ghostBrickPasses ctx width height distance (vec4 0.18 0.98 0.52 1) sailModel mesh.sails
+
+            else
+                brickPasses ctx width height distance tint model mesh.scene
+                    ++ brickPasses ctx width height distance tint sailModel mesh.sails
+                    ++ hoistedBanner
+
+
+{-| Draw the phantom ghost vessel: ethereal glowing trans-green spectral tint,
+semi-transparent ghost pass, glowing rim, and spectral green edges.
+-}
+ghostBrickPasses : Ctx -> Int -> Int -> Float -> Vec4 -> Mat4 -> Scene -> List WebGL.Entity
+ghostBrickPasses ctx width height distance tint model scene =
+    let
+        surface =
+            WebGL.entityWith [ DepthTest.default, Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha ]
+                ghostVertexShader
+                Shader.fragmentShader
+                scene.triangleMesh
+                { modelMatrix = model
+                , viewMatrix = ctx.view
+                , projectionMatrix = ctx.perspective
+                , viewPosition = ctx.eye
+                , lightDirection = Ocean.sunDirection
+                , instanceColor = tint
+                , ambientStrength = 0.85
+                , lightStrength = 0.55
+                , specularStrength = 0.3
+                , specularPower = 16
+                , rimStrength = 0.85
+                , rimPower = 1.8
+                , vibrance = 0.4
+                , metallic = 0
+                , u_ghostMode = 1.0
+                , u_ghostAlpha = 0.75
+                }
+
+        edgeWidth =
+            clamp 0 1.2 (1.2 * (26 - distance) / 10)
+
+        edges =
+            if edgeWidth > 0.3 then
+                [ WebGL.entityWith
+                    [ DepthTest.lessOrEqual { write = False, near = 0, far = 1 }
+                    , Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha
+                    ]
+                    EdgeShader.vertexShader
+                    EdgeShader.fragmentShader
+                    scene.lineMesh
+                    { modelMatrix = model
+                    , viewMatrix = ctx.view
+                    , projectionMatrix = ctx.perspective
+                    , edgeColor = vec3 0.18 0.98 0.52
+                    , viewportWidth = toFloat width
+                    , viewportHeight = toFloat height
+                    , lineWidth = edgeWidth
+                    }
+                ]
+
+            else
+                []
+    in
+    surface :: edges
+
+
+{-| Ghost vessel vertex shader: tints all hull and sail bricks with the ethereal
+spectral green tint.
+-}
+ghostVertexShader : WebGL.Shader Vertex Shader.Uniforms { vColor : Vec4, vNormalWorld : Vec3, vPositionWorld : Vec3 }
+ghostVertexShader =
+    [glsl|
+        attribute vec3 position;
+        attribute vec3 normal;
+        attribute vec4 color;
+        attribute float inherit;
+
+        uniform mat4 modelMatrix;
+        uniform mat4 viewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform vec4 instanceColor;
+
+        varying vec4 vColor;
+        varying vec3 vNormalWorld;
+        varying vec3 vPositionWorld;
+
+        void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            vColor = vec4(mix(color.rgb, instanceColor.rgb, 0.8), 0.75);
+            vNormalWorld = mat3(modelMatrix) * normal;
+            vPositionWorld = worldPosition.xyz;
+        }
+    |]
 
 
 {-| Draw one brick scene: the plastic surface pass, then the brick edges

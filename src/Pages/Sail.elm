@@ -37,6 +37,7 @@ import Ports
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.Crew as Crew exposing (Crew)
 import Sails.Ending as Ending exposing (Ending)
+import Sails.GhostShip as GhostShip exposing (GhostShip)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
@@ -114,6 +115,7 @@ type alias SailModel =
     , crewTime : Maybe Float
     , playerFaction : Faction
     , standards : List StandardState
+    , ghostShip : GhostShip
     }
 
 
@@ -231,6 +233,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
             |> Maybe.map (\r -> Physics.factionForSlot r.mySlot)
             |> Maybe.withDefault Pirates
     , standards = Physics.initStandards
+    , ghostShip = GhostShip.init
     }
 
 
@@ -367,8 +370,15 @@ aimPoints model =
 
         pirates =
             afloatPirates model |> List.map (Tuple.second >> .position)
+
+        ghost =
+            if GhostShip.canTarget model.ghostShip then
+                [ model.ghostShip.state.position ]
+
+            else
+                []
     in
-    targets ++ pirates
+    targets ++ pirates ++ ghost
 
 
 {-| The pirates still afloat, with where they are now.
@@ -743,11 +753,27 @@ tick dt model =
             else
                 sailed
 
-        state =
+        bumpedDrifted =
             Physics.bumpShips Pirates.collisionRadius (List.map (\( _, ps ) -> ps.position) piratesNow) drifted
 
+        reefImpact =
+            Physics.checkReefGrounding model.boat model.state bumpedDrifted
+
+        state =
+            case reefImpact of
+                Just _ ->
+                    { bumpedDrifted | bumped = True, speed = bumpedDrifted.speed * 0.6 }
+
+                Nothing ->
+                    bumpedDrifted
+
         rock =
-            Physics.rockImpact model.course.islands model.state state
+            case Physics.rockImpact model.course.islands model.state state of
+                Just s ->
+                    Just s
+
+                Nothing ->
+                    reefImpact
 
         roughSea =
             Physics.roughSeaStrain conditions.sea time model.boat state
@@ -814,12 +840,25 @@ tick dt model =
         piratesNow =
             afloatPirates { model | simTime = time }
 
+        ghostTargets =
+            if GhostShip.canTarget model.ghostShip then
+                [ { slot = GhostShip.ghostShipSlot, position = model.ghostShip.state.position } ]
+
+            else
+                []
+
+        shipsToCheck =
+            List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position }) piratesNow
+                ++ ghostTargets
+
         ( afterPirates, pirateFlashes, pirateSlotsHit ) =
-            Physics.checkShipHits afterTargets
-                (List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position }) piratesNow)
+            Physics.checkShipHits afterTargets shipsToCheck
 
         sunkNow =
             List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
+
+        ( updatedGhostShip, ghostAppeared, ghostBanished ) =
+            GhostShip.step time model.weather pirateSlotsHit model.ghostShip
 
         agedStandards =
             Physics.stepStandards dt model.standards
@@ -1035,11 +1074,18 @@ tick dt model =
         treasureBonus =
             List.sum (List.map .bonusSeconds treasure)
 
+        ghostBonus =
+            if ghostBanished then
+                GhostShip.ghostShipBonusSeconds
+
+            else
+                0.0
+
         progress =
             { progressAfterHarbours
                 | targetsHit = progressAfterHarbours.targetsHit + countedHits
                 , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
-                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus + regalia.bonus
+                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus + regalia.bonus + ghostBonus
             }
 
         treasureToast =
@@ -1093,8 +1139,26 @@ tick dt model =
                                 else
                                     Nothing
 
+        reefToast =
+            case reefImpact of
+                Just _ ->
+                    Just ( T.reefScrapeToast model.language, 1.8 )
+
+                Nothing ->
+                    Nothing
+
+        ghostToast =
+            if ghostBanished then
+                Just ( T.ghostShipBanishedToast model.language, 2.5 )
+
+            else if ghostAppeared then
+                Just ( T.ghostShipAppearedToast model.language, 2.0 )
+
+            else
+                Nothing
+
         toast =
-            case List.filterMap identity [ regalia.toast, hullToast, goToast, passToast, treasureToast, hitToast ] of
+            case List.filterMap identity [ ghostToast, reefToast, regalia.toast, hullToast, goToast, passToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -1311,9 +1375,16 @@ tick dt model =
 
                 _ ->
                     model.crewTime
+
+        ghostDebris =
+            if ghostBanished then
+                Wreck.breakUp Wreck.GhostShip updatedGhostShip.state
+
+            else
+                []
     in
     ( { model
-        | state = finalState
+        | state = state
         , progress = progress
         , phase = phase
         , follow = follow
@@ -1347,11 +1418,16 @@ tick dt model =
 
             else
                 0
-        , debris = debris ++ List.concatMap (\( _, ps ) -> Wreck.breakUp Wreck.PirateShip ps) sunkNow ++ celebration
+        , debris =
+            debris
+                ++ List.concatMap (\( _, ps ) -> Wreck.breakUp Wreck.PirateShip ps) sunkNow
+                ++ ghostDebris
+                ++ celebration
         , ending = ending
         , crewClock = crewClock
         , moorings = moorings
         , crewTime = crewTime
+        , ghostShip = updatedGhostShip
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )
@@ -1450,6 +1526,7 @@ remoteBoat standards remoteShip p =
         , carriedStandard = standardForCarrier p.slot standards
         }
     , sailTint = Just (slotTint p.slot)
+    , isGhost = False
     }
 
 
@@ -1466,6 +1543,7 @@ pirateBoat standards meshFor ( pirate, state ) =
             Nothing ->
                 state
     , sailTint = Just (Pirates.sailTint pirate)
+    , isGhost = False
     }
 
 
@@ -1502,12 +1580,20 @@ viewRace model callbacks maybeRoom =
                 []
 
             else
-                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing } ]
+                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing, isGhost = False } ]
+
+        ghostBoat =
+            if model.ghostShip.active then
+                [ Render.ghostBoat (callbacks.meshFor "Schooner") model.ghostShip.state ]
+
+            else
+                []
 
         boats =
             ownBoat
                 ++ List.map (remoteBoat model.standards callbacks.remoteShip) (remotePlayers model)
                 ++ List.map (pirateBoat model.standards callbacks.meshFor) (afloatPirates model)
+                ++ ghostBoat
 
         loadingShips =
             remotePlayers model
@@ -1536,6 +1622,9 @@ viewRace model callbacks maybeRoom =
 
                 Wreck.PirateShip ->
                     callbacks.meshFor Pirates.shipName
+
+                Wreck.GhostShip ->
+                    callbacks.meshFor "Schooner"
 
         worldArgs =
             { course = model.course

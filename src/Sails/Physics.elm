@@ -2,15 +2,20 @@ module Sails.Physics exposing
     ( StepInput
     , angleDiff
     , beachHeight
+    , boatDraft
     , bonusPerHit
     , bumpShips
+    , canClearReef
     , canRecoverStandardAtSea
     , canRepatriateStandard
     , canSeizeStandard
     , cannonRange
     , checkBoatHits
+    , checkReefGrounding
     , checkShipHits
     , checkTargetHits
+    , coralReefRadius
+    , coralReefs
     , courseCurrent
     , courseForSeat
     , courseFreeRange
@@ -20,6 +25,7 @@ module Sails.Physics exposing
     , dockSeconds
     , dockSpeed
     , driftWith
+    , effectiveDraft
     , factionForSlot
     , factionHarbourPoint
     , factionTown
@@ -32,10 +38,12 @@ module Sails.Physics exposing
     , initProgress
     , initSailingState
     , initStandards
+    , isDeepDraft
     , keelBurdenBoat
     , nearestCoursePoint
     , overpower
     , reachedTreasure
+    , reefDraftLimit
     , repatriationBonusSeconds
     , rockImpact
     , roughSeaStrain
@@ -77,6 +85,7 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Types
     exposing
         ( Boat
+        , BoatKind(..)
         , Cannonball
         , CombatImpact
         , Course
@@ -1714,3 +1723,119 @@ canRepatriateStandard boatPos boatSpeed course homeFaction carried =
 repatriationBonusSeconds : Float
 repatriationBonusSeconds =
     15.0
+
+
+
+-- CORAL REEFS & DRAFT DYNAMICS
+
+
+{-| The 3 coral reef shoals located in the waters around the course.
+-}
+coralReefs : List Vec3
+coralReefs =
+    [ vec3 -112 0 250
+    , vec3 -92 0 -42
+    , vec3 205 0 140
+    ]
+
+
+{-| Radius (m) of a coral reef shoal.
+-}
+coralReefRadius : Float
+coralReefRadius =
+    6.0
+
+
+{-| Draft threshold (m) above which a vessel risks grounding on shallow coral reefs.
+Light boats under 1.0 m clear the reef shallows safely.
+-}
+reefDraftLimit : Float
+reefDraftLimit =
+    1.0
+
+
+{-| Nominal draft (m) for each boat type:
+
+  - Catamaran: 0.6 m (light / shallow)
+  - Cutter: 0.8 m (light / shallow)
+  - Sloop: 1.1 m (deep)
+  - Schooner: 1.3 m (deep)
+  - CustomShip: 1.1 m (deep)
+
+-}
+boatDraft : Boat -> Float
+boatDraft boat =
+    case boat.kind of
+        Catamaran ->
+            0.6
+
+        Cutter ->
+            0.8
+
+        Sloop ->
+            1.1
+
+        Schooner ->
+            1.3
+
+        CustomShip ->
+            1.1
+
+
+{-| Effective draft taking Keel Burden into account: carrying a Regalia standard
+weighs down the keel, adding 0.5 m to draft so even shallow-draft boats risk grounding.
+-}
+effectiveDraft : Boat -> SailingState -> Float
+effectiveDraft boat state =
+    let
+        base =
+            boatDraft boat
+    in
+    case state.carriedStandard of
+        Just _ ->
+            base + 0.5
+
+        Nothing ->
+            base
+
+
+{-| Whether a boat has deep draft (draft >= 1.0 m) that risks grounding on reefs.
+-}
+isDeepDraft : Boat -> SailingState -> Bool
+isDeepDraft boat state =
+    effectiveDraft boat state >= reefDraftLimit
+
+
+{-| Whether a boat glides safely through the reef shallows (draft < 1.0 m and not carrying a standard).
+-}
+canClearReef : Boat -> SailingState -> Bool
+canClearReef boat state =
+    not (isDeepDraft boat state)
+
+
+{-| Check if a boat suffers a coral reef grounding scrape this step.
+A deep-draft boat (or any boat under Keel Burden carrying a Regalia standard)
+that enters within coralReefRadius (6.0 m) of a reef center suffers a shallow
+rock grounding scrape, returning an impact speed (~8.8 m/s, yielding ~20% knock damage).
+Scraping while remaining inside does not re-trigger every frame.
+-}
+checkReefGrounding : Boat -> SailingState -> SailingState -> Maybe Float
+checkReefGrounding boat before after =
+    if not (isDeepDraft boat after) then
+        Nothing
+
+    else
+        let
+            inside reef pos =
+                horizontalDistance pos reef <= coralReefRadius
+
+            newlyGrounded reef =
+                inside reef after.position
+                    && not (inside reef before.position && isDeepDraft boat before)
+        in
+        case List.filter newlyGrounded coralReefs of
+            _ :: _ ->
+                Just (max 8.8 before.speed)
+
+            [] ->
+                Nothing

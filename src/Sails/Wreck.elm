@@ -27,12 +27,13 @@ import Sails.Physics as Physics
 import Sails.Types exposing (SailingState)
 
 
-{-| Whose boat broke up: the player's own, or a pirate ship. Its parts are
-looked up when the wreck is drawn.
+{-| Whose boat broke up: the player's own, a pirate ship, or the spectral ghost ship.
+Its parts are looked up when the wreck is drawn.
 -}
 type Source
     = OwnBoat
     | PirateShip
+    | GhostShip
 
 
 {-| What a piece looks like: one of the parts of a boat (`ShipPart` the
@@ -115,7 +116,20 @@ breakUp source state =
             , yaw = angle
             , tumble = 0
             , spin = 3 + 4 * frac (fi * 0.3183)
-            , look = ShipPart source (floor (frac (fi * 0.7548776662) * 1000000))
+            , look =
+                case source of
+                    GhostShip ->
+                        Brick
+                            (if modBy 2 i == 0 then
+                                "3001.dat"
+
+                             else
+                                "3003.dat"
+                            )
+                            20
+
+                    _ ->
+                        ShipPart source (floor (frac (fi * 0.7548776662) * 1000000))
             , afloat = False
             }
     in
