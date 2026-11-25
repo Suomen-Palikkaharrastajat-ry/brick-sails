@@ -10,11 +10,13 @@ module Sails.Render exposing
     , sprayEntities
     )
 
-{-| Draws the sailing world: the tropical sea and sky, palm islands with the
-fort's watchtower, the harbour piers, the pirate arch over the final
-harbour, coral reefs and a pirate wreck, floating targets, cannonballs, the
-colonial towns and the treasure on the islands, the toy boats, and the
-weather (spray, rain and lightning).
+{-| Draws the sailing world: the map's sea and sky, its islands dressed for
+the biome (palms, pines or leafy trees, rocks, farms) with the fort,
+lighthouse or cairn on the hub island, the harbour piers, the pirate arch
+over the final harbour, the decoration on the water (coral reefs, a wreck,
+sea arches), floating targets, cannonballs, the towns and the treasure on
+the islands, the toy boats, and the weather (spray, rain or snow, and
+lightning).
 
 The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
 pipeline's plastic shader and edge shader. The props around the course are
@@ -57,9 +59,11 @@ import Sails.Types
         ( Cannonball
         , CombatImpact
         , Course
+        , DecorKind(..)
         , Faction(..)
         , HarbourKind(..)
         , Island
+        , IslandRole(..)
         , SailingState
         , StandardState(..)
         , Target
@@ -68,7 +72,8 @@ import Sails.Types
         , Waypoint
         , isAtCitadel
         )
-import Sails.Weather exposing (Conditions)
+import Sails.Weather as Weather exposing (Conditions)
+import Sails.World as World exposing (HubLandmark(..), Tree(..))
 import Sails.Wreck as Wreck
 import WebGL
 import WebGL.Settings.Blend as Blend
@@ -94,9 +99,14 @@ propSources =
     [ ( "buoy", BrickModels.buoy )
     , ( "beacon", BrickModels.beacon )
     , ( "floatingTarget", BrickModels.floatingTarget )
-    , ( "island", BrickModels.island )
     , ( "fort", Scenery.fort )
     , ( "palmTree", Scenery.palmTree )
+    , ( "pineTree", BrickModels.pineTree )
+    , ( "leafyTree", BrickModels.leafyTree )
+    , ( "rock", BrickModels.rock )
+    , ( "lighthouse", BrickModels.lighthouse )
+    , ( "barn", BrickModels.barn )
+    , ( "hayBale", BrickModels.hayBale )
     , ( "reef", Scenery.reef )
     , ( "wreck", Scenery.wreck )
     , ( "pirateFlag", Scenery.pirateFlag )
@@ -109,6 +119,7 @@ propSources =
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     ]
+        ++ World.islandModels
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
@@ -162,6 +173,7 @@ renderWorld cam scene width height =
     let
         ctx =
             Ocean.makeCtx cam scene.time width height
+                |> Ocean.withCourse scene.course
                 |> Ocean.withWeather scene.weather
 
         pv =
@@ -195,8 +207,7 @@ renderWorld cam scene width height =
             , Ocean.oceanEntity ctx
             ]
                 ++ islandEntities draw scene.course
-                ++ reefEntities draw
-                ++ seaArchEntities ctx width height scene.scenery
+                ++ decorEntities ctx width height scene.scenery draw scene.course
                 ++ seabirdFlockEntities draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery draw scene.standards scene.course.towns
@@ -850,15 +861,38 @@ targetEntities draw time t =
             plain
 
 
-{-| Islands of round bricks stretched to each island's radius and height
-(the radius the boats bump into), with brick palm trees on the grass (clear
-of the towns, the harbour piers and the treasure) and the fort's watchtower
-on the first island's hill.
+{-| Islands of round bricks in the map's colours (`Sails.World.islandPalette`)
+stretched to each island's radius and height (the radius the boats bump
+into), dressed for the biome (`Sails.World.dressing`): trees on the grass
+(clear of the towns, the harbour piers and the treasure), rocks, a barn and
+hay on farm islands, and the fort, lighthouse or cairn on the hub. Skerries
+are bare rock.
 The beach and the grass are at `Physics.beachHeight` and
 `Physics.grassHeight`, where the towns and the chest stand.
 -}
 islandEntities : Draw -> Course -> List WebGL.Entity
 islandEntities draw course =
+    let
+        look =
+            World.dressing course.map
+
+        palette =
+            World.islandPalette course.map
+
+        treeProp =
+            case look.tree of
+                Palm ->
+                    Just "palmTree"
+
+                Pine ->
+                    Just "pineTree"
+
+                Leafy ->
+                    Just "leafyTree"
+
+                NoTree ->
+                    Nothing
+    in
     List.indexedMap
         (\i isl ->
             let
@@ -866,7 +900,19 @@ islandEntities draw course =
                     -0.6 + 0.58 * isl.height
 
                 treeCount =
-                    3 + modBy 2 i
+                    case isl.role of
+                        Skerry ->
+                            0
+
+                        TreasureIsle ->
+                            2
+
+                        _ ->
+                            if look.landmark == Cairn then
+                                1 + modBy 2 i
+
+                            else
+                                3 + modBy 2 i
 
                 -- Compass bearings from the island's centre of its town's
                 -- houses and pier, of the piers of harbours docking at it and
@@ -908,64 +954,144 @@ islandEntities draw course =
                             )
                             course.waypoints
 
+                -- The angle `a` of slot k (as used below), as a compass bearing.
+                slotAngle k =
+                    120 + 40 * toFloat k + 17 * toFloat i
+
                 clear k =
                     let
-                        -- The tree's angle `a` below, as a compass bearing.
                         bearing =
-                            90 - (120 + 40 * toFloat k + 17 * toFloat i)
+                            90 - slotAngle k
 
                         apart b =
                             abs (toFloat (modBy 360 (round (bearing - b) + 540)) - 180)
                     in
                     List.all (\b -> apart b > 48) occupied
 
-                tree k =
+                onGrass k share =
                     let
                         a =
-                            degrees (120 + 40 * toFloat k + 17 * toFloat i)
+                            degrees (slotAngle k)
+                    in
+                    Mat4.makeTranslate3 (isl.x + share * isl.radius * cos a) grassY (isl.z + share * isl.radius * sin a)
+                        |> rotY (a + toFloat k)
 
+                tree prop k =
+                    let
                         tall =
                             modBy 2 (k + i) == 0
                     in
-                    draw.fitted "palmTree"
+                    draw.fitted prop
                         (BrickProps.fitHeight
-                            (if tall then
-                                0.9 * isl.height
+                            (min 9
+                                (if tall then
+                                    0.9 * isl.height
 
-                             else
-                                0.75 * isl.height
+                                 else
+                                    0.75 * isl.height
+                                )
                             )
                         )
-                        (Mat4.makeTranslate3 (isl.x + 0.7 * isl.radius * cos a) grassY (isl.z + 0.7 * isl.radius * sin a)
-                            |> rotY (a + toFloat k)
-                        )
+                        (onGrass k 0.7)
                         plain
-            in
-            draw.fitted "island"
-                (BrickProps.fitBox { width = 2 * isl.radius, height = 1.5 * isl.height, depth = 2 * isl.radius })
-                (Mat4.makeTranslate3 isl.x (-0.6 - 0.5 * isl.height) isl.z)
-                plain
-                ++ List.concatMap tree (List.filter clear (List.range 0 (treeCount - 1)))
-                ++ (if i == 0 then
-                        draw.fitted "fort"
-                            (BrickProps.fitHeight 10.6)
-                            (Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius))
-                            plain
+
+                trees =
+                    case treeProp of
+                        Just prop ->
+                            List.concatMap (tree prop) (List.filter clear (List.range 0 (treeCount - 1)))
+
+                        Nothing ->
+                            []
+
+                -- Slots 5 and 6 (past the trees) for rocks and farm buildings.
+                extras =
+                    case isl.role of
+                        HarbourIsle ->
+                            (if look.rocks && clear 5 then
+                                draw.fitted "rock" (BrickProps.fitHeight 2.4) (onGrass 5 0.55) plain
+
+                             else
+                                []
+                            )
+                                ++ (if look.farm && clear 6 then
+                                        draw.fitted "barn" (BrickProps.fitHeight 4.5) (onGrass 6 0.45) plain
+                                            ++ draw.fitted "hayBale" (BrickProps.fitHeight 1.2) (onGrass 6 0.75) plain
+
+                                    else
+                                        []
+                                   )
+
+                        Skerry ->
+                            draw.fitted "rock" (BrickProps.fitWidth (1.2 * isl.radius)) (Mat4.makeTranslate3 isl.x (-0.6 + 0.4 * isl.height) isl.z |> rotY (toFloat i)) plain
+
+                        _ ->
+                            []
+
+                landmark =
+                    if isl.role == Hub then
+                        let
+                            at =
+                                landmarkPoint isl
+                        in
+                        case look.landmark of
+                            Fort ->
+                                draw.fitted "fort" (BrickProps.fitHeight 10.6) at plain
+
+                            Lighthouse ->
+                                draw.fitted "lighthouse" (BrickProps.fitHeight 10.6) at plain
+
+                            Cairn ->
+                                List.concatMap
+                                    (\k ->
+                                        draw.fitted "rock"
+                                            (BrickProps.fitHeight (2.4 - 0.5 * toFloat k))
+                                            (Mat4.mul at (Mat4.makeTranslate3 0 (1.9 * toFloat k) 0) |> rotY (toFloat k))
+                                            plain
+                                    )
+                                    [ 0, 1, 2 ]
 
                     else
                         []
-                   )
+            in
+            draw.fitted palette.key
+                (BrickProps.fitBox { width = 2 * isl.radius, height = 1.5 * isl.height, depth = 2 * isl.radius })
+                (Mat4.makeTranslate3 isl.x (-0.6 - 0.5 * isl.height) isl.z)
+                plain
+                ++ trees
+                ++ extras
+                ++ landmark
         )
         course.islands
         |> List.concat
 
 
-{-| The sweeping torch light from the fort's watchtower on island 0.
+{-| The hub island of a course, where the landmark, its beam and the
+seabirds are.
+-}
+hubOf : Course -> Maybe Island
+hubOf course =
+    course.islands
+        |> List.filter (\isl -> isl.role == Hub)
+        |> List.head
+
+
+{-| Where the hub's landmark stands, on its hill.
+-}
+landmarkPoint : Island -> Mat4
+landmarkPoint isl =
+    Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius)
+
+
+{-| The sweeping light from the fort's watchtower or the lighthouse on the
+hub island (a cairn has none).
 -}
 lighthouseBeamEntity : Ctx -> Float -> Course -> List WebGL.Entity
 lighthouseBeamEntity ctx time course =
-    case course.islands of
-        isl :: _ ->
+    case ( hubOf course, (World.dressing course.map).landmark ) of
+        ( Just _, Cairn ) ->
+            []
+
+        ( Just isl, _ ) ->
             let
                 model =
                     Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height + 9.5) (isl.z + 0.1 * isl.radius)
@@ -973,31 +1099,39 @@ lighthouseBeamEntity ctx time course =
             in
             [ ocean ctx model (vec3 1.0 0.72 0.32) lighthouseBeamMesh ]
 
-        [] ->
+        ( Nothing, _ ) ->
             []
 
 
-{-| Decoration out on the water, clear of the route and the islands: coral
-reefs off the outer islands and a pirate wreck run aground far east of the
-loop. Visual only: nothing here is in the physics, so the boats sail through
-them as if they were not there.
+{-| Decoration out on the water, clear of the route and the islands
+(`Course.decor`): coral reefs, a wreck run aground and rock sea arches.
+Only the reefs are in the physics (deep keels ground on them, see
+`Physics.checkReefGrounding`); the boats sail through the rest as if they
+were not there.
 -}
-reefEntities : Draw -> List WebGL.Entity
-reefEntities draw =
+decorEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Course -> List WebGL.Entity
+decorEntities ctx width height scenery draw course =
     List.concatMap
-        (\( x, z, yaw ) ->
-            draw.fitted "reef" (BrickProps.fitHeight 1.8) (Mat4.makeTranslate3 x -0.9 z |> rotY yaw) plain
+        (\d ->
+            case d.kind of
+                Reef ->
+                    draw.fitted "reef" (BrickProps.fitHeight 1.8) (Mat4.makeTranslate3 d.x -0.9 d.z |> rotY d.yaw) plain
+
+                Wreck ->
+                    draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 d.x -1.1 d.z |> rotY d.yaw) plain
+
+                SeaArch ->
+                    sceneryEntities ctx width height scenery Scenery.seaArch (vec3 d.x -1.0 d.z) (d.yaw * 180 / pi)
         )
-        [ ( -112, 250, 0.4 ), ( -92, -42, 2.1 ), ( 205, 140, 4.0 ) ]
-        ++ draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 110 -1.1 230 |> rotY 0.6) plain
+        course.decor
 
 
-{-| A flock of tiny brick gulls wheeling on thermal updrafts high above the lighthouse island.
+{-| A flock of tiny brick gulls wheeling on thermal updrafts high above the hub island.
 -}
 seabirdFlockEntities : Draw -> Float -> Course -> List WebGL.Entity
 seabirdFlockEntities draw time course =
-    case course.islands of
-        isl :: _ ->
+    case hubOf course of
+        Just isl ->
             let
                 centerX =
                     isl.x + 0.2 * isl.radius
@@ -1042,7 +1176,7 @@ seabirdFlockEntities draw time course =
             in
             List.concatMap bird (List.range 0 4)
 
-        [] ->
+        Nothing ->
             []
 
 
@@ -1161,19 +1295,6 @@ standardAtSeaEntities ctx draw time std =
 
         _ ->
             []
-
-
-{-| Coastal natural stone arches standing in the waves.
--}
-seaArchEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> List WebGL.Entity
-seaArchEntities ctx width height scenery =
-    List.concatMap
-        (\( pos, bearing ) ->
-            sceneryEntities ctx width height scenery Scenery.seaArch pos bearing
-        )
-        [ ( vec3 85 -1.0 120, 45 )
-        , ( vec3 -88 -1.0 178, 110 )
-        ]
 
 
 {-| Treasure still to find: the chest, and a gold ring on the water showing
@@ -1601,8 +1722,15 @@ rainEntities ctx time weather =
             , windDirection = weather.wind.direction
             }
     in
-    Precipitation.transforms weather.rain field
-        |> List.map (\m -> ocean ctx m (vec3 0.88 0.92 0.98) rainMesh)
+    case weather.precip of
+        Weather.RainFall ->
+            Precipitation.transforms weather.rain field
+                |> List.map (\m -> ocean ctx m (vec3 0.88 0.92 0.98) rainMesh)
+
+        -- Snow: white flakes drifting down slowly.
+        Weather.SnowFall ->
+            Precipitation.transforms weather.rain { field | time = time * 0.25, windSpeed = 0.5 * weather.wind.speed }
+                |> List.map (\m -> ocean ctx m (vec3 1 1 1) snowMesh)
 
 
 rainHeight : Float
@@ -1615,6 +1743,18 @@ at fixed pseudo-random places, none right at the camera.
 -}
 rainMesh : WebGL.Mesh PropVertex
 rainMesh =
+    fallMesh 0.012 0.8
+
+
+{-| Snowflakes: the rain's places, as small cubes instead of long streaks.
+-}
+snowMesh : WebGL.Mesh PropVertex
+snowMesh =
+    fallMesh 0.06 0.12
+
+
+fallMesh : Float -> Float -> WebGL.Mesh PropVertex
+fallMesh halfWidth length =
     let
         pick i k =
             fract (sin (toFloat i * 12.9898 + toFloat k * 78.233) * 43758.5453)
@@ -1639,7 +1779,7 @@ rainMesh =
                     else
                         z0
             in
-            box ( x - 0.012, y, z - 0.012 ) ( x + 0.012, y + 0.8, z + 0.012 ) white
+            box ( x - halfWidth, y, z - halfWidth ) ( x + halfWidth, y + length, z + halfWidth ) white
     in
     WebGL.triangles (List.concatMap streak (List.range 0 449))
 

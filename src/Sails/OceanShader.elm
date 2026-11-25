@@ -7,6 +7,7 @@ module Sails.OceanShader exposing
     , propView
     , skyEntity
     , sunDirection
+    , withCourse
     , withWeather
     )
 
@@ -16,13 +17,19 @@ of `Game.BrickLook`), the camera, sun and fog the brick-built props are drawn
 with (`propView`), and one flat-shaded shader for the course markers and the
 island scenery. The weather (`withWeather`) raises the sea, darkens the sea,
 sky and light under storm clouds, pulls the fog in and lights everything up
-in a lightning flash.
+in a lightning flash. The course (`withCourse`) sets the map's sea and sky
+colours (`Sails.World.SeaPalette`), where the sea is centred and the
+islands the lagoon and the surf ring.
 -}
 
 import Game.BrickLook as BrickLook
 import Game.BrickProps as BrickProps
+import Game.MapParams
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Math.Vector4 exposing (Vec4, vec4)
+import Sails.Types exposing (Course, Island)
+import Sails.World as World exposing (SeaPalette)
 import WebGL
 import WebGL.Settings.DepthTest as DepthTest
 
@@ -37,16 +44,62 @@ type alias Ctx =
     , sea : Float
     , gloom : Float
     , flash : Float
+    , fog : Float
+    , palette : SeaPalette
+    , centre : ( Float, Float )
+    , isles : List Vec4
     }
 
 
 {-| Weather for the shaders: `sea` state (1 normal, see
 `Sails.Physics.seaElevation`), `gloom` 0..1 (storm clouds: darker sky, sea
-and light, closer fog) and lightning `flash` 0..1.
+and light, closer fog), lightning `flash` 0..1 and how far the `fog` reaches
+(1 normal).
 -}
-withWeather : { a | sea : Float, gloom : Float, flash : Float } -> Ctx -> Ctx
+withWeather : { a | sea : Float, gloom : Float, flash : Float, fog : Float } -> Ctx -> Ctx
 withWeather w ctx =
-    { ctx | sea = w.sea, gloom = clamp 0 1 w.gloom, flash = clamp 0 1 w.flash }
+    { ctx | sea = w.sea, gloom = clamp 0 1 w.gloom, flash = clamp 0 1 w.flash, fog = clamp 0.2 1.5 w.fog }
+
+
+{-| The course for the shaders: the sea and sky colours of its map, the sea
+centred on its arena, and its largest islands (at most `maxIsles`) for the
+lagoon colour and the surf round their shores.
+-}
+withCourse : Course -> Ctx -> Ctx
+withCourse course ctx =
+    { ctx
+        | palette = World.seaPalette course.map
+        , centre = ( course.arena.x, course.arena.z )
+        , isles =
+            course.islands
+                |> List.sortBy (\i -> negate i.radius)
+                |> List.take maxIsles
+                |> List.map islandVec
+    }
+
+
+islandVec : Island -> Vec4
+islandVec isl =
+    vec4 isl.x isl.z isl.radius 0
+
+
+{-| How many islands the sea shader knows about.
+-}
+maxIsles : Int
+maxIsles =
+    12
+
+
+{-| An island far off the sea, for the unused island slots.
+-}
+noIsle : Vec4
+noIsle =
+    vec4 0 0 -10000 0
+
+
+isleAt : Int -> List Vec4 -> Vec4
+isleAt i isles =
+    List.drop i isles |> List.head |> Maybe.withDefault noIsle
 
 
 fovY : Float
@@ -67,6 +120,10 @@ makeCtx cam time width height =
     , sea = 1
     , gloom = 0
     , flash = 0
+    , fog = 1
+    , palette = World.seaPalette { biome = Game.MapParams.Desert, season = Game.MapParams.Summer, weather = Game.MapParams.Clear, seed = 1 }
+    , centre = ( 0, 95 )
+    , isles = []
     }
 
 
@@ -109,12 +166,21 @@ type alias WaterUniforms =
     , u_studPitch : Float
     , u_plateStuds : Float
     , u_gloss : Float
+    , u_centre : Vec3
+    , u_lagoon : Vec3
+    , u_isl0 : Vec4
+    , u_isl1 : Vec4
+    , u_isl2 : Vec4
+    , u_isl3 : Vec4
+    , u_isl4 : Vec4
+    , u_isl5 : Vec4
+    , u_isl6 : Vec4
+    , u_isl7 : Vec4
+    , u_isl8 : Vec4
+    , u_isl9 : Vec4
+    , u_isl10 : Vec4
+    , u_isl11 : Vec4
     }
-
-
-skyColour : Vec3
-skyColour =
-    vec3 0.8 0.92 0.95
 
 
 {-| The low grey ceiling of storm clouds.
@@ -134,20 +200,20 @@ under storm clouds, white in a lightning flash.
 -}
 horizonColour : Ctx -> Vec3
 horizonColour ctx =
-    Vec3.add (mixV skyColour stormColour ctx.gloom) (Vec3.scale (0.5 * ctx.flash) (vec3 1 1 1))
+    Vec3.add (mixV ctx.palette.horizon stormColour ctx.gloom) (Vec3.scale (0.5 * ctx.flash) (vec3 1 1 1))
 
 
 {-| Fog of the sea and the props: none near the boats, all sky colour at the
-edge of the world. Storm clouds pull it in.
+edge of the world. Storm clouds pull it in, and so does a foggy map (`fog`).
 -}
 fogNear : Ctx -> Float
 fogNear ctx =
-    140 - 80 * ctx.gloom
+    (140 - 80 * ctx.gloom) * ctx.fog
 
 
 fogFar : Ctx -> Float
 fogFar ctx =
-    520 - 240 * ctx.gloom
+    (520 - 240 * ctx.gloom) * ctx.fog
 
 
 {-| How much a lightning flash brightens what it lights.
@@ -157,7 +223,8 @@ flashLight ctx colour =
     Vec3.add colour (Vec3.scale (0.6 * ctx.flash) (vec3 0.55 0.6 0.7))
 
 
-{-| 64 x 64 grid of 12 m cells around the play area.
+{-| 64 x 64 grid of 12 m cells, centred on the origin; the shader moves it
+to the course's arena (`u_centre`).
 -}
 waterMesh : WebGL.Mesh WaterVertex
 waterMesh =
@@ -172,7 +239,7 @@ waterMesh =
             toFloat n * step / 2
 
         v i j =
-            { position = vec3 (toFloat i * step - half) 0 (toFloat j * step - half + 95) }
+            { position = vec3 (toFloat i * step - half) 0 (toFloat j * step - half) }
 
         quad i j =
             [ ( v i j, v i (j + 1), v (i + 1) j ), ( v (i + 1) j, v i (j + 1), v (i + 1) (j + 1) ) ]
@@ -197,9 +264,9 @@ oceanEntity ctx =
         , u_perspective = ctx.perspective
         , u_time = ctx.time
         , u_sea = ctx.sea
-        , u_deep = flashLight ctx (mixV (BrickLook.colour 321) (vec3 0.05 0.16 0.24) ctx.gloom)
-        , u_shallow = flashLight ctx (mixV (BrickLook.colour 11) (vec3 0.16 0.3 0.38) ctx.gloom)
-        , u_cap = flashLight ctx (mixV (vec3 0.9 0.97 1.0) (vec3 0.7 0.76 0.8) ctx.gloom)
+        , u_deep = flashLight ctx (mixV ctx.palette.deep (vec3 0.05 0.16 0.24) ctx.gloom)
+        , u_shallow = flashLight ctx (mixV ctx.palette.shallow (vec3 0.16 0.3 0.38) ctx.gloom)
+        , u_cap = flashLight ctx (mixV ctx.palette.cap (vec3 0.7 0.76 0.8) ctx.gloom)
         , u_eyePos = ctx.eye
         , u_sunDir = sunDir
         , u_fogColor = horizonColour ctx
@@ -211,6 +278,20 @@ oceanEntity ctx =
         , u_studPitch = 0.35
         , u_plateStuds = 16
         , u_gloss = 0.7 * (1 - 0.6 * ctx.gloom)
+        , u_centre = vec3 (Tuple.first ctx.centre) 0 (Tuple.second ctx.centre)
+        , u_lagoon = mixV ctx.palette.lagoon (vec3 0.16 0.3 0.38) ctx.gloom
+        , u_isl0 = isleAt 0 ctx.isles
+        , u_isl1 = isleAt 1 ctx.isles
+        , u_isl2 = isleAt 2 ctx.isles
+        , u_isl3 = isleAt 3 ctx.isles
+        , u_isl4 = isleAt 4 ctx.isles
+        , u_isl5 = isleAt 5 ctx.isles
+        , u_isl6 = isleAt 6 ctx.isles
+        , u_isl7 = isleAt 7 ctx.isles
+        , u_isl8 = isleAt 8 ctx.isles
+        , u_isl9 = isleAt 9 ctx.isles
+        , u_isl10 = isleAt 10 ctx.isles
+        , u_isl11 = isleAt 11 ctx.isles
         }
 
 
@@ -226,6 +307,20 @@ waterVertexShader =
         uniform vec3 u_deep;
         uniform vec3 u_shallow;
         uniform vec3 u_cap;
+        uniform vec3 u_centre;
+        uniform vec3 u_lagoon;
+        uniform vec4 u_isl0;
+        uniform vec4 u_isl1;
+        uniform vec4 u_isl2;
+        uniform vec4 u_isl3;
+        uniform vec4 u_isl4;
+        uniform vec4 u_isl5;
+        uniform vec4 u_isl6;
+        uniform vec4 u_isl7;
+        uniform vec4 u_isl8;
+        uniform vec4 u_isl9;
+        uniform vec4 u_isl10;
+        uniform vec4 u_isl11;
         varying vec3 v_worldPos;
         varying vec3 v_normal;
         varying vec3 v_color;
@@ -243,18 +338,28 @@ waterVertexShader =
                  + 0.45 * max(0.0, u_sea - 1.0) * sin(k0 * (p.x * 0.3 + p.y * 0.95) - k0 * 4.2 * t);
         }
 
+        float isle(vec2 p, vec4 i) {
+            return length(p - i.xy) - i.z;
+        }
+
         float distToIslands(vec2 p) {
-            float d = length(p - vec2(-12.0, 100.0)) - 24.0;
-            d = min(d, length(p - vec2(150.0, 90.0)) - 40.0);
-            d = min(d, length(p - vec2(-170.0, 230.0)) - 50.0);
-            d = min(d, length(p - vec2(40.0, 330.0)) - 45.0);
-            d = min(d, length(p - vec2(-130.0, -60.0)) - 35.0);
-            d = min(d, length(p - vec2(-78.0, 205.0)) - 10.0);
+            float d = isle(p, u_isl0);
+            d = min(d, isle(p, u_isl1));
+            d = min(d, isle(p, u_isl2));
+            d = min(d, isle(p, u_isl3));
+            d = min(d, isle(p, u_isl4));
+            d = min(d, isle(p, u_isl5));
+            d = min(d, isle(p, u_isl6));
+            d = min(d, isle(p, u_isl7));
+            d = min(d, isle(p, u_isl8));
+            d = min(d, isle(p, u_isl9));
+            d = min(d, isle(p, u_isl10));
+            d = min(d, isle(p, u_isl11));
             return d;
         }
 
         void main () {
-            vec2 q = position.xz;
+            vec2 q = position.xz + u_centre.xz;
             float h = seaHeight(q, u_time);
 
             // Slope of the two swells and the storm swell, scaled by the wave
@@ -278,7 +383,7 @@ waterVertexShader =
             // Shallow turquoise lagoon around islands.
             float dShore = distToIslands(q);
             float lagoon = 1.0 - smoothstep(0.0, 20.0, max(0.0, dShore));
-            vec3 lagoonColor = mix(u_shallow, vec3(0.24, 0.86, 0.80), 0.75);
+            vec3 lagoonColor = mix(u_shallow, u_lagoon, 0.75);
             col = mix(col, lagoonColor, lagoon * 0.8);
 
             // White caps: a little lower down the waves as the sea gets up.
@@ -290,7 +395,7 @@ waterVertexShader =
             float surfFoam = smoothstep(0.45, 0.9, surfWave) * (1.0 - smoothstep(0.0, 5.0, max(0.0, dShore)));
             float foam = clamp(crest * 0.35 + surfFoam * 0.8, 0.0, 1.0);
 
-            vec3 p = vec3(position.x, h, position.z);
+            vec3 p = vec3(q.x, h, q.y);
             v_worldPos = p;
             v_normal = normalize(vec3(-dx, 1.0, -dz));
             v_color = mix(col, u_cap, foam);
@@ -312,7 +417,7 @@ skyEntity ctx =
     BrickLook.skyEntity
         { viewProjection = Mat4.mul ctx.perspective ctx.view
         , eye = ctx.eye
-        , zenith = Vec3.add (mixV (vec3 0.1 0.5 0.92) (vec3 0.2 0.23 0.28) ctx.gloom) (Vec3.scale (0.75 * ctx.flash) (vec3 1 1 1))
+        , zenith = Vec3.add (mixV ctx.palette.zenith (vec3 0.2 0.23 0.28) ctx.gloom) (Vec3.scale (0.75 * ctx.flash) (vec3 1 1 1))
         , horizon = horizonColour ctx
         , sunDir = sunDir
         , time = ctx.time

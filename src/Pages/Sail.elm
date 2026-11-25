@@ -34,6 +34,7 @@ import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Pages.Results as Results
 import Ports
+import Sails.Archipelago as Archipelago
 import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.Crew as Crew exposing (Crew)
 import Sails.Ending as Ending exposing (Ending)
@@ -61,6 +62,7 @@ import Sails.Types
         , standardForCarrier
         )
 import Sails.Weather as Weather exposing (Weather)
+import Sails.World as World
 import Sails.Wreck as Wreck
 
 
@@ -210,7 +212,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , tiltSteer = 0
     , tiltPitch = TiltPitch.init
     , sailLevel = Physics.defaultSailLevel
-    , weather = Weather.init (weatherSeed course maybeMulti 0)
+    , weather = Weather.init (World.weatherProfile course.map) (weatherSeed course maybeMulti 0)
     , run = 0
     , tilt = tilt
     , toast = Nothing
@@ -240,10 +242,10 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     }
 
 
-{-| The course with this player's harbour order (`Physics.courseForSeat`):
-in a room, the order of the player's own seat, so each boat calls at the
-same harbours in its own order; alone, always the first order, so personal
-bests stay comparable. Other courses are left as they are.
+{-| The course with this player's harbour order (`Archipelago.courseFor`
+on the course's map): in a room, the order of the player's own seat, so
+each boat calls at the same harbours in its own order; alone, always the
+first order, so personal bests stay comparable.
 
 The other boats in a room report their progress as the share of their
 harbours docked at, which means the same whatever their order.
@@ -251,11 +253,7 @@ harbours docked at, which means the same whatever their order.
 -}
 routeCourse : Maybe RoomState -> Course -> Course
 routeCourse room course =
-    if course.id == Physics.defaultCourse.id then
-        Physics.courseForSeat (room |> Maybe.map (\r -> r.mySlot - 1) |> Maybe.withDefault 0)
-
-    else
-        course
+    Archipelago.courseFor (Archipelago.generate course.map) (room |> Maybe.map (\r -> r.mySlot - 1) |> Maybe.withDefault 0)
 
 
 {-| Seed of the race's pirates (`Sails.Pirates.fleet`): as the weather's,
@@ -719,7 +717,7 @@ update msg model =
             ( { fresh
                 | multiplayer = model.multiplayer
                 , run = model.run + 1
-                , weather = Weather.init (weatherSeed model.course model.multiplayer (model.run + 1))
+                , weather = Weather.init (World.weatherProfile model.course.map) (weatherSeed model.course model.multiplayer (model.run + 1))
                 , pirates = Pirates.fleet (pirateSeed model.course model.multiplayer (model.run + 1)) model.course
                 , sailLevel = model.sailLevel
                 , tiltPitch = TiltPitch.calibrate model.tiltPitch
@@ -851,9 +849,10 @@ tick dt model =
 
         bumpedDrifted =
             Physics.bumpShips Pirates.collisionRadius (List.map (\( _, ps ) -> ps.position) piratesNow) drifted
+                |> Physics.keepInArena model.course.arena
 
         reefImpact =
-            Physics.checkReefGrounding model.boat model.state bumpedDrifted
+            Physics.checkReefGrounding (Physics.reefsOf model.course) model.boat model.state bumpedDrifted
 
         state =
             case reefImpact of

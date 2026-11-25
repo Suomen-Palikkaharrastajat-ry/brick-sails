@@ -9,6 +9,7 @@ import LDraw.Document as Document
 import LDraw.Parser as Parser
 import LDraw.Resolve exposing (PartStatus(..))
 import Math.Vector3 as Vec3
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Scenery as Scenery
@@ -20,15 +21,15 @@ import Test exposing (Test, describe, test)
 
 course : Sails.Types.Course
 course =
-    Physics.defaultCourse
+    Archipelago.defaultCourse
 
 
 {-| The course of every harbour order, one per seat (see
-`Physics.courseForSeat`).
+`Archipelago.courseFor`).
 -}
 seatCourses : List Sails.Types.Course
 seatCourses =
-    List.map Physics.courseForSeat (List.range 0 (Physics.routeCount - 1))
+    Archipelago.seatCourses (Archipelago.generate Archipelago.defaultMap)
 
 
 {-| A check that must hold for the course of every harbour order.
@@ -56,7 +57,7 @@ peakWave sea =
 -}
 holdCourse : Float -> Float -> Float -> SailingState
 holdCourse sea heading seconds =
-    sailWith { sea = sea, sail = 1, wind = course.wind, steer = Nothing } heading seconds
+    sailWith { sea = sea, sail = 1, wind = tunedWind, steer = Nothing } heading seconds
 
 
 {-| Sail from the start on a heading for `seconds` with a sail area, sea
@@ -87,18 +88,28 @@ sailWith cfg heading seconds =
         (List.range 1 (round (seconds / 0.02)))
 
 
-{-| A storm wind: twice the course wind.
+{-| The wind the boats are tuned for (`Physics.sailLoad` is 1 for full
+sail in it), blowing the way the old fixed course's wind did. The sailing
+tests use it rather than a generated map's wind, which varies by biome,
+season and weather.
+-}
+tunedWind : Wind
+tunedWind =
+    { speed = 7.0, direction = 270 }
+
+
+{-| A storm wind: twice the tuned wind.
 -}
 gale : Wind
 gale =
-    { speed = 14, direction = course.wind.direction }
+    { speed = 14, direction = tunedWind.direction }
 
 
-{-| Heading across the course wind (the fastest point of sail).
+{-| Heading across the tuned wind (the fastest point of sail).
 -}
 reach : Float
 reach =
-    course.wind.direction + 180 + 90
+    tunedWind.direction + 180 + 90
 
 
 speedWith : Float -> Wind -> Float
@@ -197,7 +208,7 @@ spells seed seconds =
                 [] ->
                     ( next, [ ( next.spell, 0.1 ) ] )
         )
-        ( Weather.init seed, [] )
+        ( Weather.init Weather.stormProfile seed, [] )
         (List.range 1 (round (seconds / 0.1)))
         |> Tuple.second
         |> List.reverse
@@ -232,13 +243,50 @@ legs seatCourse =
     List.map2 Tuple.pair pts (List.drop 1 pts)
 
 
-{-| Autopilot that detours to the treasure after harbour 3 (on the leg to
-the harbour with index 3, which passes the chest on every seat's route) and
-then finishes.
+{-| Autopilot that detours to the treasure on the leg that passes nearest
+the chest, and then finishes.
 -}
 treasureHunt : Sails.Types.Course -> Float -> ( CourseProgress, List Int )
 treasureHunt seatCourse limit =
     let
+        -- The harbour whose leg passes nearest the chest: the hunt turns
+        -- off for the chest on the way there.
+        detourLeg =
+            case seatCourse.treasures of
+                t :: _ ->
+                    let
+                        route =
+                            List.map (.position >> Vec3.toRecord) seatCourse.waypoints
+
+                        froms =
+                            Vec3.toRecord seatCourse.startPosition :: route
+
+                        c =
+                            Vec3.toRecord t.position
+
+                        offLeg a b =
+                            let
+                                ex =
+                                    b.x - a.x
+
+                                ez =
+                                    b.z - a.z
+
+                                u =
+                                    clamp 0 1 (((c.x - a.x) * ex + (c.z - a.z) * ez) / max 1.0e-6 (ex * ex + ez * ez))
+                            in
+                            sqrt ((a.x + ex * u - c.x) ^ 2 + (a.z + ez * u - c.z) ^ 2)
+                    in
+                    List.map2 offLeg froms route
+                        |> List.indexedMap Tuple.pair
+                        |> List.sortBy Tuple.second
+                        |> List.head
+                        |> Maybe.map Tuple.first
+                        |> Maybe.withDefault 0
+
+                [] ->
+                    -1
+
         go state progress found =
             if progress.finished || progress.elapsedSeconds > limit then
                 ( progress, found )
@@ -251,7 +299,7 @@ treasureHunt seatCourse limit =
                     goal =
                         case chest of
                             Just t ->
-                                if progress.currentWaypointIndex == 3 && not (List.member t.id found) then
+                                if progress.currentWaypointIndex == detourLeg && not (List.member t.id found) then
                                     Vec3.toRecord t.position
 
                                 else
@@ -366,8 +414,8 @@ suite =
             [ test "full sail in the course wind is the tuned sailing" <|
                 \_ ->
                     Expect.all
-                        [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 1 (Physics.sailDrive 1 course.wind)
-                        , \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (Physics.overpower 1 course.wind)
+                        [ \_ -> Expect.within (Expect.Absolute 1.0e-9) 1 (Physics.sailDrive 1 tunedWind)
+                        , \_ -> Expect.within (Expect.Absolute 1.0e-9) 0 (Physics.overpower 1 tunedWind)
                         , \_ -> Expect.equal ( "Full", 1.0 ) (Physics.sailLevel Physics.defaultSailLevel)
                         ]
                         ()
@@ -375,20 +423,20 @@ suite =
                 \_ ->
                     let
                         speeds =
-                            List.map (\( _, area ) -> speedWith area course.wind) Physics.sailLevels
+                            List.map (\( _, area ) -> speedWith area tunedWind) Physics.sailLevels
                     in
                     Expect.all
                         [ \_ -> Expect.equal (List.sort speeds) speeds
-                        , \_ -> Expect.greaterThan (speedWith 1 course.wind * 1.05) (speedWith 1.2 course.wind)
-                        , \_ -> Expect.lessThan (speedWith 1 course.wind * 0.85) (speedWith 0.65 course.wind)
-                        , \_ -> Expect.greaterThan 0.5 (speedWith 0 course.wind)
+                        , \_ -> Expect.greaterThan (speedWith 1 tunedWind * 1.05) (speedWith 1.2 tunedWind)
+                        , \_ -> Expect.lessThan (speedWith 1 tunedWind * 0.85) (speedWith 0.65 tunedWind)
+                        , \_ -> Expect.greaterThan 0.5 (speedWith 0 tunedWind)
                         ]
                         ()
             , test "less sail steers more easily, extra sail turns wider" <|
                 \_ ->
                     Expect.all
-                        [ \_ -> Expect.greaterThan (turnedWith 1 course.wind) (turnedWith 0.35 course.wind)
-                        , \_ -> Expect.lessThan (turnedWith 1 course.wind) (turnedWith 1.2 course.wind)
+                        [ \_ -> Expect.greaterThan (turnedWith 1 tunedWind) (turnedWith 0.35 tunedWind)
+                        , \_ -> Expect.lessThan (turnedWith 1 tunedWind) (turnedWith 1.2 tunedWind)
                         ]
                         ()
             , test "in a gale full sail is overpowered: it heels hard and reefing is faster" <|
@@ -427,7 +475,7 @@ suite =
                 \_ ->
                     let
                         now =
-                            Weather.conditions course.wind (Weather.init 42)
+                            Weather.conditions course.wind (Weather.init Weather.stormProfile 42)
                     in
                     Expect.equal ( now.wind, now.sea, now.rain ) ( course.wind, 1, 0 )
             , test "storms raise the wind and the waves" <|
@@ -523,7 +571,7 @@ suite =
                                     raceIn seatCourse (Weather.developed Thunderstorm) 1 400
 
                                 fairRace =
-                                    raceIn seatCourse (Weather.init 1) 1 400
+                                    raceIn seatCourse (Weather.init Weather.stormProfile 1) 1 400
                             in
                             Expect.all
                                 [ \_ -> Expect.equal True reefed.finished
@@ -712,14 +760,17 @@ suite =
                         positions seatCourse =
                             List.map (\wp -> ( Vec3.getX wp.position, Vec3.getZ wp.position )) seatCourse.waypoints
 
+                        arch =
+                            Archipelago.generate Archipelago.defaultMap
+
                         seat0 =
-                            Physics.courseForSeat 0
+                            Archipelago.courseFor arch 0
 
                         seat1 =
-                            Physics.courseForSeat 1
+                            Archipelago.courseFor arch 1
                     in
                     Expect.all
-                        [ \_ -> Expect.atLeast 2 Physics.routeCount
+                        [ \_ -> Expect.atLeast 2 (Archipelago.routeCount arch)
                         , \_ -> Expect.notEqual (order seat0) (order seat1)
                         , \_ -> Expect.equal (harbourSet seat0) (harbourSet seat1)
                         , \_ ->
@@ -750,7 +801,7 @@ suite =
                                         ]
                                         ()
                                 )
-                        , \_ -> Expect.equal (positions seat0) (positions (Physics.courseForSeat Physics.routeCount))
+                        , \_ -> Expect.equal (positions seat0) (positions (Archipelago.courseFor arch (Archipelago.routeCount arch)))
                         , \_ -> Expect.equal (positions course) (positions seat0)
                         ]
                         ()

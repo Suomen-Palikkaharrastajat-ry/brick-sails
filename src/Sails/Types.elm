@@ -5,9 +5,12 @@ module Sails.Types exposing
     , CombatImpact
     , Course
     , CourseProgress
+    , Decor
+    , DecorKind(..)
     , Faction(..)
     , HarbourKind(..)
     , Island
+    , IslandRole(..)
     , LeaderboardEntry
     , SailingState
     , ShipSpec
@@ -31,6 +34,7 @@ module Sails.Types exposing
 floating targets, the arcade sailing state and leaderboard records.
 -}
 
+import Game.MapParams exposing (MapParams)
 import Math.Vector3 exposing (Vec3)
 
 
@@ -76,6 +80,18 @@ type alias Target =
     }
 
 
+{-| What an island is for on a course: the `Hub` in the middle of the
+archipelago (the fort or lighthouse, and the final harbour), one of the
+`HarbourIsle`s in the ring round it, the small `TreasureIsle` with the
+pirates' chest, or a `Skerry`, a rock out on the water.
+-}
+type IslandRole
+    = Hub
+    | HarbourIsle
+    | TreasureIsle
+    | Skerry
+
+
 {-| A round island the boat bumps off.
 -}
 type alias Island =
@@ -83,6 +99,27 @@ type alias Island =
     , z : Float
     , radius : Float
     , height : Float
+    , role : IslandRole
+    }
+
+
+{-| Decoration out on the water: a coral `Reef` (a shoal that deep keels
+ground on, see `Sails.Physics.checkReefGrounding`), a `Wreck` run aground or
+a rock `SeaArch`.
+-}
+type DecorKind
+    = Reef
+    | Wreck
+    | SeaArch
+
+
+{-| One piece of decoration on the water, turned `yaw` radians.
+-}
+type alias Decor =
+    { kind : DecorKind
+    , x : Float
+    , z : Float
+    , yaw : Float
     }
 
 
@@ -200,10 +237,13 @@ type alias Wind =
 
 
 {-| One short course: harbours in order, targets along the way, a few islands,
-the towns on them and the treasure hidden on them.
+the towns on them and the treasure hidden on them, the decoration on the
+water and the circle of sea the boats may sail in (`arena`). Every course is
+made from a map (`Sails.Archipelago`); `id` is the map's leaderboard key.
 -}
 type alias Course =
     { id : String
+    , map : MapParams
     , title : String
     , description : String
     , waypoints : List Waypoint
@@ -211,7 +251,9 @@ type alias Course =
     , islands : List Island
     , towns : List Town
     , treasures : List Treasure
+    , decor : List Decor
     , wind : Wind
+    , arena : { x : Float, z : Float, radius : Float }
     , startPosition : Vec3
     , startHeading : Float
     , targetSeconds : Float

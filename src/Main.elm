@@ -57,6 +57,7 @@ import Pages.Build as Build
 import Pages.Sail as Sail
 import Pages.Shipyard as Shipyard
 import Ports
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Editor as Editor
 import Sails.Handling as Handling
@@ -165,7 +166,7 @@ init flags =
             , remoteShips = Dict.empty
             , loadError = Nothing
             , boat = Boats.default
-            , course = Physics.defaultCourse
+            , course = Archipelago.defaultCourse
             , viewMode = ViewShipyard
             , sailModel = Nothing
             , audioMuted = flags.savedAudioMuted

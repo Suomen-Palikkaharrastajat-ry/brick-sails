@@ -1,4 +1,4 @@
-module SailsTest exposing (suite)
+module SailsTest exposing (autopilot, suite)
 
 {-| Unit tests of Brick Sails: loading and analysing builds, the built-in
 boats, handling, water, sailing, docking and scoring, cannons and the follow
@@ -14,6 +14,7 @@ import LDraw.Types exposing (LDrawLine)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
 import Sails.Handling as Handling
@@ -22,7 +23,7 @@ import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
 import Sails.Render as Render
 import Sails.ShipMesh as ShipMesh
-import Sails.Types exposing (Boat, CourseProgress, SailingState)
+import Sails.Types exposing (Boat, CourseProgress, IslandRole(..), SailingState)
 import Test exposing (Test, describe, test)
 import WebGL
 
@@ -66,15 +67,15 @@ boxPart =
 
 course : Sails.Types.Course
 course =
-    Physics.defaultCourse
+    Archipelago.defaultCourse
 
 
 {-| The course of every harbour order, one per seat (see
-`Physics.courseForSeat`).
+`Archipelago.courseFor`).
 -}
 seatCourses : List Sails.Types.Course
 seatCourses =
-    List.map Physics.courseForSeat (List.range 0 (Physics.routeCount - 1))
+    Archipelago.seatCourses (Archipelago.generate Archipelago.defaultMap)
 
 
 {-| Run the boat for `seconds` with a fixed steering input.
@@ -481,7 +482,7 @@ suite =
                 \_ ->
                     let
                         island =
-                            List.head course.islands |> Maybe.withDefault { x = 0, z = 0, radius = 10, height = 1 }
+                            List.head course.islands |> Maybe.withDefault { x = 0, z = 0, radius = 10, height = 1, role = HarbourIsle }
 
                         start =
                             Physics.initSailingState course
@@ -744,14 +745,11 @@ suite =
                 \_ ->
                     let
                         dummyContext =
-                            { view = Mat4.identity
-                            , perspective = Mat4.identity
-                            , eye = vec3 0 10 20
-                            , time = 1.0
-                            , sea = 1.0
-                            , gloom = 0
-                            , flash = 0
-                            }
+                            let
+                                base =
+                                    Ocean.makeCtx { eye = vec3 0 10 20, target = vec3 0 0 0 } 1.0 800 600
+                            in
+                            { base | view = Mat4.identity, perspective = Mat4.identity }
 
                         dummyEntity =
                             Ocean.propEntity dummyContext Mat4.identity (vec3 1 1 1) (WebGL.triangles [])
@@ -786,14 +784,11 @@ suite =
                 \_ ->
                     let
                         makeCtx sea =
-                            { view = Mat4.identity
-                            , perspective = Mat4.identity
-                            , eye = vec3 0 10 20
-                            , time = 1.0
-                            , sea = sea
-                            , gloom = 0
-                            , flash = 0
-                            }
+                            let
+                                base =
+                                    Ocean.makeCtx { eye = vec3 0 10 20, target = vec3 0 0 0 } 1.0 800 600
+                            in
+                            { base | view = Mat4.identity, perspective = Mat4.identity, sea = sea }
 
                         dummyEntity =
                             Ocean.propEntity (makeCtx 1.0) Mat4.identity (vec3 1 1 1) (WebGL.triangles [])

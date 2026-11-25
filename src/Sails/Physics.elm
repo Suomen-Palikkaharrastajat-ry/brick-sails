@@ -16,12 +16,9 @@ module Sails.Physics exposing
     , checkShipHits
     , checkTargetHits
     , coralReefRadius
-    , coralReefs
     , courseCurrent
-    , courseForSeat
     , courseFreeRange
     , courseRoute
-    , defaultCourse
     , defaultSailLevel
     , dockSeconds
     , dockSpeed
@@ -42,14 +39,15 @@ module Sails.Physics exposing
     , initStandards
     , isDeepDraft
     , keelBurdenBoat
+    , keepInArena
     , nearestCoursePoint
     , overpower
     , reachedTreasure
     , reefDraftLimit
+    , reefsOf
     , repatriationBonusSeconds
     , rockImpact
     , roughSeaStrain
-    , routeCount
     , sailDrive
     , sailLevel
     , sailLevels
@@ -68,7 +66,6 @@ module Sails.Physics exposing
     , treasureReach
     , waterElevation
     , waveScale
-    , waypointsFor
     , windFactor
     )
 
@@ -92,6 +89,7 @@ import Sails.Types
         , CombatImpact
         , Course
         , CourseProgress
+        , DecorKind(..)
         , Faction(..)
         , HarbourKind(..)
         , Island
@@ -107,211 +105,6 @@ import Sails.Types
 
 
 -- COURSE
-
-
-{-| A loop round the islands: six harbours to dock at in order, each one a
-dock on the shore of one of the course's islands (see `harbour`). Every
-route calls at the same harbours, one on each of the east, northern,
-southern and outer islands beside their towns and one on the lighthouse
-island in the middle, and comes back to the lighthouse island's final
-harbour under the pirate arch, on the side facing the start; the order of
-the first ones, and so where on its island's shore each harbour docks,
-depends on the route (see `routes`). This is the first route, the one a
-boat sailing alone takes. Seven floating targets sit beside its legs for
-bonus time.
--}
-defaultCourse : Course
-defaultCourse =
-    courseForSeat 0
-
-
-{-| The course for a seat in a room (0 for the first seat, and for a boat
-sailing alone): the same harbours, in the order of route `seat` modulo
-`routeCount`, with its own start heading and treasure chest.
--}
-courseForSeat : Int -> Course
-courseForSeat seat =
-    let
-        route =
-            routeFor seat
-    in
-    { id = "harbour-loop"
-    , title = "Island Loop"
-    , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on the small island past harbour 3."
-    , waypoints = waypointsFor seat
-    , targets =
-        List.indexedMap
-            (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 })
-            [ ( -11, 42 ), ( 63, 81 ), ( 64, 165 ), ( 52, 251 ), ( -45, 238 ), ( -134, 105 ), ( -84, 37 ) ]
-    , islands =
-        [ lighthouseIsland
-        , harbourIsland
-        , anchorageIsland
-        , smugglerIsland
-        , outerIsland
-        , treasureIsland
-        ]
-    , towns =
-        [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100, faction = Nothing }
-        , { name = "Port Royal Brick", island = harbourIsland, bearing = 268, faction = Just RedCoats }
-        , { name = "Governor's Anchorage", island = anchorageIsland, bearing = 130, faction = Just BlueCoats }
-        , { name = "Smuggler's Reach", island = smugglerIsland, bearing = 195, faction = Just Pirates }
-        ]
-    , treasures =
-        [ { id = 0
-          , position = Vec3.setY (beachHeight treasureIsland) (shorePoint treasureIsland route.treasureBearing 0.86)
-          , bearing = route.treasureBearing
-          , bonusSeconds = 6
-          }
-        ]
-    , wind = { speed = 7.0, direction = 270.0 }
-    , startPosition = vec3 0 0 0
-    , startHeading = route.startHeading
-    , targetSeconds = 110.0
-    }
-
-
-{-| One order of the harbours: the islands they dock on, with the compass
-bearing of each dock from its island's centre, before the final harbour;
-the heading the boat starts on (towards the first harbour); and where on
-the treasure island's shore the chest lies, facing the leg to the fourth
-harbour (index 3), which passes it.
--}
-type alias Route =
-    { harbours : List ( Island, Float )
-    , startHeading : Float
-    , treasureBearing : Float
-    }
-
-
-{-| The orders the harbours can be sailed in, one per seat of a room
-(seats beyond the last start again from the first). Each player calls at
-the same harbours, orienteering style, but not in the same order. An order
-has to keep every leg 8 m clear of every island (bar the 12 m into and out
-of a harbour on its own shore) and avoid turning back on itself at a
-harbour, where a boat would swing onto the rocks; with the lighthouse
-island in the middle of the loop only a few orders do, each with its own
-docks on the islands' shores (the routes run 921, 960 and 993 m):
-
-  - the lighthouse island, Port Royal, Smuggler's Reach, Governor's
-    Anchorage, the outer island;
-  - Port Royal, the lighthouse island (its north-east shore), Smuggler's
-    Reach, Governor's Anchorage, the outer island;
-  - Port Royal, Smuggler's Reach, the lighthouse island (its north
-    shore), Governor's Anchorage, the outer island.
-
--}
-routes : List Route
-routes =
-    [ { harbours =
-            [ ( lighthouseIsland, 135 )
-            , ( harbourIsland, 297 )
-            , ( smugglerIsland, 212 )
-            , ( anchorageIsland, 110 )
-            , ( outerIsland, 20 )
-            ]
-      , startHeading = 5
-      , treasureBearing = 330
-      }
-    , { harbours =
-            [ ( harbourIsland, 297 )
-            , ( lighthouseIsland, 55 )
-            , ( smugglerIsland, 212 )
-            , ( anchorageIsland, 110 )
-            , ( outerIsland, 20 )
-            ]
-      , startHeading = 46
-      , treasureBearing = 330
-      }
-    , { harbours =
-            [ ( harbourIsland, 285 )
-            , ( smugglerIsland, 190 )
-            , ( lighthouseIsland, 340 )
-            , ( anchorageIsland, 145 )
-            , ( outerIsland, 20 )
-            ]
-      , startHeading = 47
-      , treasureBearing = 210
-      }
-    ]
-
-
-{-| How many harbour orders there are (see `routes`).
--}
-routeCount : Int
-routeCount =
-    List.length routes
-
-
-routeFor : Int -> Route
-routeFor seat =
-    case List.drop (modBy routeCount seat) routes of
-        route :: _ ->
-            route
-
-        [] ->
-            { harbours = [], startHeading = 0, treasureBearing = 330 }
-
-
-{-| The harbours of a seat's route in the order it docks at them, numbered
-from 0, ending with the final harbour on the lighthouse island. The boat's
-progress, the brake assist and the harbour markers all go by this list.
--}
-waypointsFor : Int -> List Waypoint
-waypointsFor seat =
-    let
-        harbours =
-            (routeFor seat).harbours
-    in
-    List.indexedMap (\i ( island, bearing ) -> harbour i Harbour island bearing) harbours
-        ++ [ harbour (List.length harbours) FinalHarbour lighthouseIsland 215 ]
-
-
-{-| The island in the middle of the course, with the fort's watchtower and
-a little colonial cove town. It has two harbours: one the loop calls at
-(where on its shore depends on the route, see `routes`) and the final
-harbour, on the shore facing the start, where every route ends.
--}
-lighthouseIsland : Island
-lighthouseIsland =
-    { x = -12, z = 100, radius = 24, height = 6 }
-
-
-{-| The big island east of the course, with the colonial harbour town.
--}
-harbourIsland : Island
-harbourIsland =
-    { x = 150, z = 90, radius = 40, height = 10 }
-
-
-{-| The large southern island with the governor's anchorage and harbour.
--}
-anchorageIsland : Island
-anchorageIsland =
-    { x = -170, z = 230, radius = 50, height = 12 }
-
-
-{-| The northern island overlooking the outer reef and harbour.
--}
-smugglerIsland : Island
-smugglerIsland =
-    { x = 40, z = 330, radius = 45, height = 9 }
-
-
-{-| The island out past the reef behind the start line.
--}
-outerIsland : Island
-outerIsland =
-    { x = -130, z = -60, radius = 35, height = 7 }
-
-
-{-| A small island beside the leg to the fourth harbour (index 3), where
-the pirates buried their chest on the shore facing that leg (see `Route`):
-a short detour off the route.
--}
-treasureIsland : Island
-treasureIsland =
-    { x = -78, z = 205, radius = 10, height = 5 }
 
 
 {-| A point on an island at a compass bearing from its centre, `share` of
@@ -384,18 +177,6 @@ starts it again.
 dockSeconds : Float
 dockSeconds =
     1.0
-
-
-{-| Centre of the play area and how far the boat may wander from it.
--}
-arenaCenter : ( Float, Float )
-arenaCenter =
-    ( -7, 95 )
-
-
-arenaRadius : Float
-arenaRadius =
-    240.0
 
 
 initSailingState : Course -> SailingState
@@ -752,7 +533,6 @@ stepBoat input wind rawBoat islands state =
 
         ( bx, bz, bumped ) =
             List.foldl pushOutOfIsland ( movedX, movedZ, False ) islands
-                |> keepInArena
 
         finalSpeed =
             if bumped then
@@ -962,26 +742,32 @@ pushOutOfIsland island ( x, z, bumped ) =
         ( x, z, bumped )
 
 
-keepInArena : ( Float, Float, Bool ) -> ( Float, Float, Bool )
-keepInArena ( x, z, bumped ) =
+{-| Keep the boat inside the course's circle of sea (`Course.arena`): a
+boat that reaches its edge stops there, as if bumped.
+-}
+keepInArena : { x : Float, z : Float, radius : Float } -> SailingState -> SailingState
+keepInArena arena state =
     let
-        ( cx, cz ) =
-            arenaCenter
+        p =
+            Vec3.toRecord state.position
 
         dx =
-            x - cx
+            p.x - arena.x
 
         dz =
-            z - cz
+            p.z - arena.z
 
         d =
             sqrt (dx * dx + dz * dz)
     in
-    if d > arenaRadius then
-        ( cx + dx / d * arenaRadius, cz + dz / d * arenaRadius, True )
+    if d > arena.radius then
+        { state
+            | position = vec3 (arena.x + dx / d * arena.radius) p.y (arena.z + dz / d * arena.radius)
+            , bumped = True
+        }
 
     else
-        ( x, z, bumped )
+        state
 
 
 
@@ -1685,15 +1471,7 @@ factionHarbourPoint course faction =
             shorePoint town.island town.bearing ((town.island.radius + harbourOffshore) / town.island.radius)
 
         Nothing ->
-            case faction of
-                Pirates ->
-                    shorePoint smugglerIsland 195 ((smugglerIsland.radius + harbourOffshore) / smugglerIsland.radius)
-
-                BlueCoats ->
-                    shorePoint anchorageIsland 130 ((anchorageIsland.radius + harbourOffshore) / anchorageIsland.radius)
-
-                RedCoats ->
-                    shorePoint harbourIsland 268 ((harbourIsland.radius + harbourOffshore) / harbourIsland.radius)
+            course.startPosition
 
 
 {-| Advance standard states over time (bobbing age at sea, resetting to citadel after 60s).
@@ -1771,14 +1549,19 @@ repatriationBonusSeconds =
 -- CORAL REEFS & DRAFT DYNAMICS
 
 
-{-| The 3 coral reef shoals located in the waters around the course.
+{-| The coral reef shoals of a course: its `Reef` decoration.
 -}
-coralReefs : List Vec3
-coralReefs =
-    [ vec3 -112 0 250
-    , vec3 -92 0 -42
-    , vec3 205 0 140
-    ]
+reefsOf : Course -> List Vec3
+reefsOf course =
+    List.filterMap
+        (\d ->
+            if d.kind == Reef then
+                Just (vec3 d.x 0 d.z)
+
+            else
+                Nothing
+        )
+        course.decor
 
 
 {-| Radius (m) of a coral reef shoal.
@@ -1861,8 +1644,8 @@ that enters within coralReefRadius (6.0 m) of a reef center suffers a shallow
 rock grounding scrape, returning an impact speed (~8.8 m/s, yielding ~20% knock damage).
 Scraping while remaining inside does not re-trigger every frame.
 -}
-checkReefGrounding : Boat -> SailingState -> SailingState -> Maybe Float
-checkReefGrounding boat before after =
+checkReefGrounding : List Vec3 -> Boat -> SailingState -> SailingState -> Maybe Float
+checkReefGrounding reefs boat before after =
     if not (isDeepDraft boat after) then
         Nothing
 
@@ -1875,7 +1658,7 @@ checkReefGrounding boat before after =
                 inside reef after.position
                     && not (inside reef before.position && isDeepDraft boat before)
         in
-        case List.filter newlyGrounded coralReefs of
+        case List.filter newlyGrounded reefs of
             _ :: _ ->
                 Just (max 8.8 before.speed)
 

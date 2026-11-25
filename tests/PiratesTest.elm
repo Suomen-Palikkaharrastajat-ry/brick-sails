@@ -7,9 +7,11 @@ what they do in a race (board a boat that comes close, sink when hit).
 -}
 
 import Expect
+import Game.MapParams as MapParams
 import I18n exposing (Language(..))
 import Math.Vector3 as Vec3
 import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
@@ -19,7 +21,7 @@ import Test exposing (Test, describe, test)
 
 course : Sails.Types.Course
 course =
-    Physics.defaultCourse
+    Archipelago.defaultCourse
 
 
 seeds : List Int
@@ -112,8 +114,12 @@ suite =
                         |> dedupe
                         |> List.length
                         |> Expect.atLeast 3
-            , test "every leg between harbours has room for a patrol" <|
-                \_ -> Expect.equal (List.length course.waypoints - 1) (List.length (Pirates.patrolRoutes course))
+            , test "on every seat's route of many maps, enough legs between harbours have room for a patrol" <|
+                \_ ->
+                    sweepCourses
+                        |> List.filter (\c -> List.length (Pirates.patrolRoutes c) < Pirates.fleetSize)
+                        |> List.map .id
+                        |> Expect.equal []
             , test "a pirate never comes near a harbour's mooring circle" <|
                 \_ ->
                     everywhere
@@ -299,6 +305,11 @@ suite =
                         distTo ( ix, iz ) p =
                             sqrt ((p.centreX - ix) ^ 2 + (p.centreZ - iz) ^ 2)
 
+                        home f =
+                            Physics.factionTown course f
+                                |> Maybe.map (\t -> ( t.island.x, t.island.z ))
+                                |> Maybe.withDefault ( 0, 0 )
+
                         pirateShip =
                             fleet |> List.filter (\p -> p.faction == Pirates) |> List.head
 
@@ -311,15 +322,24 @@ suite =
                     case ( pirateShip, blueCoatsShip, redCoatsShip ) of
                         ( Just p, Just b, Just r ) ->
                             Expect.equal ( True, True, True )
-                                ( distTo ( 40, 330 ) p < distTo ( -170, 230 ) p
-                                , distTo ( -170, 230 ) b < distTo ( 150, 90 ) b
-                                , distTo ( 150, 90 ) r < distTo ( 40, 330 ) r
+                                ( distTo (home Pirates) p <= distTo (home BlueCoats) p && distTo (home Pirates) p <= distTo (home RedCoats) p
+                                , distTo (home BlueCoats) b <= distTo (home Pirates) b && distTo (home BlueCoats) b <= distTo (home RedCoats) b
+                                , distTo (home RedCoats) r <= distTo (home Pirates) r && distTo (home RedCoats) r <= distTo (home BlueCoats) r
                                 )
 
                         _ ->
                             Expect.fail "Missing faction patrol ships"
             ]
         ]
+
+
+{-| Every seat's course of 25 maps of each biome.
+-}
+sweepCourses : List Course
+sweepCourses =
+    MapParams.allBiomes
+        |> List.concatMap (\b -> List.map (\seed -> MapParams.resolve { biome = MapParams.Exactly b, season = MapParams.Any, weather = MapParams.Any, seed = seed }) (List.range 1 25))
+        |> List.concatMap (Archipelago.generate >> Archipelago.seatCourses)
 
 
 dedupe : List a -> List a

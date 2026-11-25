@@ -7,6 +7,7 @@ aging/resetting, and repatriation at home citadels.
 
 import Expect
 import Math.Vector3 as Vec3 exposing (vec3)
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Types
@@ -27,7 +28,7 @@ import Test exposing (Test, describe, test)
 
 course : Course
 course =
-    Physics.defaultCourse
+    Archipelago.defaultCourse
 
 
 sloop : Boat

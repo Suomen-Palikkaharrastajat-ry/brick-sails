@@ -12,6 +12,7 @@ import Html.Attributes as Attr
 import I18n exposing (Language(..))
 import Pages.Results as Results
 import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Ending as Ending
 import Sails.Physics as Physics
@@ -23,7 +24,7 @@ import Test.Html.Selector as Selector
 
 fresh : SailModel
 fresh =
-    Sail.initSail En Boats.default Physics.defaultCourse True Nothing Nothing { available = False, enabled = False } 800 600
+    Sail.initSail En Boats.default Archipelago.defaultCourse True Nothing Nothing { available = False, enabled = False } 800 600
 
 
 {-| The run as the last harbour is reached: finished after 50 s of sailing

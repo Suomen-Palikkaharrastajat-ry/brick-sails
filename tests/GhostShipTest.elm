@@ -6,34 +6,56 @@ module GhostShipTest exposing (suite)
 import Expect
 import I18n exposing (Language(..))
 import Math.Vector3 as Vec3 exposing (vec3)
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.GhostShip as GhostShip
 import Sails.Hull as Hull
 import Sails.I18n as T
 import Sails.Physics as Physics
-import Sails.Types exposing (CourseProgress, Faction(..), SailingState)
+import Sails.Types exposing (CourseProgress, DecorKind(..), Faction(..), SailingState)
 import Sails.Weather as Weather
 import Sails.Wreck as Wreck
 import Test exposing (Test, describe, test)
+
+
+{-| The coral reefs of the default course.
+-}
+reefs : List Vec3.Vec3
+reefs =
+    Physics.reefsOf Archipelago.defaultCourse
+
+
+{-| The first of them.
+-}
+reef : Vec3.Vec3
+reef =
+    List.head reefs |> Maybe.withDefault (vec3 0 0 0)
 
 
 suite : Test
 suite =
     describe "Phase 4: Ghost Ship & Coral Reef Draft Dynamics"
         [ describe "Coral Reef Draft Dynamics"
-            [ test "coral reefs are placed at the 3 specific coordinates with 6.0 m radius" <|
+            [ test "the course's coral reefs are its reef decoration, 2 to 4 shoals of 6.0 m radius" <|
                 \_ ->
                     Expect.all
-                        [ \_ -> Expect.equal 3 (List.length Physics.coralReefs)
+                        [ \_ -> Expect.atLeast 2 (List.length reefs)
+                        , \_ -> Expect.atMost 4 (List.length reefs)
                         , \_ -> Expect.equal 6.0 Physics.coralReefRadius
                         , \_ -> Expect.equal 1.0 Physics.reefDraftLimit
                         , \_ ->
                             Expect.equal
-                                [ vec3 -112 0 250
-                                , vec3 -92 0 -42
-                                , vec3 205 0 140
-                                ]
-                                Physics.coralReefs
+                                (List.filterMap
+                                    (\d ->
+                                        if d.kind == Reef then
+                                            Just (vec3 d.x 0 d.z)
+
+                                        else
+                                            Nothing
+                                    )
+                                    Archipelago.defaultCourse.decor
+                                )
+                                reefs
                         ]
                         ()
             , test "nominal draft: light boats have draft < 1.0 m, deep boats >= 1.0 m" <|
@@ -65,7 +87,7 @@ suite =
                             Boats.byName "Cutter"
 
                         state =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
                     in
                     Expect.all
                         [ \_ -> Expect.equal True (Physics.canClearReef cutter state)
@@ -80,7 +102,7 @@ suite =
                             Boats.byName "Cutter"
 
                         baseState =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
 
                         burdenedState =
                             { baseState | carriedStandard = Just Pirates }
@@ -98,15 +120,15 @@ suite =
                             Boats.byName "Sloop"
 
                         base =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
 
                         before =
-                            { base | position = vec3 -112 0 260, speed = 8.0 }
+                            { base | position = Vec3.add reef (vec3 0 0 10), speed = 8.0 }
 
                         after =
-                            { base | position = vec3 -112 0 250, speed = 8.0 }
+                            { base | position = reef, speed = 8.0 }
                     in
-                    case Physics.checkReefGrounding sloop before after of
+                    case Physics.checkReefGrounding reefs sloop before after of
                         Just impactSpeed ->
                             let
                                 damage =
@@ -127,15 +149,15 @@ suite =
                             Boats.byName "Cutter"
 
                         base =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
 
                         before =
-                            { base | position = vec3 -112 0 260, speed = 8.0 }
+                            { base | position = Vec3.add reef (vec3 0 0 10), speed = 8.0 }
 
                         after =
-                            { base | position = vec3 -112 0 250, speed = 8.0 }
+                            { base | position = reef, speed = 8.0 }
                     in
-                    Expect.equal Nothing (Physics.checkReefGrounding cutter before after)
+                    Expect.equal Nothing (Physics.checkReefGrounding reefs cutter before after)
             , test "light boat under Keel Burden grounds when passing through coral reef" <|
                 \_ ->
                     let
@@ -143,15 +165,15 @@ suite =
                             Boats.byName "Cutter"
 
                         base =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
 
                         before =
-                            { base | position = vec3 205 0 150, speed = 8.0, carriedStandard = Just RedCoats }
+                            { base | position = Vec3.add reef (vec3 0 0 10), speed = 8.0, carriedStandard = Just RedCoats }
 
                         after =
-                            { base | position = vec3 205 0 140, speed = 8.0, carriedStandard = Just RedCoats }
+                            { base | position = reef, speed = 8.0, carriedStandard = Just RedCoats }
                     in
-                    case Physics.checkReefGrounding cutter before after of
+                    case Physics.checkReefGrounding reefs cutter before after of
                         Just impactSpeed ->
                             Expect.atLeast 8.8 impactSpeed
 
@@ -164,15 +186,15 @@ suite =
                             Boats.byName "Sloop"
 
                         base =
-                            Physics.initSailingState Physics.defaultCourse
+                            Physics.initSailingState Archipelago.defaultCourse
 
                         insideStep1 =
-                            { base | position = vec3 -92 0 -42, speed = 5.0 }
+                            { base | position = reef, speed = 5.0 }
 
                         insideStep2 =
-                            { base | position = vec3 -92 0 -41, speed = 5.0 }
+                            { base | position = Vec3.add reef (vec3 0 0 1), speed = 5.0 }
                     in
-                    Expect.equal Nothing (Physics.checkReefGrounding sloop insideStep1 insideStep2)
+                    Expect.equal Nothing (Physics.checkReefGrounding reefs sloop insideStep1 insideStep2)
             ]
         , describe "Ghost Ship (Aavelaiva) Encounter"
             [ test "spectral tint is trans-green (vec3 0.18 0.98 0.52)" <|
@@ -190,7 +212,7 @@ suite =
                 \_ ->
                     let
                         fairWeather =
-                            Weather.init 42
+                            Weather.init Weather.stormProfile 42
 
                         ship =
                             GhostShip.init
@@ -209,7 +231,7 @@ suite =
                 \_ ->
                     let
                         base =
-                            Weather.init 42
+                            Weather.init Weather.stormProfile 42
 
                         squallWeather =
                             { base | squall = 0.3 }
@@ -232,7 +254,7 @@ suite =
                 \_ ->
                     let
                         base =
-                            Weather.init 42
+                            Weather.init Weather.stormProfile 42
 
                         thunderWeather =
                             { base | thunder = 0.4 }
@@ -254,7 +276,7 @@ suite =
                 \_ ->
                     let
                         base =
-                            Weather.init 42
+                            Weather.init Weather.stormProfile 42
 
                         stormWeather =
                             { base | squall = 0.5 }
@@ -282,7 +304,7 @@ suite =
                 \_ ->
                     let
                         base =
-                            Weather.init 42
+                            Weather.init Weather.stormProfile 42
 
                         stormWeather =
                             { base | squall = 0.8 }
@@ -329,7 +351,7 @@ suite =
                 \_ ->
                     let
                         base =
-                            Physics.initProgress Physics.defaultCourse
+                            Physics.initProgress Archipelago.defaultCourse
 
                         progress : CourseProgress
                         progress =

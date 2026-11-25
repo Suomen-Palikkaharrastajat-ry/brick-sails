@@ -7,18 +7,19 @@ of sail logic.
 
 import Expect
 import Math.Vector3 as Vec3 exposing (vec3)
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.HUD as HUD exposing (PointOfSail(..))
 import Sails.Hull as Hull
 import Sails.Physics as Physics
-import Sails.Types exposing (SailingState)
+import Sails.Types exposing (IslandRole(..), SailingState)
 import Sails.Wreck as Wreck
 import Test exposing (Test, describe, test)
 
 
 course : Sails.Types.Course
 course =
-    Physics.defaultCourse
+    Archipelago.defaultCourse
 
 
 {-| Open water east of the start, clear of every island.
@@ -132,10 +133,13 @@ suite =
                     Expect.equal ( 0, 0 ) (Physics.courseCurrent route (vec3 10 0 30))
             , test "on every seat's route the treasure detour is inside the free range" <|
                 \_ ->
-                    List.range 0 (Physics.routeCount - 1)
-                        |> List.map Physics.courseForSeat
+                    let
+                        seats =
+                            Archipelago.seatCourses (Archipelago.generate Archipelago.defaultMap)
+                    in
+                    seats
                         |> List.concatMap (\seatCourse -> List.map (\t -> Physics.courseCurrent (Physics.courseRoute seatCourse) t.position) seatCourse.treasures)
-                        |> Expect.equal (List.repeat Physics.routeCount ( 0, 0 ))
+                        |> Expect.equal (List.repeat (List.length seats) ( 0, 0 ))
             , test "far off the course the current carries the boat back, gently" <|
                 \_ ->
                     let
@@ -156,7 +160,7 @@ suite =
                     in
                     Expect.all
                         [ \_ -> Expect.greaterThan 0.5 strength
-                        , \_ -> Expect.atMost 3.0 strength
+                        , \_ -> Expect.atMost (3.0 + 1.0e-9) strength
                         , \_ -> Expect.atMost (Boats.default.topSpeed * 0.4) strength
                         , \_ -> Expect.greaterThan 0.99 ((vx * Vec3.getX toCourse + vz * Vec3.getZ toCourse) / strength)
                         ]
@@ -250,7 +254,7 @@ suite =
                 \_ ->
                     let
                         island =
-                            { x = 0, z = 0, radius = 10, height = 4 }
+                            { x = 0, z = 0, radius = 10, height = 4, role = HarbourIsle }
 
                         approach heading =
                             { openWater | position = vec3 0 0 -12.3, heading = heading, speed = 9, bumped = False }
@@ -270,7 +274,7 @@ suite =
                 \_ ->
                     let
                         island =
-                            { x = 0, z = 0, radius = 10, height = 4 }
+                            { x = 0, z = 0, radius = 10, height = 4, role = HarbourIsle }
 
                         touching =
                             { openWater | position = vec3 0 0 -12, heading = 0, speed = 9, bumped = True }

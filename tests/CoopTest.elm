@@ -15,6 +15,7 @@ import Json.Encode as Encode
 import Math.Vector3 exposing (vec3)
 import Pages.Results as Results
 import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
+import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Crew as Crew
 import Sails.Ending as Ending
@@ -68,7 +69,7 @@ moored slot at =
 
 sail : Maybe RoomState -> SailModel
 sail maybeRoom =
-    Sail.initSail En Boats.default Physics.defaultCourse True Nothing maybeRoom { available = False, enabled = False } 800 600
+    Sail.initSail En Boats.default Archipelago.defaultCourse True Nothing maybeRoom { available = False, enabled = False } 800 600
 
 
 {-| One 20 ms frame.
@@ -99,11 +100,11 @@ resultsText crew =
             (inPort (sail Nothing)).progress
     in
     Results.viewResults
-        { course = Physics.defaultCourse
+        { course = Archipelago.defaultCourse
         , progress = progress
         , boatName = Boats.default.name
         , personalBest = Nothing
-        , ending = Ending.start { targetSeconds = Physics.defaultCourse.targetSeconds, personalBest = Nothing } progress
+        , ending = Ending.start { targetSeconds = Archipelago.defaultCourse.targetSeconds, personalBest = Nothing } progress
         , crew = crew
         , language = En
         , actions = { onSailAgain = (), onBackToMenu = () }
