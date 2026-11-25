@@ -74,6 +74,7 @@ module Sails.I18n exposing
     , shipLoadError
     , shipwrecked
     , shipwreckedText
+    , shootHint
     , slotLabel
     , slotOpen
     , spaceKey
@@ -285,13 +286,13 @@ controlsHint : Language -> Bool -> String
 controlsHint lang tilt =
     if tilt then
         pick lang
-            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta AMMU, kun olet lähellä kelluvia maalitauluja, kapteeni."
-            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap FIRE when you're near the floating targets, captain."
+            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta tai klikkaa ampuaksesi, kun olet lähellä kelluvia maalitauluja ja merirosvolaivoja, kapteeni."
+            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap to shoot when you're near the floating targets or pirate ships, captain."
 
     else
         pick lang
-            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). AMMU (välilyönti) kelluvien maalitaulujen lähellä."
-            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). FIRE (Space) to blast nearby floating targets."
+            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). Napauta tai klikkaa ampuaksesi (välilyönti) kelluvien maalitaulujen ja merirosvolaivojen lähellä."
+            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). Tap or click (Space) to shoot nearby floating targets and pirate ships."
 
 
 speedLabel : Language -> String
@@ -516,6 +517,18 @@ fireTitle lang =
     pick lang "Ammu tykeillä" "Fire cannons"
 
 
+{-| What tapping or clicking the sea does, as a hint: "Tap to shoot" on a
+touch screen, "Click to shoot" with a mouse.
+-}
+shootHint : Language -> Bool -> String
+shootHint lang touch =
+    if touch then
+        pick lang "Napauta ampuaksesi" "Tap to shoot"
+
+    else
+        pick lang "Klikkaa ampuaksesi" "Click to shoot"
+
+
 {-| The space bar, as named in a keyboard hint.
 -}
 spaceKey : Language -> String
@@ -542,8 +555,8 @@ goBanner lang =
 countdownHint : Language -> String
 countdownHint lang =
     pick lang
-        "Poikkea pasaatituulessa jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja AMMU: −2 s."
-        "Ride the trade winds to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and FIRE for -2 s."
+        "Poikkea pasaatituulessa jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja ammu: −2 s."
+        "Ride the trade winds to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and shoot for -2 s."
 
 
 {-| The sail buttons: raise (True) or lower (False).
@@ -995,6 +1008,8 @@ allPhrases =
     , ( "spaceKey", spaceKey )
     , ( "fireButton ready", \l -> fireButton l True )
     , ( "fireButton loading", \l -> fireButton l False )
+    , ( "shootHint tap", \l -> shootHint l True )
+    , ( "shootHint click", \l -> shootHint l False )
     , ( "goBanner", goBanner )
     , ( "countdownHint", countdownHint )
     , ( "sailStep raise", \l -> sailStep l True )

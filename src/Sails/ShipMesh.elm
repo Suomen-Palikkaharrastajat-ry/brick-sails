@@ -1,6 +1,7 @@
 module Sails.ShipMesh exposing
     ( PartProgress
     , ShipMesh
+    , ShipPart
     , build
     , buildScenery
     , partProgress
@@ -23,6 +24,7 @@ geometry otherwise) so `Sails.Render` can paint them in a player colour.
 
 -}
 
+import Array exposing (Array)
 import Dict
 import Game.PartLoading as PartLoading
 import LDraw.Document as Document exposing (Document, Placement)
@@ -52,9 +54,21 @@ type alias ShipMesh =
     , sails : Scene
     , sailFoot : Float
     , toBoat : Mat4
+    , linear : Mat4
+    , parts : Array ShipPart
     , triangleCount : Int
     , lengthMeters : Float
     , heightMeters : Float
+    }
+
+
+{-| One brick (or other part) of a boat, for when the boat breaks up
+(`Sails.Wreck`): its own geometry in the boat's brick units (LDU, as in
+`scene`) and its centre, the point its pieces turn about.
+-}
+type alias ShipPart =
+    { scene : Scene
+    , pivot : Vec3
     }
 
 
@@ -173,7 +187,7 @@ build isSail doc rawCache =
         draftLdu =
             min maxDraftLdu (lengthLdu * draftShare)
 
-        toBoat =
+        linear =
             Mat4.makeScale3 scale scale scale
                 |> (\m ->
                         if turned then
@@ -182,7 +196,34 @@ build isSail doc rawCache =
                         else
                             m
                    )
+
+        toBoat =
+            linear
                 |> Mat4.translate3 -centre.x -(Vec3.getY bounds.min + draftLdu) -centre.z
+
+        onePart p =
+            let
+                geom =
+                    Geometry.flattenWith Geometry.worldOptions [ toRef p ] cache 15 Mat4.identity
+
+                tris =
+                    if isSail p then
+                        List.map markSail geom.triangles
+
+                    else
+                        geom.triangles
+
+                box =
+                    boundsOf tris
+            in
+            { scene = Scene.buildScene { triangles = tris, lines = geom.lines, conditionalLines = [] } False
+            , pivot = Vec3.scale 0.5 (Vec3.add box.min box.max)
+            }
+
+        parts =
+            placements
+                |> List.map onePart
+                |> Array.fromList
     in
     { scene =
         Scene.buildScene
@@ -203,6 +244,8 @@ build isSail doc rawCache =
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
     , heightMeters = size.y * scale
+    , linear = linear
+    , parts = parts
     }
 
 
@@ -238,6 +281,8 @@ buildScenery metersPerLdu doc rawCache =
     , triangleCount = List.length geom.triangles
     , lengthMeters = max size.x size.z * metersPerLdu
     , heightMeters = size.y * metersPerLdu
+    , linear = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
+    , parts = Array.empty
     }
 
 

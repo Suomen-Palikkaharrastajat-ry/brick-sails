@@ -1,15 +1,21 @@
 module Sails.Wreck exposing
-    ( Piece
+    ( Look(..)
+    , Piece
+    , Source(..)
     , breakUp
     , pieceCount
     , step
     )
 
-{-| A wrecked boat breaking up into its bricks.
+{-| A wrecked boat breaking up into its own bricks.
 
-When the hull gives out (`Sails.Hull.wrecked`) the boat is drawn no more;
-in its place `pieceCount` loose bricks burst out of it, tumble through the
-air, splash down and float, bobbing on the swell and slowly spreading out.
+When a boat's hull gives out (`Sails.Hull.wrecked`), or a pirate ship sinks,
+the boat is drawn no more; in its place `pieceCount` pieces burst out of it.
+Each one is a real part of that boat (`ShipPart`: one of the bricks it was
+built from, drawn in its own colours, see `Sails.ShipMesh.parts`), so the
+wreck comes apart into the very bricks it was made of. The bright bursts of
+the finish are generic bricks (`Brick`). The pieces tumble through the air,
+splash down and float, bobbing on the swell and slowly spreading out.
 
 The pieces come from the boat's position and heading alone, so a wreck
 looks the same every time it is replayed: there is no randomness.
@@ -21,9 +27,26 @@ import Sails.Physics as Physics
 import Sails.Types exposing (SailingState)
 
 
-{-| One loose brick: where it is and how fast it moves, its spin (yaw and
-tumble, in radians, and their rates), its part ("3001.dat" or "3003.dat")
-and LDraw colour code, and whether it has landed on the water.
+{-| Whose boat broke up: the player's own, or a pirate ship. Its parts are
+looked up when the wreck is drawn.
+-}
+type Source
+    = OwnBoat
+    | PirateShip
+
+
+{-| What a piece looks like: one of the parts of a boat (`ShipPart` the
+boat, and a slot that is taken modulo the boat's part count when drawn), or
+a generic brick of part "3001.dat" or "3003.dat" and an LDraw colour code.
+-}
+type Look
+    = ShipPart Source Int
+    | Brick String Int
+
+
+{-| One loose piece: where it is and how fast it moves, its spin (yaw and
+tumble, in radians, and their rates), what it looks like, and whether it has
+landed on the water.
 -}
 type alias Piece =
     { position : Vec3
@@ -31,8 +54,7 @@ type alias Piece =
     , yaw : Float
     , tumble : Float
     , spin : Float
-    , part : String
-    , colour : Int
+    , look : Look
     , afloat : Bool
     }
 
@@ -42,19 +64,12 @@ pieceCount =
     18
 
 
-{-| Classic brick colours of a toy boat: red, white, brown, tan, blue,
-yellow and black.
+{-| Burst a boat into its pieces. Pieces fly out all round, more of them
+forwards (the boat was moving), up to about ten metres. Each piece is
+another part of the boat, spread over all its parts.
 -}
-palette : List Int
-palette =
-    [ 4, 15, 70, 19, 1, 14, 15, 0 ]
-
-
-{-| Burst a boat into its bricks. Pieces fly out all round, more of them
-forwards (the boat was moving), up to about ten metres.
--}
-breakUp : SailingState -> List Piece
-breakUp state =
+breakUp : Source -> SailingState -> List Piece
+breakUp source state =
     let
         p =
             Vec3.toRecord state.position
@@ -100,16 +115,7 @@ breakUp state =
             , yaw = angle
             , tumble = 0
             , spin = 3 + 4 * frac (fi * 0.3183)
-            , part =
-                if modBy 3 i == 0 then
-                    "3001.dat"
-
-                else
-                    "3003.dat"
-            , colour =
-                List.drop (modBy (List.length palette) i) palette
-                    |> List.head
-                    |> Maybe.withDefault 15
+            , look = ShipPart source (floor (frac (fi * 0.7548776662) * 1000000))
             , afloat = False
             }
     in

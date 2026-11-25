@@ -21,8 +21,7 @@ the boat has stopped (sails down, under 1 km/h), an Exit button and a
 restart button show under it, the way out of a race. Bottom left: while
 tilt steering is off (no sensor, permission refused, or not a phone), big
 left/right steering buttons; phones always steer by tilt. Bottom right: the
-sail control (raise / lower, with the sail set shown between) and a big
-FIRE button. The middle of the screen stays clear for the boat in both
+sail control (raise / lower, with the sail set shown between) and a hint: tapping or clicking the sea fires. The middle of the screen stays clear for the boat in both
 portrait and landscape. Steering buttons react to pointer down/up so they
 can be held. A boat far off the course gets an arrow back to it.
 
@@ -47,7 +46,6 @@ type Side
 
 type alias HudActions msg =
     { onSteer : Side -> Bool -> msg
-    , onFire : msg
     , onRaiseSail : msg
     , onLowerSail : msg
     , onToggleMute : msg
@@ -62,7 +60,7 @@ viewHud :
     , state : SailingState
     , cameraYaw : Float
     , cannonReady : Bool
-    , targetInRange : Bool
+    , touchShoot : Bool
     , audioMuted : Bool
     , tilt : { available : Bool, enabled : Bool }
     , countdown : Maybe Int
@@ -106,7 +104,7 @@ viewHud cfg =
                 ]
             , div [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto" ]
                 [ sailControl cfg
-                , fireButton cfg
+                , shootHint cfg
                 ]
             ]
         ]
@@ -519,30 +517,25 @@ steerButton language actions side =
         [ icon |> FeatherIcons.withSize 40 |> FeatherIcons.toHtml [] ]
 
 
-fireButton : { a | cannonReady : Bool, targetInRange : Bool, language : Language, actions : HudActions msg } -> Html msg
-fireButton { cannonReady, targetInRange, language, actions } =
-    button
-        [ Attr.title (T.fireTitle language ++ " (" ++ T.spaceKey language ++ ")")
-        , Attr.attribute "aria-label" (T.fireTitle language)
-        , Attr.attribute "data-fire" ""
-        , Attr.style "touch-action" "none"
-        , Events.preventDefaultOn "pointerdown" (Decode.succeed ( actions.onFire, True ))
-        , Attr.class
-            ("w-[84px] h-[84px] rounded-full flex flex-col items-center justify-center font-black text-xs tracking-wider border-4 shadow-xl transition-transform active:scale-95 "
-                ++ (if not cannonReady then
-                        "bg-slate-800/90 border-slate-600 text-slate-400"
-
-                    else if targetInRange then
-                        "bg-brand-red border-brand-yellow text-white animate-pulse"
+{-| The hint that tapping (or clicking) the sea fires the cannons: "Tap to
+shoot" on a touch screen, "Click to shoot" with a mouse. It dims while the
+guns reload. It does not catch pointers, so they reach the sea underneath.
+-}
+shootHint : { a | cannonReady : Bool, touchShoot : Bool, language : Language } -> Html msg
+shootHint { cannonReady, touchShoot, language } =
+    span
+        [ Attr.class
+            ("pointer-events-none px-4 py-2 rounded-2xl font-black text-sm tracking-wide border-2 shadow-lg backdrop-blur-md "
+                ++ (if cannonReady then
+                        "bg-brand-red/90 border-brand-red/60 text-white"
 
                     else
-                        "bg-brand-red/90 border-brand-red/60 text-white"
+                        "bg-slate-800/80 border-slate-600 text-slate-400"
                    )
             )
+        , Attr.attribute "data-fire" ""
         ]
-        [ FeatherIcons.target |> FeatherIcons.withSize 28 |> FeatherIcons.toHtml []
-        , text (T.fireButton language cannonReady)
-        ]
+        [ text (T.shootHint language touchShoot) ]
 
 
 viewToast : Maybe String -> Html msg

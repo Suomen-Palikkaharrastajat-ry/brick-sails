@@ -132,16 +132,18 @@ confetti n state =
             , yaw = angle
             , tumble = 0
             , spin = 4 + 5 * frac (fi * 0.3183)
-            , part =
-                if modBy 2 i == 0 then
-                    "3001.dat"
+            , look =
+                Wreck.Brick
+                    (if modBy 2 i == 0 then
+                        "3001.dat"
 
-                else
-                    "3003.dat"
-            , colour =
-                List.drop (modBy (List.length palette) (i + n)) palette
-                    |> List.head
-                    |> Maybe.withDefault 14
+                     else
+                        "3003.dat"
+                    )
+                    (List.drop (modBy (List.length palette) (i + n)) palette
+                        |> List.head
+                        |> Maybe.withDefault 14
+                    )
             , afloat = False
             }
     in

@@ -32,6 +32,7 @@ exactly the part of the hull below the waterline.
 
 -}
 
+import Array
 import Dict exposing (Dict)
 import Game.BrickLook as BrickLook
 import Game.BrickModels as BrickModels
@@ -132,6 +133,7 @@ renderWorld :
         , treasureFound : List Int
         , props : Props
         , debris : List Wreck.Piece
+        , shipMeshOf : Wreck.Source -> Maybe ShipMesh
         }
     -> Int
     -> Int
@@ -182,7 +184,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (harbourEntities ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height) scene.boats
-                ++ List.concatMap (debrisEntities draw) scene.debris
+                ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
                 ++ guideEntities ctx scene.guide
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
@@ -194,11 +196,12 @@ renderWorld cam scene width height =
     canvas width height entities
 
 
-{-| One loose brick of a wrecked boat (see `Sails.Wreck`), in its colour,
-at about the scale of the boats' own bricks.
+{-| One loose piece of a wrecked boat (see `Sails.Wreck`): one of the
+boat's own parts, drawn as it was built (`Sails.ShipMesh.parts`), or a
+generic brick in its colour, at about the scale of the boats' own bricks.
 -}
-debrisEntities : Draw -> Wreck.Piece -> List WebGL.Entity
-debrisEntities draw piece =
+debrisEntities : Ctx -> Int -> Int -> Draw -> (Wreck.Source -> Maybe ShipMesh) -> Wreck.Piece -> List WebGL.Entity
+debrisEntities ctx width height draw shipMeshOf piece =
     let
         p =
             Vec3.toRecord piece.position
@@ -206,14 +209,49 @@ debrisEntities draw piece =
         u =
             0.035
     in
-    draw.prop piece.part
-        (Mat4.makeTranslate3 p.x p.y p.z
-            |> rotY piece.yaw
-            |> rotX piece.tumble
-            |> Mat4.translate3 0 (12 * u) 0
-            |> Mat4.scale3 u u u
-        )
-        (tint3 (BrickLook.colour piece.colour))
+    case piece.look of
+        Wreck.Brick part colour ->
+            draw.prop part
+                (Mat4.makeTranslate3 p.x p.y p.z
+                    |> rotY piece.yaw
+                    |> rotX piece.tumble
+                    |> Mat4.translate3 0 (12 * u) 0
+                    |> Mat4.scale3 u u u
+                )
+                (tint3 (BrickLook.colour colour))
+
+        Wreck.ShipPart source slot ->
+            case shipMeshOf source of
+                Just mesh ->
+                    if Array.isEmpty mesh.parts then
+                        []
+
+                    else
+                        case Array.get (modBy (Array.length mesh.parts) slot) mesh.parts of
+                            Just part ->
+                                let
+                                    pivot =
+                                        Vec3.toRecord part.pivot
+
+                                    -- The part turns about its own centre, which
+                                    -- is where the piece is; `linear` takes it to
+                                    -- boat metres, as the whole boat is drawn.
+                                    pose =
+                                        Mat4.makeTranslate3 p.x p.y p.z
+                                            |> rotY piece.yaw
+                                            |> rotX piece.tumble
+
+                                    model =
+                                        Mat4.mul pose mesh.linear
+                                            |> Mat4.translate3 (negate pivot.x) (negate pivot.y) (negate pivot.z)
+                                in
+                                brickPasses ctx width height (Vec3.distance ctx.eye piece.position) (vec4 1 1 1 0) model part.scene
+
+                            Nothing ->
+                                []
+
+                Nothing ->
+                    []
 
 
 {-| Shipyard preview: one boat on the water, seen from the side, slowly
@@ -960,10 +998,10 @@ ballEntity draw ball =
             if ball.age < 0.4 then
                 let
                     smokeRadius =
-                        0.5 + ball.age * 2.2
+                        0.22 + ball.age * 0.8
 
                     smokeHeight =
-                        0.4 + ball.age * 1.6
+                        0.2 + ball.age * 0.6
 
                     smokeAlpha =
                         clamp 0.0 1.0 (1.0 - ball.age / 0.4)

@@ -2,10 +2,14 @@ module Sails.Pirates exposing
     ( Pirate
     , boardingCooldown
     , boardingRange
+    , collisionRadius
     , fleet
     , fleetSize
     , harbourClearance
+    , isPirateSlot
     , patrolRoutes
+    , reach
+    , reloadSeconds
     , shipName
     , shipSlot
     , stateAt
@@ -24,9 +28,13 @@ alone, so the same seed always gives the same pirates in the same places.
     every harbour's mooring circle and the start, clear of the islands, and
     a few metres off the floating targets: a pirate never sits on a harbour,
     so the course can always be finished.
-  - Pirates do not push the boat about. A pirate the boat comes within
-    `boardingRange` of boards it: the hull takes one cannon hit's damage,
-    then no pirate can board again for `boardingCooldown` seconds.
+  - A pirate is a ship of its own size: the boat cannot sail through it, and
+    bumps off it as it does off an island (`collisionRadius`).
+  - A pirate the boat comes within `boardingRange` of boards it: the hull
+    takes one cannon hit's damage, then no pirate can board again for
+    `boardingCooldown` seconds.
+  - Pirates shoot back. A pirate within `reach` of the boat fires a ball at
+    it every `reloadSeconds`; a ball that hits takes one cannon hit's damage.
   - A cannon ball that hits a pirate sinks it for the rest of the run, and
     counts as a target hit (the same time bonus).
 
@@ -59,6 +67,29 @@ room for a patrol).
 fleetSize : Int
 fleetSize =
     3
+
+
+{-| Radius (m) of a pirate ship for collisions with the boat: the boat
+bumps off it at this distance from the pirate's centre.
+-}
+collisionRadius : Float
+collisionRadius =
+    2.3
+
+
+{-| How close (m) the boat must be for a pirate to fire at it.
+-}
+reach : Float
+reach =
+    24
+
+
+{-| Seconds between one pirate's shots. Each pirate has its own pace, so
+they do not all fire together.
+-}
+reloadSeconds : Pirate -> Float
+reloadSeconds pirate =
+    4.5 + 0.8 * toFloat (modBy 3 pirate.id)
 
 
 {-| The built-in boat a pirate is drawn as (with black sails).
@@ -100,6 +131,13 @@ shipSlot id =
 patrolRadius : Float
 patrolRadius =
     9
+
+
+{-| Whether a cannon slot (see `shipSlot`) belongs to a pirate.
+-}
+isPirateSlot : Int -> Bool
+isPirateSlot slot =
+    slot >= shipSlot 0
 
 
 {-| Every patrol circle the course has room for, one per leg between

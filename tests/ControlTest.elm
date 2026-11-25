@@ -296,15 +296,15 @@ suite =
             [ test "a wrecked boat breaks up into bricks, the same way every time" <|
                 \_ ->
                     Expect.all
-                        [ \_ -> Expect.equal Wreck.pieceCount (List.length (Wreck.breakUp openWater))
-                        , \_ -> Expect.equal (Wreck.breakUp openWater) (Wreck.breakUp openWater)
+                        [ \_ -> Expect.equal Wreck.pieceCount (List.length (Wreck.breakUp Wreck.OwnBoat openWater))
+                        , \_ -> Expect.equal (Wreck.breakUp Wreck.OwnBoat openWater) (Wreck.breakUp Wreck.OwnBoat openWater)
                         ]
                         ()
             , test "the bricks splash down and float" <|
                 \_ ->
                     let
                         settled =
-                            List.foldl (\i ps -> Wreck.step 0.02 1 (toFloat i * 0.02) ps) (Wreck.breakUp openWater) (List.range 1 200)
+                            List.foldl (\i ps -> Wreck.step 0.02 1 (toFloat i * 0.02) ps) (Wreck.breakUp Wreck.OwnBoat openWater) (List.range 1 200)
                     in
                     Expect.equal True (List.all .afloat settled)
             ]

@@ -28,7 +28,7 @@ import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (onClick)
+import Html.Events exposing (on, onClick)
 import I18n exposing (Language)
 import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
@@ -101,6 +101,8 @@ type alias SailModel =
     , pirates : List Pirate
     , piratesSunk : List Int
     , pirateCooldown : Float
+    , pirateGuns : Dict Int Float
+    , touchShoot : Bool
     , language : Language
     , crewClock : Float
     , moorings : Dict Int Float
@@ -116,6 +118,7 @@ type SailMsg
     | TiltSteer Float
     | VisibilityChanged Browser.Events.Visibility
     | FireCannons
+    | PointerFire String
     | RaiseSail
     | LowerSail
     | ToggleMute
@@ -208,6 +211,8 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , pirates = Pirates.fleet (pirateSeed course maybeMulti 0) course
     , piratesSunk = []
     , pirateCooldown = 0
+    , pirateGuns = Dict.empty
+    , touchShoot = False
     , language = language
     , crewClock = 0
     , moorings = Dict.empty
@@ -408,12 +413,6 @@ remotePlayers model =
             []
 
 
-targetInRange : SailModel -> Bool
-targetInRange model =
-    aimPoints model
-        |> List.any (\p -> horizontal model.state.position p <= Physics.cannonRange)
-
-
 {-| Compass bearing back to the course while the boat is off it (see
 `Physics.courseFreeRange`), for the HUD's arrow.
 -}
@@ -489,6 +488,10 @@ update msg model =
 
             else
                 ( model, Cmd.none )
+
+        PointerFire pointer ->
+            -- A tap or click anywhere on the sea fires; the hint shows which.
+            update FireCannons { model | touchShoot = pointer == "touch" }
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -687,13 +690,17 @@ tick dt model =
                 model.course.islands
                 model.state
 
-        -- Far off the course a current carries the boat back towards it.
-        state =
+        -- Far off the course a current carries the boat back towards it, and
+        -- a pirate ship in its way bumps it off (`Physics.bumpShips`).
+        drifted =
             if racing then
                 Physics.driftWith dt (Physics.courseCurrent (Physics.courseRoute model.course) sailed.position) sailed
 
             else
                 sailed
+
+        state =
+            Physics.bumpShips Pirates.collisionRadius (List.map (\( _, ps ) -> ps.position) piratesNow) drifted
 
         rock =
             Physics.rockImpact model.course.islands model.state state
@@ -706,11 +713,13 @@ tick dt model =
                 racing
                 { rock = rock
                 , cannonHits =
-                    if boarding then
+                    (if boarding then
                         1
 
-                    else
+                     else
                         0
+                    )
+                        + boatHitCount
                 , roughSea = roughSea
                 }
                 model.hull
@@ -723,7 +732,7 @@ tick dt model =
 
         debris =
             if justWrecked then
-                Wreck.breakUp state
+                Wreck.breakUp Wreck.OwnBoat state
 
             else
                 Wreck.step dt conditions.sea time model.debris
@@ -738,8 +747,23 @@ tick dt model =
         ( flying, splashes ) =
             Physics.stepProjectiles dt time model.cannonballs
 
+        -- The boat's own balls go for targets and pirates; a pirate's ball only
+        -- for the boat, and the pirates in reach of the boat fire at it.
+        ( ownFlying, pirateFlying ) =
+            List.partition (\b -> not (Pirates.isPirateSlot b.sourceSlot)) flying
+
         ( afterTargets, hitFlashes, ( targets, hits ) ) =
-            Physics.checkTargetHits flying model.targets
+            Physics.checkTargetHits ownFlying model.targets
+
+        ( afterBoatHits, boatFlashes, boatHitCount ) =
+            Physics.checkBoatHits state.position pirateFlying
+
+        ( pirateShots, nextShotId, pirateGuns ) =
+            if racing then
+                pirateVolleys dt state model.nextCannonId piratesNow model.pirateGuns
+
+            else
+                ( [], model.nextCannonId, model.pirateGuns )
 
         -- Pirates where they are this frame (`Sails.Pirates`). Cannonballs
         -- hit them, never a crewmate's ship.
@@ -1040,8 +1064,8 @@ tick dt model =
         , simTime = time
         , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
-        , cannonballs = afterPirates
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes)
+        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , pirateCooldown =
             if boarding then
@@ -1050,6 +1074,8 @@ tick dt model =
             else
                 max 0 (model.pirateCooldown - dt)
         , cannonCooldown = max 0 (model.cannonCooldown - dt)
+        , nextCannonId = nextShotId
+        , pirateGuns = pirateGuns
         , toast = toast
         , hull = hull
         , rockTimer =
@@ -1064,7 +1090,7 @@ tick dt model =
 
             else
                 0
-        , debris = debris ++ List.concatMap (Tuple.second >> Wreck.breakUp) sunkNow ++ celebration
+        , debris = debris ++ List.concatMap (\( _, ps ) -> Wreck.breakUp Wreck.PirateShip ps) sunkNow ++ celebration
         , ending = ending
         , crewClock = crewClock
         , moorings = moorings
@@ -1072,6 +1098,36 @@ tick dt model =
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )
+
+
+{-| The pirates in reach of the boat fire at it when their guns are ready
+(`Pirates.reach`, `Pirates.reloadSeconds`): one lobbed ball each, from the
+pirate's own gun slot. Returns the new balls, the next ball id and how long
+each pirate's gun has left to reload.
+-}
+pirateVolleys : Float -> SailingState -> Int -> List ( Pirate, SailingState ) -> Dict Int Float -> ( List Cannonball, Int, Dict Int Float )
+pirateVolleys dt boat nextId pirates guns =
+    List.foldl
+        (\( pirate, ps ) ( balls, id, reload ) ->
+            let
+                left =
+                    (Dict.get pirate.id reload |> Maybe.withDefault 0) - dt
+
+                distance =
+                    horizontal ps.position boat.position
+            in
+            if left <= 0 && distance <= Pirates.reach && distance > 1.5 then
+                let
+                    shot =
+                        Physics.fireCannons (Pirates.shipSlot pirate.id) ps [ boat.position ] id
+                in
+                ( balls ++ shot, id + List.length shot, Dict.insert pirate.id (Pirates.reloadSeconds pirate) reload )
+
+            else
+                ( balls, id, Dict.insert pirate.id (max 0 left) reload )
+        )
+        ( [], nextId, guns )
+        pirates
 
 
 subscriptions : SailModel -> Sub SailMsg
@@ -1208,6 +1264,14 @@ viewRace model callbacks maybeRoom =
                 Racing ->
                     Nothing
 
+        shipMeshOf source =
+            case source of
+                Wreck.OwnBoat ->
+                    callbacks.meshFor model.boat.name
+
+                Wreck.PirateShip ->
+                    callbacks.meshFor Pirates.shipName
+
         worldArgs =
             { course = model.course
             , nextIndex =
@@ -1227,6 +1291,7 @@ viewRace model callbacks maybeRoom =
             , treasureFound = model.progress.treasureFound
             , props = callbacks.props
             , debris = model.debris
+            , shipMeshOf = shipMeshOf
             }
     in
     div
@@ -1238,7 +1303,10 @@ viewRace model callbacks maybeRoom =
         ]
         [ -- Alone or in an online room, the player's own follow view fills
           -- the screen; the other players' boats sail in it.
-          div [ Attr.class "absolute inset-0 z-0" ]
+          div
+            [ Attr.class "absolute inset-0 z-0"
+            , on "pointerdown" (Decode.map PointerFire (Decode.at [ "pointerType" ] Decode.string))
+            ]
             [ Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight ]
         , if model.progress.finished then
             text ""
@@ -1253,7 +1321,7 @@ viewRace model callbacks maybeRoom =
                 , state = model.state
                 , cameraYaw = model.follow.yaw
                 , cannonReady = model.cannonCooldown <= 0
-                , targetInRange = targetInRange model
+                , touchShoot = model.touchShoot
                 , audioMuted = model.audioMuted
                 , tilt = model.tilt
                 , countdown = countdown
@@ -1272,7 +1340,6 @@ viewRace model callbacks maybeRoom =
                 , language = model.language
                 , actions =
                     { onSteer = Steer
-                    , onFire = FireCannons
                     , onRaiseSail = RaiseSail
                     , onLowerSail = LowerSail
                     , onToggleMute = ToggleMute

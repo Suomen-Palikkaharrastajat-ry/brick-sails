@@ -100,7 +100,7 @@ analyzeShip spec =
 
                     cannonNote =
                         if spec.cannonCount > 0 then
-                            "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " cannons run out. Press [Space] or tap FIRE to shoot!"
+                            "Broadside battery: " ++ String.fromInt spec.cannonCount ++ " cannons run out. Press [Space], tap or click to shoot!"
 
                         else
                             "Unarmed vessel: a swift smuggler's sloop with low displacement ballast."

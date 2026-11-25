@@ -3,7 +3,9 @@ module Sails.Physics exposing
     , angleDiff
     , beachHeight
     , bonusPerHit
+    , bumpShips
     , cannonRange
+    , checkBoatHits
     , checkShipHits
     , checkTargetHits
     , courseCurrent
@@ -1451,6 +1453,66 @@ checkShipHits balls ships =
                     ( ball :: alive, flashes, slots )
     in
     List.foldl step ( [], [], [] ) balls
+
+
+{-| Push the boat clear of ships (pirates) it has run into, the way it is
+pushed off an island: it stops dead where it struck and bumps back, losing
+most of its speed. `shipRadius` is each ship's radius (m).
+-}
+bumpShips : Float -> List Vec3 -> SailingState -> SailingState
+bumpShips shipRadius ships state =
+    List.foldl (bumpShip shipRadius) state ships
+
+
+bumpShip : Float -> Vec3 -> SailingState -> SailingState
+bumpShip shipRadius ship state =
+    let
+        p =
+            Vec3.toRecord state.position
+
+        s =
+            Vec3.toRecord ship
+
+        dx =
+            p.x - s.x
+
+        dz =
+            p.z - s.z
+
+        d =
+            sqrt (dx * dx + dz * dz)
+
+        minD =
+            boatRadius + shipRadius
+    in
+    if d < minD && d > 0.001 then
+        { state
+            | position = vec3 (s.x + dx / d * minD) p.y (s.z + dz / d * minD)
+            , speed = state.speed * 0.6
+        }
+
+    else
+        state
+
+
+{-| Balls from the pirate ships that reach the boat at `boat` (its deck
+height is a metre up): they hit it and are gone. Returns the balls still
+flying, their hit flashes and how many hit.
+-}
+checkBoatHits : Vec3 -> List Cannonball -> ( List Cannonball, List CombatImpact, Int )
+checkBoatHits boat balls =
+    let
+        deck =
+            Vec3.add boat (vec3 0 1 0)
+
+        step ball ( alive, flashes, hits ) =
+            if Vec3.distance ball.position deck <= 2.6 then
+                ( alive, { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes, hits + 1 )
+
+            else
+                ( ball :: alive, flashes, hits )
+    in
+    List.foldl step ( [], [], 0 ) balls
 
 
 {-| Age sinking targets; keep their bob in sync with the water of the sea
