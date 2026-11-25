@@ -44,6 +44,7 @@ import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.ShipMesh exposing (ShipMesh)
+import Sails.TiltPitch as TiltPitch
 import Sails.Types
     exposing
         ( Boat
@@ -90,6 +91,7 @@ type alias SailModel =
     , weather : Weather
     , run : Int
     , tilt : { available : Bool, enabled : Bool }
+    , tiltPitch : TiltPitch.Pitch
     , toast : Maybe ( String, Float )
     , viewportWidth : Int
     , viewportHeight : Int
@@ -114,6 +116,7 @@ type SailMsg
     | KeyUp String
     | Steer Side Bool
     | TiltSteer Float
+    | TiltOrientation { available : Bool, gamma : Float, beta : Float }
     | VisibilityChanged Browser.Events.Visibility
     | FireCannons
     | RaiseSail
@@ -193,6 +196,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , touchLeft = False
     , touchRight = False
     , tiltSteer = 0
+    , tiltPitch = TiltPitch.init
     , sailLevel = Physics.defaultSailLevel
     , weather = Weather.init (weatherSeed course maybeMulti 0)
     , run = 0
@@ -464,6 +468,35 @@ update msg model =
         TiltSteer v ->
             ( { model | tiltSteer = clamp -1 1 v }, Cmd.none )
 
+        TiltOrientation orientation ->
+            if orientation.available then
+                let
+                    before =
+                        model.tiltPitch
+
+                    after =
+                        TiltPitch.receive orientation.beta before
+
+                    moved =
+                        { model | tiltPitch = after }
+                in
+                if not model.tilt.enabled || after.zone == before.zone then
+                    ( moved, Cmd.none )
+
+                else
+                    case after.zone of
+                        TiltPitch.Forward ->
+                            update RaiseSail moved
+
+                        TiltPitch.Backward ->
+                            update LowerSail moved
+
+                        TiltPitch.Level ->
+                            ( moved, Cmd.none )
+
+            else
+                ( model, Cmd.none )
+
         VisibilityChanged Browser.Events.Hidden ->
             -- A hidden tab gets no animation frames, so the last wind and
             -- wash sound would keep playing: silence it (the race is not
@@ -578,6 +611,7 @@ update msg model =
                 , weather = Weather.init (weatherSeed model.course model.multiplayer (model.run + 1))
                 , pirates = Pirates.fleet (pirateSeed model.course model.multiplayer (model.run + 1)) model.course
                 , sailLevel = model.sailLevel
+                , tiltPitch = TiltPitch.calibrate model.tiltPitch
 
                 -- Back to the start line alone: the crew's voyage goes on.
                 , crewClock = model.crewClock
@@ -622,7 +656,7 @@ update msg model =
                             fresh =
                                 initSail model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
-                        ( { fresh | phase = WaitingForRoom }, GamePorts.calibrateTilt () )
+                        ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch }, GamePorts.calibrateTilt () )
 
                 InRace ->
                     if model.phase == WaitingForRoom then
@@ -1082,6 +1116,7 @@ subscriptions _ =
         , Browser.Events.onKeyUp (Decode.map KeyUp (Decode.field "code" Decode.string))
         , Browser.Events.onVisibilityChange VisibilityChanged
         , GamePorts.tiltSteer TiltSteer
+        , GamePorts.tiltOrientationReceived TiltOrientation
         ]
 
 
