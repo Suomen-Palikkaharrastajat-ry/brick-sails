@@ -5,6 +5,7 @@ module Sails.Types exposing
     , CombatImpact
     , Course
     , CourseProgress
+    , Faction(..)
     , HarbourKind(..)
     , Island
     , LeaderboardEntry
@@ -79,14 +80,23 @@ type alias Island =
     }
 
 
+{-| The three factions contending for supremacy in the archipelago.
+-}
+type Faction
+    = Pirates
+    | BlueCoats
+    | RedCoats
+
+
 {-| A small brick town on an island's shore: houses on the grass and a pier
 running out to the water, facing out along the compass `bearing` from the
-island's centre.
+island's centre, belonging to an optional `faction`.
 -}
 type alias Town =
     { name : String
     , island : Island
     , bearing : Float
+    , faction : Maybe Faction
     }
 
 

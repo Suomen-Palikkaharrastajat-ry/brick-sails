@@ -1,6 +1,7 @@
 module Sails.Scenery exposing
     ( Piece
     , all
+    , blueCoatStandard
     , chest
     , fort
     , houses
@@ -10,6 +11,8 @@ module Sails.Scenery exposing
     , palmTree
     , pier
     , pirateFlag
+    , pirateStandard
+    , redCoatStandard
     , reef
     , seaArch
     , seabird
@@ -617,6 +620,67 @@ pirateFlag =
         , line 70 ( 0, -48, 0 ) upright "3062b.dat"
         , line 0 ( 0, -56, 0 ) upright "3957a.dat"
         , line 0 ( 0, -132, 0 ) upright "2335.dat"
+        ]
+
+
+{-| The Pirates' faction standard for citadel piers: a black and red post
+ringed with gold studs, flying a black skull flag on an antenna mast.
+-}
+pirateStandard : String
+pirateStandard =
+    String.join "\n"
+        [ "0 FILE pirate-standard.ldr"
+        , "0 Name: Brick Sails pirate faction standard"
+        , "0 Author: Brick Sails"
+        , line 14 ( 0, -8, 0 ) upright "6141.dat"
+        , line 0 ( 0, -32, 0 ) upright "3062b.dat"
+        , line 14 ( 0, -40, 0 ) upright "6141.dat"
+        , line 4 ( 0, -64, 0 ) upright "3062b.dat"
+        , line 14 ( 0, -72, 0 ) upright "6141.dat"
+        , line 0 ( 0, -80, 0 ) upright "3957a.dat"
+        , line 0 ( 0, -156, 0 ) upright "2335.dat"
+        , line 14 ( 0, -180, 0 ) upright "6141.dat"
+        ]
+
+
+{-| The BlueCoats' imperial faction standard for citadel piers: an alternating
+blue and white post topped with an azure blue imperial flag and a golden cone finial.
+-}
+blueCoatStandard : String
+blueCoatStandard =
+    String.join "\n"
+        [ "0 FILE bluecoat-standard.ldr"
+        , "0 Name: Brick Sails bluecoat faction standard"
+        , "0 Author: Brick Sails"
+        , line 1 ( 0, -24, 0 ) upright "3062b.dat"
+        , line 15 ( 0, -32, 0 ) upright "6141.dat"
+        , line 15 ( 0, -56, 0 ) upright "3062b.dat"
+        , line 1 ( 0, -64, 0 ) upright "6141.dat"
+        , line 15 ( 0, -72, 0 ) upright "3957a.dat"
+        , line 1 ( 0, -148, 0 ) upright "2335.dat"
+        , line 14 ( 0, -168, 0 ) upright "6141.dat"
+        , line 14 ( 0, -192, 0 ) upright "4589.dat"
+        ]
+
+
+{-| The RedCoats' royal faction standard for citadel piers: an alternating
+red and white post carrying a royal red flag, crowned with a brass lantern.
+-}
+redCoatStandard : String
+redCoatStandard =
+    String.join "\n"
+        [ "0 FILE redcoat-standard.ldr"
+        , "0 Name: Brick Sails redcoat faction standard"
+        , "0 Author: Brick Sails"
+        , line 4 ( 0, -24, 0 ) upright "3062b.dat"
+        , line 15 ( 0, -32, 0 ) upright "6141.dat"
+        , line 15 ( 0, -56, 0 ) upright "3062b.dat"
+        , line 4 ( 0, -64, 0 ) upright "6141.dat"
+        , line 4 ( 0, -72, 0 ) upright "3957a.dat"
+        , line 4 ( 0, -148, 0 ) upright "2335.dat"
+        , line 14 ( 0, -168, 0 ) upright "6141.dat"
+        , line 46 ( 0, -192, 0 ) upright "3062b.dat"
+        , line 14 ( 0, -216, 0 ) upright "4589.dat"
         ]
 
 

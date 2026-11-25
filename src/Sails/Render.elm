@@ -56,6 +56,7 @@ import Sails.Types
         ( Cannonball
         , CombatImpact
         , Course
+        , Faction(..)
         , HarbourKind(..)
         , Island
         , SailingState
@@ -96,6 +97,9 @@ propSources =
     , ( "reef", Scenery.reef )
     , ( "wreck", Scenery.wreck )
     , ( "pirateFlag", Scenery.pirateFlag )
+    , ( "pirateStandard", Scenery.pirateStandard )
+    , ( "blueCoatStandard", Scenery.blueCoatStandard )
+    , ( "redCoatStandard", Scenery.redCoatStandard )
     , ( "seabird", Scenery.seabird )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
@@ -179,7 +183,7 @@ renderWorld cam scene width height =
                 ++ seaArchEntities ctx width height scene.scenery
                 ++ seabirdFlockEntities draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
-                ++ townEntities ctx width height scene.scenery scene.course.towns
+                ++ townEntities ctx width height scene.scenery draw scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (harbourEntities ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
@@ -581,9 +585,28 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
 
                         edge =
                             Vec3.toRecord (Physics.shorePoint isl bearing 1)
+
+                        flagProp =
+                            course.towns
+                                |> List.filter (\t -> t.island == isl)
+                                |> List.filterMap .faction
+                                |> List.head
+                                |> Maybe.map
+                                    (\faction ->
+                                        case faction of
+                                            Pirates ->
+                                                "pirateStandard"
+
+                                            BlueCoats ->
+                                                "blueCoatStandard"
+
+                                            RedCoats ->
+                                                "redCoatStandard"
+                                    )
+                                |> Maybe.withDefault "pirateFlag"
                     in
                     sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) bearing
-                        ++ draw.fitted "pirateFlag"
+                        ++ draw.fitted flagProp
                             (BrickProps.fitHeight 3.2)
                             (Mat4.makeTranslate3 edge.x (Physics.beachHeight isl) edge.z |> rotY (degrees bearing))
                             plain
@@ -895,19 +918,49 @@ sceneryEntities ctx width height scenery piece at bearing =
             []
 
 
-{-| Each town: its houses on the grass and its pier from the beach out to
-the water's edge.
+{-| Each town: its houses on the grass, its pier from the beach out to
+the water's edge, and the faction standard at the end of the pier on the
+island shore.
 -}
-townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> List Town -> List WebGL.Entity
-townEntities ctx width height scenery towns =
+townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List Town -> List WebGL.Entity
+townEntities ctx width height scenery draw towns =
     List.concatMap
         (\town ->
             let
                 isl =
                     town.island
+
+                edge =
+                    Vec3.toRecord (Physics.shorePoint isl town.bearing 1)
+
+                standardProp =
+                    case town.faction of
+                        Just Pirates ->
+                            Just "pirateStandard"
+
+                        Just BlueCoats ->
+                            Just "blueCoatStandard"
+
+                        Just RedCoats ->
+                            Just "redCoatStandard"
+
+                        Nothing ->
+                            Nothing
+
+                standardEntities =
+                    case standardProp of
+                        Just prop ->
+                            draw.fitted prop
+                                (BrickProps.fitHeight 3.2)
+                                (Mat4.makeTranslate3 edge.x (Physics.beachHeight isl) edge.z |> rotY (degrees town.bearing))
+                                plain
+
+                        Nothing ->
+                            []
             in
             sceneryEntities ctx width height scenery Scenery.houses (Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)) town.bearing
                 ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) town.bearing
+                ++ standardEntities
         )
         towns
 

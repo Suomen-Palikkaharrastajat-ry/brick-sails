@@ -71,6 +71,7 @@ import Sails.Types
         , CombatImpact
         , Course
         , CourseProgress
+        , Faction(..)
         , HarbourKind(..)
         , Island
         , SailingState
@@ -128,10 +129,10 @@ courseForSeat seat =
         , treasureIsland
         ]
     , towns =
-        [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100 }
-        , { name = "Port Royal Brick", island = harbourIsland, bearing = 268 }
-        , { name = "Governor's Anchorage", island = anchorageIsland, bearing = 130 }
-        , { name = "Smuggler's Reach", island = smugglerIsland, bearing = 195 }
+        [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100, faction = Nothing }
+        , { name = "Port Royal Brick", island = harbourIsland, bearing = 268, faction = Just RedCoats }
+        , { name = "Governor's Anchorage", island = anchorageIsland, bearing = 130, faction = Just BlueCoats }
+        , { name = "Smuggler's Reach", island = smugglerIsland, bearing = 195, faction = Just Pirates }
         ]
     , treasures =
         [ { id = 0

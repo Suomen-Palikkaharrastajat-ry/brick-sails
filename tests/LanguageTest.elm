@@ -9,6 +9,7 @@ import I18n exposing (Language(..))
 import Sails.Boats as Boats
 import Sails.I18n as T
 import Sails.Physics as Physics
+import Sails.Types exposing (Faction(..))
 import Test exposing (Test, describe, test)
 
 
@@ -70,5 +71,27 @@ suite =
                 \_ ->
                     T.shipLoadError Fi "That build is too big to sail here (900 parts, at most 400)."
                         |> Expect.equal "Rakennelma on liian suuri purjehdittavaksi (900 osaa, enintään 400)."
+            , test "factions have Finnish and English names" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.equal "Merirosvot" (T.factionName Fi Pirates)
+                        , \_ -> Expect.equal "Pirates" (T.factionName En Pirates)
+                        , \_ -> Expect.equal "Sinitakit" (T.factionName Fi BlueCoats)
+                        , \_ -> Expect.equal "BlueCoats" (T.factionName En BlueCoats)
+                        , \_ -> Expect.equal "Punitakit" (T.factionName Fi RedCoats)
+                        , \_ -> Expect.equal "RedCoats" (T.factionName En RedCoats)
+                        ]
+                        ()
+            , test "citadels have Finnish and English names" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.equal "Salakuljettajan poukama" (T.citadelName Fi Pirates)
+                        , \_ -> Expect.equal "Smuggler's Reach" (T.citadelName En Pirates)
+                        , \_ -> Expect.equal "Kuvernöörin ankkuripaikka" (T.citadelName Fi BlueCoats)
+                        , \_ -> Expect.equal "Governor's Anchorage" (T.citadelName En BlueCoats)
+                        , \_ -> Expect.equal "Port Royal Palikka" (T.citadelName Fi RedCoats)
+                        , \_ -> Expect.equal "Port Royal Brick" (T.citadelName En RedCoats)
+                        ]
+                        ()
             ]
         ]

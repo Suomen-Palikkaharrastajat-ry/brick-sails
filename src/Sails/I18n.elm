@@ -3,9 +3,11 @@ module Sails.I18n exposing
     , backToBoats
     , backToCourse
     , bestLine
+    , blueCoatsName
     , boatDescription
     , boatName
     , buildOwnShip
+    , citadelName
     , controlsHint
     , copyLink
     , copyRoomLink
@@ -17,6 +19,7 @@ module Sails.I18n exposing
     , crewWaiting
     , editShipButton
     , exitRace
+    , factionName
     , finalTimeLabel
     , finishToast
     , finishedBadge
@@ -57,9 +60,11 @@ module Sails.I18n exposing
     , personalBestShort
     , pirateSunkToast
     , piratesBoardedToast
+    , piratesName
     , playerCount
     , pointOfSailText
     , raceStatus
+    , redCoatsName
     , reefWarning
     , restartRace
     , roomCodeLabel
@@ -87,6 +92,7 @@ module Sails.I18n exposing
     , targetsLabel
     , title
     , toCode
+    , townName
     , treasureLabel
     , treasureStat
     , treasureToast
@@ -114,6 +120,7 @@ the player reads is translated here.
 -}
 
 import I18n exposing (Language(..))
+import Sails.Types exposing (Faction(..))
 
 
 
@@ -941,6 +948,94 @@ crewTimeLabel lang inPort total =
 
 
 
+-- FACTIONS & STRONGHOLDS
+
+
+{-| Shown name of a faction in the War of the Three Ensigns.
+-}
+factionName : Language -> Faction -> String
+factionName lang faction =
+    case faction of
+        Pirates ->
+            piratesName lang
+
+        BlueCoats ->
+            blueCoatsName lang
+
+        RedCoats ->
+            redCoatsName lang
+
+
+{-| Pirate faction name.
+-}
+piratesName : Language -> String
+piratesName lang =
+    pick lang "Merirosvot" "Pirates"
+
+
+{-| BlueCoats faction name.
+-}
+blueCoatsName : Language -> String
+blueCoatsName lang =
+    pick lang "Sinitakit" "BlueCoats"
+
+
+{-| RedCoats faction name.
+-}
+redCoatsName : Language -> String
+redCoatsName lang =
+    pick lang "Punitakit" "RedCoats"
+
+
+{-| Shown name of each faction's stronghold citadel.
+-}
+citadelName : Language -> Faction -> String
+citadelName lang faction =
+    case faction of
+        Pirates ->
+            pick lang "Salakuljettajan poukama" "Smuggler's Reach"
+
+        BlueCoats ->
+            pick lang "Kuvernöörin ankkuripaikka" "Governor's Anchorage"
+
+        RedCoats ->
+            pick lang "Port Royal Palikka" "Port Royal Brick"
+
+
+{-| Shown name of an archipelago settlement or harbor town.
+-}
+townName : Language -> String -> String
+townName lang name =
+    case ( lang, name ) of
+        ( Fi, "Smuggler's Reach" ) ->
+            "Salakuljettajan poukama"
+
+        ( En, "Smuggler's Reach" ) ->
+            "Smuggler's Reach"
+
+        ( Fi, "Governor's Anchorage" ) ->
+            "Kuvernöörin ankkuripaikka"
+
+        ( En, "Governor's Anchorage" ) ->
+            "Governor's Anchorage"
+
+        ( Fi, "Port Royal Brick" ) ->
+            "Port Royal Palikka"
+
+        ( En, "Port Royal Brick" ) ->
+            "Port Royal Brick"
+
+        ( Fi, "Tortuga Cove" ) ->
+            "Tortugan poukama"
+
+        ( En, "Tortuga Cove" ) ->
+            "Tortuga Cove"
+
+        _ ->
+            name
+
+
+
 -- CHECKS
 
 
@@ -951,6 +1046,16 @@ allPhrases : List ( String, Language -> String )
 allPhrases =
     [ ( "subtitle", subtitle )
     , ( "courseTitle", \l -> courseTitle l "Island Loop" )
+    , ( "faction Pirates", \l -> factionName l Pirates )
+    , ( "faction BlueCoats", \l -> factionName l BlueCoats )
+    , ( "faction RedCoats", \l -> factionName l RedCoats )
+    , ( "citadel Pirates", \l -> citadelName l Pirates )
+    , ( "citadel BlueCoats", \l -> citadelName l BlueCoats )
+    , ( "citadel RedCoats", \l -> citadelName l RedCoats )
+    , ( "town Tortuga Cove", \l -> townName l "Tortuga Cove" )
+    , ( "town Smuggler's Reach", \l -> townName l "Smuggler's Reach" )
+    , ( "town Governor's Anchorage", \l -> townName l "Governor's Anchorage" )
+    , ( "town Port Royal Brick", \l -> townName l "Port Royal Brick" )
     , ( "boatName Sloop", \l -> boatName l "Sloop" )
     , ( "boatName Cutter", \l -> boatName l "Cutter" )
     , ( "boatName Schooner", \l -> boatName l "Schooner" )

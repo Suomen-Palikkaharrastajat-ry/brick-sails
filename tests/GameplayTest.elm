@@ -13,7 +13,7 @@ import Sails.Boats as Boats
 import Sails.Physics as Physics
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh
-import Sails.Types exposing (CourseProgress, HarbourKind(..), SailingState, Wind)
+import Sails.Types exposing (CourseProgress, Faction(..), HarbourKind(..), SailingState, Wind)
 import Sails.Weather as Weather exposing (Spell(..), Weather)
 import Test exposing (Test, describe, test)
 
@@ -626,6 +626,42 @@ suite =
                                             course.islands
                                     )
                                 |> Expect.equal True
+                        ]
+                        ()
+            , test "towns have correct faction assignments for War of the Three Ensigns" <|
+                \_ ->
+                    Expect.all
+                        [ \_ ->
+                            course.towns
+                                |> List.filter (\t -> t.name == "Smuggler's Reach")
+                                |> List.map .faction
+                                |> Expect.equal [ Just Pirates ]
+                        , \_ ->
+                            course.towns
+                                |> List.filter (\t -> t.name == "Governor's Anchorage")
+                                |> List.map .faction
+                                |> Expect.equal [ Just BlueCoats ]
+                        , \_ ->
+                            course.towns
+                                |> List.filter (\t -> t.name == "Port Royal Brick")
+                                |> List.map .faction
+                                |> Expect.equal [ Just RedCoats ]
+                        , \_ ->
+                            course.towns
+                                |> List.filter (\t -> t.name == "Tortuga Cove")
+                                |> List.map .faction
+                                |> Expect.equal [ Nothing ]
+                        ]
+                        ()
+            , test "faction standard models are valid LDraw files" <|
+                \_ ->
+                    Expect.all
+                        [ \_ -> Expect.equal True (String.startsWith "0 FILE" Scenery.pirateStandard)
+                        , \_ -> Expect.equal True (String.contains "2335.dat" Scenery.pirateStandard)
+                        , \_ -> Expect.equal True (String.startsWith "0 FILE" Scenery.blueCoatStandard)
+                        , \_ -> Expect.equal True (String.contains "4589.dat" Scenery.blueCoatStandard)
+                        , \_ -> Expect.equal True (String.startsWith "0 FILE" Scenery.redCoatStandard)
+                        , \_ -> Expect.equal True (String.contains "2335.dat" Scenery.redCoatStandard)
                         ]
                         ()
             , test "on every seat's route the treasure can be reached and the course still finished" <|
