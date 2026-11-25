@@ -36,6 +36,7 @@ import Dict exposing (Dict)
 import Game.BrickLook as BrickLook
 import Game.BrickModels as BrickModels
 import Game.BrickProps as BrickProps exposing (PropModel)
+import Game.Precipitation as Precipitation
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Math.Matrix4 as Mat4 exposing (Mat4)
@@ -1298,78 +1299,26 @@ boltEntities ctx weather =
         []
 
 
-{-| Rain falling around the camera: two layers of streaks scrolled down at
-different speeds, slanted by the wind. The second layer only in heavy rain.
+{-| Rain falling around the camera: the streaks of `Game.Precipitation`,
+drawn with the ocean shader.
 -}
 rainEntities : Ctx -> Float -> Conditions -> List WebGL.Entity
 rainEntities ctx time weather =
     let
-        e =
-            Vec3.toRecord ctx.eye
-
-        lean =
-            clamp 0 0.5 (weather.wind.speed / 40)
-
-        windRad =
-            degrees weather.wind.direction
-
-        layer speed offset =
-            let
-                fall =
-                    fract (time * speed / rainHeight + offset) * rainHeight
-            in
-            List.map
-                (\k ->
-                    ocean ctx
-                        (Mat4.makeTranslate3 e.x (e.y + rainHeight * (0.5 - toFloat k) - fall) e.z
-                            |> rotY windRad
-                            |> (\m -> Mat4.mul m (shear lean))
-                        )
-                        (vec3 0.88 0.92 0.98)
-                        rainMesh
-                )
-                [ 0, 1 ]
+        field =
+            { eye = ctx.eye
+            , time = time
+            , windSpeed = weather.wind.speed
+            , windDirection = weather.wind.direction
+            }
     in
-    if weather.rain > 0.05 then
-        layer 22 0
-            ++ (if weather.rain > 0.5 then
-                    layer 17 0.5
-
-                else
-                    []
-               )
-
-    else
-        []
-
-
-{-| Lean the rain streaks downwind: x and z move with height.
--}
-shear : Float -> Mat4
-shear lean =
-    Mat4.fromRecord
-        { m11 = 1
-        , m21 = 0
-        , m31 = 0
-        , m41 = 0
-        , m12 = 0
-        , m22 = 1
-        , m32 = -lean
-        , m42 = 0
-        , m13 = 0
-        , m23 = 0
-        , m33 = 1
-        , m43 = 0
-        , m14 = 0
-        , m24 = 0
-        , m34 = 0
-        , m44 = 1
-        }
+    Precipitation.transforms weather.rain field
+        |> List.map (\m -> ocean ctx m (vec3 0.88 0.92 0.98) rainMesh)
 
 
 rainHeight : Float
 rainHeight =
-    30
+    Precipitation.streakHeight
 
 
 {-| Rain streaks scattered through a 70 x 30 x 70 m box around the origin,

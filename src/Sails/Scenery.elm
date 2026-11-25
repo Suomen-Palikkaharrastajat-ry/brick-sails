@@ -35,6 +35,8 @@ decoration only, with nothing for the boats to bump into.
 
 -}
 
+import Game.BrickModels as BrickModels
+
 
 {-| A scenery model: its name and LDraw text.
 -}
@@ -467,44 +469,12 @@ chest =
 
 {-| A palm tree: a leaning trunk of reddish-brown 1 x 1 bricks, coconuts of
 dark tan round bricks under the crown, and eight green 2 x 2 slopes drooping
-out from a green plate as the fronds.
+out from a green plate as the fronds. Shared with Brick Racer as
+`Game.BrickModels.palmTree`.
 -}
 palmTree : String
 palmTree =
-    let
-        crownX =
-            18
-
-        frond colour ( x, y, z ) matrix =
-            line colour ( crownX + x, y, z ) matrix "3039.dat"
-    in
-    String.join "\n"
-        [ "0 FILE palm.ldr"
-        , "0 Name: Brick Sails palm tree"
-        , "0 Author: Brick Sails"
-        , "0 // Trunk"
-        , line 70 ( 0, -24, 0 ) upright "3005.dat"
-        , line 70 ( 0, -48, 0 ) upright "3005.dat"
-        , line 70 ( 3, -72, 0 ) upright "3005.dat"
-        , line 70 ( 7, -96, 0 ) upright "3005.dat"
-        , line 70 ( 12, -120, 0 ) upright "3005.dat"
-        , line 70 ( crownX, -144, 0 ) upright "3005.dat"
-        , "0 // Coconuts"
-        , line 28 ( crownX, -128, -20 ) upright "3062b.dat"
-        , line 28 ( crownX + 20, -128, 0 ) upright "3062b.dat"
-        , line 28 ( crownX - 20, -128, 0 ) upright "3062b.dat"
-        , "0 // Crown and fronds"
-        , line 2 ( crownX, -152, 0 ) upright "3022.dat"
-        , frond 2 ( 0, -152, -40 ) upright
-        , frond 2 ( 0, -152, 40 ) turned
-        , frond 2 ( -40, -152, 0 ) alongZ
-        , frond 2 ( 40, -152, 0 ) "0 0 -1 0 1 0 1 0 0"
-        , frond 10 ( -28, -144, -28 ) "0.7071 0 0.7071 0 1 0 -0.7071 0 0.7071"
-        , frond 10 ( -28, -144, 28 ) "-0.7071 0 0.7071 0 1 0 -0.7071 0 -0.7071"
-        , frond 10 ( 28, -144, -28 ) "0.7071 0 -0.7071 0 1 0 0.7071 0 0.7071"
-        , frond 10 ( 28, -144, 28 ) "-0.7071 0 -0.7071 0 1 0 0.7071 0 -0.7071"
-        , line 10 ( crownX, -160, 0 ) upright "3024.dat"
-        ]
+    BrickModels.palmTree
 
 
 {-| The fort on the first island: a stone keep of 2 x 4 bricks with a
