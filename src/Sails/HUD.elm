@@ -12,8 +12,9 @@ module Sails.HUD exposing
 {-| Touch-first race HUD, a glanceable dashboard as in Brick Racer.
 
 Top left: the race timer as a counter of digit tiles (`mm:ss.d`), the
-boat's speed in knots with the metres to the next buoy (for a few seconds
-after a buoy, that buoy's time in their place), buoy progress, the hull's
+boat's speed in knots with the metres to the next harbour (for a few
+seconds after docking, that harbour's time in their place, and "Mooring…"
+while the boat moors), harbour progress, the hull's
 health with single-word hazard warnings, the point of sail and how far the
 boat heels. Top right: the icon-only sound toggle; there is no pause. Once
 the boat has stopped (sails down, under 1 km/h), an Exit button and a
@@ -73,7 +74,7 @@ viewHud :
     , hull : Hull
     , hazards : { rocks : Bool, pounding : Bool }
     , stopped : Bool
-    , nextBuoyDistance : Maybe Float
+    , nextHarbourDistance : Maybe Float
     , courseBearing : Maybe Float
     , language : Language
     , actions : HudActions msg
@@ -125,11 +126,11 @@ viewStatus :
         , weather : Maybe String
         , hull : Hull
         , hazards : { rocks : Bool, pounding : Bool }
-        , nextBuoyDistance : Maybe Float
+        , nextHarbourDistance : Maybe Float
         , language : Language
     }
     -> Html msg
-viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextBuoyDistance, language } =
+viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextHarbourDistance, language } =
     let
         total =
             progress.totalWaypoints
@@ -180,12 +181,12 @@ viewStatus { progress, state, cameraYaw, wind, weather, hull, hazards, nextBuoyD
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
         [ viewCounter (formatCounter progress.elapsedSeconds)
-        , viewMetrics language progress state nextBuoyDistance
+        , viewMetrics language progress state nextHarbourDistance
         , viewHealth language hull
         , viewHazards language hazards
-        , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" (T.buoyAria language) ]
+        , div [ Attr.class "flex items-center gap-1.5", Attr.attribute "aria-label" (T.harbourAria language) ]
             (span [ Attr.class "text-[11px] font-bold text-slate-300 mr-0.5" ]
-                [ text (T.buoyCount language (min total (progress.currentWaypointIndex + 1)) total) ]
+                [ text (T.harbourCount language (min total (progress.currentWaypointIndex + 1)) total) ]
                 :: List.map dot (List.range 0 (total - 1))
             )
         , div [ Attr.class "flex items-center gap-2 text-[11px] font-bold" ]
@@ -359,18 +360,19 @@ counterChar c =
             [ text (String.fromChar c) ]
 
 
-{-| Seconds a buoy's time stays in place of the metres figure.
+{-| Seconds a harbour's time stays in place of the metres figure.
 -}
-buoyTimeSeconds : Float
-buoyTimeSeconds =
+harbourTimeSeconds : Float
+harbourTimeSeconds =
     3
 
 
 {-| Under the counter: the boat's speed in knots and the metres to the next
-buoy; for a few seconds after a buoy, that buoy's time instead.
+harbour; while the boat moors, a mooring hint; for a few seconds after
+docking, that harbour's time instead.
 -}
 viewMetrics : Language -> CourseProgress -> SailingState -> Maybe Float -> Html msg
-viewMetrics language progress state nextBuoyDistance =
+viewMetrics language progress state nextHarbourDistance =
     let
         lastSplit =
             List.reverse progress.splits |> List.head
@@ -379,7 +381,7 @@ viewMetrics language progress state nextBuoyDistance =
             lastSplit
                 |> Maybe.andThen
                     (\t ->
-                        if progress.elapsedSeconds - t < buoyTimeSeconds then
+                        if progress.elapsedSeconds - t < harbourTimeSeconds then
                             Just t
 
                         else
@@ -391,23 +393,31 @@ viewMetrics language progress state nextBuoyDistance =
                 Just t ->
                     span
                         [ Attr.class "text-emerald-300"
-                        , Attr.title (T.buoyTimeTitle language (List.length progress.splits))
-                        , Attr.attribute "data-testid" "buoy-time"
+                        , Attr.title (T.harbourTimeTitle language (List.length progress.splits))
+                        , Attr.attribute "data-testid" "harbour-time"
                         ]
                         [ text (formatCounter t) ]
 
                 Nothing ->
-                    case nextBuoyDistance of
-                        Just d ->
-                            span
-                                [ Attr.class "text-slate-200"
-                                , Attr.title (T.nextBuoyTitle language)
-                                , Attr.attribute "data-testid" "buoy-distance"
-                                ]
-                                [ text (String.fromInt (round d) ++ " m") ]
+                    if progress.berthSeconds > 0 then
+                        span
+                            [ Attr.class "text-amber-300"
+                            , Attr.attribute "data-testid" "mooring"
+                            ]
+                            [ text (T.mooringHint language) ]
 
-                        Nothing ->
-                            text ""
+                    else
+                        case nextHarbourDistance of
+                            Just d ->
+                                span
+                                    [ Attr.class "text-slate-200"
+                                    , Attr.title (T.nextHarbourTitle language)
+                                    , Attr.attribute "data-testid" "harbour-distance"
+                                    ]
+                                    [ text (String.fromInt (round d) ++ " m") ]
+
+                            Nothing ->
+                                text ""
     in
     div [ Attr.class "flex items-center gap-2 text-[11px] font-black font-mono" ]
         [ span

@@ -143,7 +143,7 @@ raceIn weather0 area limit =
                             { dt = 0.02
                             , time = progress.elapsedSeconds
                             , steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
-                            , throttle = 1
+                            , throttle = Physics.harbourThrottle course.waypoints progress state
                             , sea = now.sea
                             , sail = area
                             }
@@ -217,7 +217,7 @@ legs =
     List.map2 Tuple.pair pts (List.drop 1 pts)
 
 
-{-| Autopilot that detours to the treasure after buoy 4 and then finishes.
+{-| Autopilot that detours to the treasure after harbour 4 and then finishes.
 -}
 treasureHunt : Float -> ( CourseProgress, List Int )
 treasureHunt limit =
@@ -257,7 +257,7 @@ treasureHunt limit =
 
                     next =
                         Physics.stepBoat
-                            { dt = 0.02, time = progress.elapsedSeconds, steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25), throttle = 1, sea = 1, sail = 1 }
+                            { dt = 0.02, time = progress.elapsedSeconds, steer = clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25), throttle = Physics.harbourThrottle course.waypoints progress state, sea = 1, sail = 1 }
                             course.wind
                             Boats.default
                             course.islands

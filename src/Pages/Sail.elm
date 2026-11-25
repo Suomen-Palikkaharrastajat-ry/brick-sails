@@ -7,8 +7,8 @@ module Pages.Sail exposing
     , viewSail
     )
 
-{-| The race: a 3-2-1 start, then sail through the buoys in order while a
-follow camera keeps the boat and the next buoy on screen. Cannons lob a ball
+{-| The voyage: a 3-2-1 start, then dock at the harbours in order while a
+follow camera keeps the boat and the next harbour on screen. Cannons lob a ball
 at the nearest floating target in range; each hit takes 2 s off the time.
 -}
 
@@ -271,8 +271,8 @@ steerInput model =
     clamp -1 1 (held model.keyRight model.touchRight - held model.keyLeft model.touchLeft + tilt)
 
 
-nextBuoy : SailModel -> Maybe Vec3
-nextBuoy model =
+nextHarbour : SailModel -> Maybe Vec3
+nextHarbour model =
     if model.progress.finished then
         Nothing
 
@@ -560,7 +560,7 @@ tick dt model =
                 , steer = steerInput model
                 , throttle =
                     if racing then
-                        1
+                        Physics.harbourThrottle model.course.waypoints model.progress model.state
 
                     else
                         0
@@ -608,7 +608,7 @@ tick dt model =
             else
                 Wreck.step dt conditions.sea time model.debris
 
-        ( progressAfterBuoys, passed ) =
+        ( progressAfterHarbours, passed ) =
             if racing then
                 Physics.stepProgress dt state model.course.waypoints model.progress
 
@@ -634,7 +634,7 @@ tick dt model =
 
         treasure =
             if racing then
-                Physics.reachedTreasure state model.course.treasures progressAfterBuoys.treasureFound
+                Physics.reachedTreasure state model.course.treasures progressAfterHarbours.treasureFound
 
             else
                 []
@@ -643,10 +643,10 @@ tick dt model =
             List.sum (List.map .bonusSeconds treasure)
 
         progress =
-            { progressAfterBuoys
-                | targetsHit = progressAfterBuoys.targetsHit + countedHits
-                , treasureFound = progressAfterBuoys.treasureFound ++ List.map .id treasure
-                , treasureBonus = progressAfterBuoys.treasureBonus + treasureBonus
+            { progressAfterHarbours
+                | targetsHit = progressAfterHarbours.targetsHit + countedHits
+                , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
+                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus
             }
 
         treasureToast =
@@ -663,7 +663,7 @@ tick dt model =
                         Just ( T.finishToast model.language, 1.5 )
 
                     else
-                        Just ( T.buoyToast model.language (i + 1) progress.totalWaypoints, 1.0 )
+                        Just ( T.harbourToast model.language (i + 1) progress.totalWaypoints, 1.0 )
 
                 Nothing ->
                     Nothing
@@ -974,7 +974,7 @@ viewRace model callbacks maybeRoom =
                 else
                     model.progress.currentWaypointIndex
             , boats = boats
-            , guide = nextBuoy model |> Maybe.map (\n -> { from = model.state.position, to = n })
+            , guide = nextHarbour model |> Maybe.map (\n -> { from = model.state.position, to = n })
             , targets = model.targets
             , balls = model.cannonballs
             , impacts = model.impacts
@@ -1022,8 +1022,8 @@ viewRace model callbacks maybeRoom =
                 , hull = model.hull
                 , hazards = { rocks = model.rockTimer > 0, pounding = model.seaStrain > poundingStrain }
                 , stopped = abs model.state.speed < stoppedSpeed
-                , nextBuoyDistance =
-                    nextBuoy model
+                , nextHarbourDistance =
+                    nextHarbour model
                         |> Maybe.map (\n -> Vec3.distance (Vec3.setY 0 n) (Vec3.setY 0 model.state.position))
                 , courseBearing = backToCourse model
                 , language = model.language

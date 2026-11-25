@@ -1,7 +1,7 @@
 module SailsTest exposing (suite)
 
 {-| Unit tests of Brick Sails: loading and analysing builds, the built-in
-boats, handling, water, sailing, buoys and scoring, cannons and the follow
+boats, handling, water, sailing, docking and scoring, cannons and the follow
 camera.
 -}
 
@@ -85,8 +85,9 @@ sail boat steer seconds state0 =
         (List.range 1 frames)
 
 
-{-| Simple autopilot: steer at the next buoy until the course is finished
-or the time limit runs out. Returns the progress.
+{-| Simple autopilot: steer at the next harbour, with the brake assist
+(`Physics.harbourThrottle`) to moor there, until the course is finished or
+the time limit runs out. Returns the progress.
 -}
 autopilot : Boat -> Float -> CourseProgress
 autopilot boat limit =
@@ -113,7 +114,7 @@ autopilot boat limit =
                         clamp -1 1 (-(Physics.angleDiff bearing state.heading) / 25)
 
                     next =
-                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = 1, sea = 1, sail = 1 } course.wind boat course.islands state
+                        Physics.stepBoat { dt = 0.02, time = progress.elapsedSeconds, steer = steer, throttle = Physics.harbourThrottle course.waypoints progress state, sea = 1, sail = 1 } course.wind boat course.islands state
 
                     ( nextProgress, _ ) =
                         Physics.stepProgress 0.02 next course.waypoints progress
@@ -519,8 +520,8 @@ suite =
                         |> Maybe.withDefault 0
                         |> Expect.greaterThan course.targetSeconds
             ]
-        , describe "Buoys and scoring"
-            [ test "passing within a buoy's radius ticks it off; the last one finishes" <|
+        , describe "Docking and scoring"
+            [ test "docking at a harbour: slow inside its radius for a moment docks; the last one finishes" <|
                 \_ ->
                     let
                         start =
@@ -535,15 +536,29 @@ suite =
                         atLast =
                             List.drop last course.waypoints |> List.head |> Maybe.map .position |> Maybe.withDefault (vec3 0 0 0)
 
-                        ( p1, passed ) =
-                            Physics.stepProgress 0.1 { start | position = atLast } course.waypoints { progress0 | currentWaypointIndex = last }
+                        atLastProgress =
+                            { progress0 | currentWaypointIndex = last }
+
+                        ( p1, docked ) =
+                            Physics.stepProgress Physics.dockSeconds { start | position = atLast, speed = 0 } course.waypoints atLastProgress
+
+                        ( pHalf, notYet ) =
+                            Physics.stepProgress 0.5 { start | position = atLast, speed = 0 } course.waypoints atLastProgress
+
+                        ( pFast, tooFast ) =
+                            Physics.stepProgress Physics.dockSeconds { start | position = atLast, speed = 8 } course.waypoints atLastProgress
 
                         ( p2, notPassed ) =
                             Physics.stepProgress 0.1 { start | position = vec3 500 0 500 } course.waypoints progress0
                     in
                     Expect.all
-                        [ \_ -> Expect.equal (Just last) passed
+                        [ \_ -> Expect.equal (Just last) docked
                         , \_ -> Expect.equal True p1.finished
+                        , \_ -> Expect.equal Nothing notYet
+                        , \_ -> Expect.within (Expect.Absolute 1.0e-6) 0.5 pHalf.berthSeconds
+                        , \_ -> Expect.equal False pHalf.finished
+                        , \_ -> Expect.equal Nothing tooFast
+                        , \_ -> Expect.equal last pFast.currentWaypointIndex
                         , \_ -> Expect.equal Nothing notPassed
                         , \_ -> Expect.equal 0 p2.currentWaypointIndex
                         ]

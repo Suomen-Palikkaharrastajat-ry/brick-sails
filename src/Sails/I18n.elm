@@ -12,10 +12,6 @@ module Sails.I18n exposing
     , buildOnHullTitle
     , buildOwnShip
     , buildShipHeading
-    , buoyAria
-    , buoyCount
-    , buoyTimeTitle
-    , buoyToast
     , controlsHint
     , copyLink
     , copyRoomLink
@@ -32,6 +28,10 @@ module Sails.I18n exposing
     , goBanner
     , gridHost
     , gridHostDesc
+    , harbourAria
+    , harbourCount
+    , harbourTimeTitle
+    , harbourToast
     , hazardPounding
     , hazardRocks
     , headline
@@ -51,10 +51,11 @@ module Sails.I18n exposing
     , loadShipHeading
     , loadingBricks
     , loadingShips
+    , mooringHint
     , muteLabel
     , newPersonalBest
-    , nextBuoyTitle
     , nextGoal
+    , nextHarbourTitle
     , openModelFile
     , overpoweredTitle
     , personalBestLine
@@ -464,14 +465,14 @@ pointOfSailText lang p =
         pick lang "Myötätuuli" "Running"
 
 
-buoyAria : Language -> String
-buoyAria lang =
-    pick lang "Reittimerkit" "Waypoints"
+harbourAria : Language -> String
+harbourAria lang =
+    pick lang "Satamat" "Harbours"
 
 
-buoyCount : Language -> Int -> Int -> String
-buoyCount lang n total =
-    pick lang "Merkki " "Waypoint " ++ String.fromInt n ++ "/" ++ String.fromInt total
+harbourCount : Language -> Int -> Int -> String
+harbourCount lang n total =
+    pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
 windDirection : Language -> String
@@ -574,8 +575,8 @@ goBanner lang =
 countdownHint : Language -> String
 countdownHint lang =
     pick lang
-        "Seuraa pasaatituulta hehkuvien merkkien kautta riuttojen ja palmusaarten ohi. Mene lähelle maalitaulua ja AMMU: −2 s."
-        "Ride the trade winds through the glowing waypoints, past reefs and palm coves. Get close to a target and FIRE for -2 s."
+        "Poikkea pasaatituulessa jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja AMMU: −2 s."
+        "Ride the trade winds to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and FIRE for -2 s."
 
 
 {-| The sail buttons: raise (True) or lower (False).
@@ -680,16 +681,23 @@ speedKnotsTitle lang =
     pick lang "Nopeus solmuina" "Speed in knots"
 
 
-nextBuoyTitle : Language -> String
-nextBuoyTitle lang =
-    pick lang "Matka seuraavalle merkille" "Distance to the next waypoint"
+nextHarbourTitle : Language -> String
+nextHarbourTitle lang =
+    pick lang "Matka seuraavaan satamaan" "Distance to the next harbour"
 
 
-{-| Tooltip of the buoy time that shows for a few seconds after a buoy.
+{-| Tooltip of the harbour time that shows for a few seconds after docking.
 -}
-buoyTimeTitle : Language -> Int -> String
-buoyTimeTitle lang n =
-    pick lang ("Aika merkillä " ++ String.fromInt n) ("Time at waypoint " ++ String.fromInt n)
+harbourTimeTitle : Language -> Int -> String
+harbourTimeTitle lang n =
+    pick lang ("Aika satamassa " ++ String.fromInt n) ("Time at harbour " ++ String.fromInt n)
+
+
+{-| Shown in place of the distance while the boat is mooring at a harbour.
+-}
+mooringHint : Language -> String
+mooringHint lang =
+    pick lang "Kiinnitetään…" "Mooring…"
 
 
 heelTitle : Language -> String
@@ -733,9 +741,9 @@ finishToast lang =
     pick lang "SATAMASSA!" "LAND HO!"
 
 
-buoyToast : Language -> Int -> Int -> String
-buoyToast lang n total =
-    pick lang "Merkki " "Waypoint " ++ String.fromInt n ++ "/" ++ String.fromInt total
+harbourToast : Language -> Int -> Int -> String
+harbourToast lang n total =
+    pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
 hitToast : Language -> Int -> String
@@ -970,8 +978,8 @@ allPhrases =
     , ( "pointOfSail closeHauled", \l -> pointOfSailText l { inIrons = False, closeHauled = True, reaching = False } )
     , ( "pointOfSail reaching", \l -> pointOfSailText l { inIrons = False, closeHauled = False, reaching = True } )
     , ( "pointOfSail running", \l -> pointOfSailText l { inIrons = False, closeHauled = False, reaching = False } )
-    , ( "buoyAria", buoyAria )
-    , ( "buoyCount", \l -> buoyCount l 1 7 )
+    , ( "harbourAria", harbourAria )
+    , ( "harbourCount", \l -> harbourCount l 1 7 )
     , ( "windDirection", windDirection )
     , ( "treasureLabel", \l -> treasureLabel l 1 5 )
     , ( "targetsLabel", \l -> targetsLabel l 1 2 )
@@ -1007,15 +1015,16 @@ allPhrases =
     , ( "hazardRocks", hazardRocks )
     , ( "hazardPounding", hazardPounding )
     , ( "speedKnotsTitle", speedKnotsTitle )
-    , ( "nextBuoyTitle", nextBuoyTitle )
-    , ( "buoyTimeTitle", \l -> buoyTimeTitle l 2 )
+    , ( "nextHarbourTitle", nextHarbourTitle )
+    , ( "harbourTimeTitle", \l -> harbourTimeTitle l 2 )
+    , ( "mooringHint", mooringHint )
     , ( "backToCourse", backToCourse )
     , ( "shipwrecked", shipwrecked )
     , ( "shipwreckedText", shipwreckedText )
     , ( "sailAgain", sailAgain )
     , ( "treasureToast", \l -> treasureToast l 5 )
     , ( "finishToast", finishToast )
-    , ( "buoyToast", \l -> buoyToast l 1 7 )
+    , ( "harbourToast", \l -> harbourToast l 1 7 )
     , ( "hitToast", \l -> hitToast l 2 )
     , ( "hullDamagedToast", \l -> hullDamagedToast l 80 )
     , ( "headline 3", \l -> headline l 3 )

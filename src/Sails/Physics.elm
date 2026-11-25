@@ -11,10 +11,14 @@ module Sails.Physics exposing
     , courseRoute
     , defaultCourse
     , defaultSailLevel
+    , dockSeconds
+    , dockSpeed
     , driftWith
     , finalTime
     , fireCannons
     , grassHeight
+    , harbourRadius
+    , harbourThrottle
     , helmCurve
     , initProgress
     , initSailingState
@@ -58,11 +62,11 @@ import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Types
     exposing
         ( Boat
-        , BuoyKind(..)
         , Cannonball
         , CombatImpact
         , Course
         , CourseProgress
+        , HarbourKind(..)
         , Island
         , SailingState
         , Target
@@ -76,23 +80,23 @@ import Sails.Types
 -- COURSE
 
 
-{-| A short loop around a small island: seven buoys in order, the last one
-is the finish gate back near the start. Seven floating targets sit beside
-the legs for bonus time.
+{-| A short loop around a small island: seven harbours to dock at in
+order, the last one the final harbour under the pirate arch back near the
+start. Seven floating targets sit beside the legs for bonus time.
 -}
 defaultCourse : Course
 defaultCourse =
-    { id = "island-loop"
+    { id = "harbour-loop"
     , title = "Island Loop"
-    , description = "Sail through the buoys in order, round the island and back to the finish gate. Pirate treasure lies on the islet past buoy 4."
+    , description = "Dock at each harbour in order, round the island and back to the final harbour. Pirate treasure lies on the islet past harbour 4."
     , waypoints =
-        [ buoy 0 30 38 PortBuoy
-        , buoy 1 68 98 StarboardBuoy
-        , buoy 2 30 158 PortBuoy
-        , buoy 3 -30 188 StarboardBuoy
-        , buoy 4 -82 142 PortBuoy
-        , buoy 5 -68 75 StarboardBuoy
-        , { index = 6, position = vec3 -22 0 22, radius = 10.0, kind = FinishGate }
+        [ harbour 0 30 38
+        , harbour 1 68 98
+        , harbour 2 30 158
+        , harbour 3 -30 188
+        , harbour 4 -82 142
+        , harbour 5 -68 75
+        , { index = 6, position = vec3 -22 0 22, radius = harbourRadius, kind = FinalHarbour }
         ]
     , targets =
         List.indexedMap
@@ -120,7 +124,7 @@ defaultCourse =
     , wind = { speed = 7.0, direction = 270.0 }
     , startPosition = vec3 0 0 0
     , startHeading = 38.0
-    , targetSeconds = 50.0
+    , targetSeconds = 62.0
     }
 
 
@@ -139,7 +143,7 @@ harbourIsland =
     { x = 150, z = 90, radius = 40, height = 10 }
 
 
-{-| A small island outside the loop between buoys 4 and 5, where the
+{-| A small island outside the loop between harbours 4 and 5, where the
 pirates buried their chest: a short detour off the route.
 -}
 treasureIsland : Island
@@ -174,9 +178,34 @@ grassHeight island =
     0.58 * island.height - 0.6
 
 
-buoy : Int -> Float -> Float -> BuoyKind -> Waypoint
-buoy i x z kind =
-    { index = i, position = vec3 x 0 z, radius = 8.0, kind = kind }
+{-| A harbour on the way, with index `i`, at (x, z).
+-}
+harbour : Int -> Float -> Float -> Waypoint
+harbour i x z =
+    { index = i, position = vec3 x 0 z, radius = harbourRadius, kind = Harbour }
+
+
+{-| How close to a harbour's centre the boat must be to dock there.
+-}
+harbourRadius : Float
+harbourRadius =
+    10.0
+
+
+{-| The boat docks only at this speed or slower, in m/s.
+-}
+dockSpeed : Float
+dockSpeed =
+    2.0
+
+
+{-| Seconds the boat must stay moored, slow and inside the harbour's
+radius, to dock. Time spent too fast pauses the count; leaving the radius
+starts it again.
+-}
+dockSeconds : Float
+dockSeconds =
+    1.0
 
 
 {-| Centre of the play area and how far the boat may wander from it.
@@ -216,6 +245,7 @@ initProgress course =
     , targetsHit = 0
     , treasureFound = []
     , treasureBonus = 0
+    , berthSeconds = 0
     }
 
 
@@ -663,7 +693,7 @@ helmGain =
 
 {-| Degrees per second the boat turns at full helm at a share of its top
 speed: it keeps two thirds of its steering from a standstill, so it can be
-pointed at the first buoy right after the start.
+pointed at the first harbour right after the start.
 -}
 turnRateAt : Boat -> Float -> Float
 turnRateAt boat speedRatio =
@@ -758,7 +788,7 @@ keepInArena ( x, z, bumped ) =
 -- COURSE RECOVERY
 
 
-{-| The route the course follows: the start, then every buoy in order.
+{-| The route the course follows: the start, then every harbour in order.
 -}
 courseRoute : Course -> List Vec3
 courseRoute course =
@@ -968,8 +998,11 @@ steerResponse boat speedRatio input =
 -- PROGRESS
 
 
-{-| Count time and tick off the next buoy when the boat is within its radius.
-Returns the index of the buoy just passed, if any.
+{-| Count time and dock at the next harbour. The boat docks once it has
+been inside the harbour's radius at `dockSpeed` or slower for `dockSeconds`
+in all: sailing too fast inside the radius pauses the count, leaving the
+radius starts it again. Returns the index of the harbour just docked at, if
+any.
 -}
 stepProgress : Float -> SailingState -> List Waypoint -> CourseProgress -> ( CourseProgress, Maybe Int )
 stepProgress dt state waypoints progress =
@@ -986,24 +1019,58 @@ stepProgress dt state waypoints progress =
         in
         case List.drop progress.currentWaypointIndex waypoints |> List.head of
             Just wp ->
-                if horizontalDistance state.position wp.position <= wp.radius then
-                    let
-                        next =
-                            progress.currentWaypointIndex + 1
-                    in
-                    ( { ticked
-                        | currentWaypointIndex = next
-                        , splits = progress.splits ++ [ elapsed ]
-                        , finished = next >= progress.totalWaypoints
-                      }
-                    , Just progress.currentWaypointIndex
-                    )
+                if horizontalDistance state.position wp.position > wp.radius then
+                    ( { ticked | berthSeconds = 0 }, Nothing )
+
+                else if state.speed > dockSpeed then
+                    ( ticked, Nothing )
 
                 else
-                    ( ticked, Nothing )
+                    let
+                        berthed =
+                            progress.berthSeconds + dt
+                    in
+                    if berthed >= dockSeconds then
+                        let
+                            next =
+                                progress.currentWaypointIndex + 1
+                        in
+                        ( { ticked
+                            | currentWaypointIndex = next
+                            , splits = progress.splits ++ [ elapsed ]
+                            , finished = next >= progress.totalWaypoints
+                            , berthSeconds = 0
+                          }
+                        , Just progress.currentWaypointIndex
+                        )
+
+                    else
+                        ( { ticked | berthSeconds = berthed }, Nothing )
 
             Nothing ->
                 ( { ticked | finished = True }, Nothing )
+
+
+{-| The brake assist that helps the boat moor: 0 (the sails let fly, so the
+boat slows down) while it is inside the radius of the harbour it is docking
+at, 1 otherwise and once the course is done.
+-}
+harbourThrottle : List Waypoint -> CourseProgress -> SailingState -> Float
+harbourThrottle waypoints progress state =
+    if progress.finished then
+        1
+
+    else
+        case List.drop progress.currentWaypointIndex waypoints |> List.head of
+            Just wp ->
+                if horizontalDistance state.position wp.position <= wp.radius then
+                    0
+
+                else
+                    1
+
+            Nothing ->
+                1
 
 
 horizontalDistance : Vec3 -> Vec3 -> Float

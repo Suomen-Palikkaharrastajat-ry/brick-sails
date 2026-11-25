@@ -1,11 +1,11 @@
 module Sails.Types exposing
     ( Boat
     , BoatKind(..)
-    , BuoyKind(..)
     , Cannonball
     , CombatImpact
     , Course
     , CourseProgress
+    , HarbourKind(..)
     , Island
     , LeaderboardEntry
     , SailingState
@@ -20,7 +20,7 @@ module Sails.Types exposing
     , metersToLdu
     )
 
-{-| Domain data types for Brick Sails: the toy boats, the buoy course,
+{-| Domain data types for Brick Sails: the toy boats, the harbour course,
 floating targets, the arcade sailing state and leaderboard records.
 -}
 
@@ -40,21 +40,22 @@ metersToLdu =
     1.0 / lduToMeters
 
 
-{-| Buoy colour / role.
+{-| A harbour's role: one to dock at on the way, or the final harbour
+under the pirate arch that ends the voyage.
 -}
-type BuoyKind
-    = PortBuoy
-    | StarboardBuoy
-    | FinishGate
+type HarbourKind
+    = Harbour
+    | FinalHarbour
 
 
-{-| A buoy the player must sail through, in order.
+{-| A harbour the player must dock at, in order: slow down inside its
+`radius` and stay there for a moment (see `Sails.Physics.stepProgress`).
 -}
 type alias Waypoint =
     { index : Int
     , position : Vec3
     , radius : Float
-    , kind : BuoyKind
+    , kind : HarbourKind
     }
 
 
@@ -109,7 +110,7 @@ type alias Wind =
     }
 
 
-{-| One short course: buoys in order, targets along the way, a few islands,
+{-| One short course: harbours in order, targets along the way, a few islands,
 the towns on them and the treasure hidden on them.
 -}
 type alias Course =
@@ -234,6 +235,8 @@ type alias SailingState =
 
 {-| Progress through the course. `treasureFound` lists the ids of the
 treasure collected, `treasureBonus` the seconds it takes off the time.
+`berthSeconds` counts how long the boat has been moored, slow enough, at
+the harbour it is docking at.
 -}
 type alias CourseProgress =
     { currentWaypointIndex : Int
@@ -244,6 +247,7 @@ type alias CourseProgress =
     , targetsHit : Int
     , treasureFound : List Int
     , treasureBonus : Float
+    , berthSeconds : Float
     }
 
 

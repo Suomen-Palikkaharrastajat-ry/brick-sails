@@ -10,10 +10,10 @@ module Sails.Render exposing
     )
 
 {-| Draws the sailing world: the tropical sea and sky, palm islands with the
-fort's watchtower, the course markers, the pirate finish gate, coral reefs
-and a pirate wreck, floating targets, cannonballs, the colonial towns and
-the treasure on the islands, the toy boats, and the weather (spray, rain and
-lightning).
+fort's watchtower, the harbour piers, the pirate arch over the final
+harbour, coral reefs and a pirate wreck, floating targets, cannonballs, the
+colonial towns and the treasure on the islands, the toy boats, and the
+weather (spray, rain and lightning).
 
 The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
 pipeline's plastic shader and edge shader. The props around the course are
@@ -22,7 +22,7 @@ Racer, and `Sails.Scenery` for the palms, the fort, the reefs, the wreck and
 the pirate flags), built once (`Props`) and drawn per piece with
 `Game.BrickProps`, stretched to the sizes the course and the physics use.
 The sea and the sky have the shared brick look (`Game.BrickLook`). Only the
-ring round the next buoy, the guide arrow, the rain and the lightning are
+rings round the harbours, the guide arrow, the rain and the lightning are
 flat meshes. The towns and the treasure chest (`Sails.Scenery`) are brick
 models drawn like the boats.
 
@@ -51,10 +51,10 @@ import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types
     exposing
-        ( BuoyKind(..)
-        , Cannonball
+        ( Cannonball
         , CombatImpact
         , Course
+        , HarbourKind(..)
         , SailingState
         , Target
         , Town
@@ -174,7 +174,7 @@ renderWorld cam scene width height =
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities ctx width height scene.scenery scene.course.towns
                 ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
-                ++ List.concatMap (buoyEntities ctx draw scene.time scene.nextIndex scene.course.waypoints) scene.course.waypoints
+                ++ List.concatMap (harbourEntities ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
                 ++ List.concatMap (targetEntities draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height) scene.boats
                 ++ List.concatMap (debrisEntities draw) scene.debris
@@ -474,8 +474,14 @@ tint3 c =
     vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
 
 
-buoyEntities : Ctx -> Draw -> Float -> Int -> List Waypoint -> Waypoint -> List WebGL.Entity
-buoyEntities ctx draw time nextIndex all wp =
+{-| A harbour: a pier with a pirate flag at its far end, alongside the
+approach from the harbour before (or from the start), a pulsing ring and a
+spinning beacon over the next harbour to dock at and a grey ring round the
+ones already visited. The final harbour also has the pirate arch across the
+approach. The piers are decoration: nothing bumps into them.
+-}
+harbourEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Float -> Int -> Course -> Waypoint -> List WebGL.Entity
+harbourEntities ctx width height scenery draw time nextIndex course wp =
     let
         p =
             Vec3.toRecord wp.position
@@ -489,22 +495,6 @@ buoyEntities ctx draw time nextIndex all wp =
         bob =
             0.2 * sin (time * 2 + toFloat wp.index) + Physics.seaElevation ctx.sea p.x p.z time
 
-        color =
-            if passed then
-                vec3 0.55 0.58 0.62
-
-            else
-                case wp.kind of
-                    -- Rum-barrel red and doubloon yellow markers.
-                    PortBuoy ->
-                        vec3 0.78 0.16 0.1
-
-                    StarboardBuoy ->
-                        vec3 0.98 0.74 0.12
-
-                    FinishGate ->
-                        vec3 1 0.8 0.1
-
         pulse =
             1 + 0.06 * sin (time * 5)
 
@@ -513,26 +503,46 @@ buoyEntities ctx draw time nextIndex all wp =
                 ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 (wp.radius * pulse) 1 (wp.radius * pulse)) (vec3 1 0.92 0.3) ringMesh
                     :: draw.fitted "beacon" (BrickProps.fitHeight 5.9) (Mat4.makeTranslate3 p.x (bob + 2.6) p.z |> rotY (time * 1.5)) plain
 
+            else if passed then
+                [ ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 wp.radius 1 wp.radius) (vec3 0.55 0.58 0.62) ringMesh ]
+
             else
                 []
-    in
-    case wp.kind of
-        FinishGate ->
+
+        -- Direction the boat sails in from: the harbour before, or the start.
+        approach =
             let
-                approach =
-                    all
+                from =
+                    course.waypoints
                         |> List.filter (\w -> w.index == wp.index - 1)
                         |> List.head
-                        |> Maybe.map
-                            (\prev ->
-                                let
-                                    a =
-                                        Vec3.toRecord prev.position
-                                in
-                                atan2 (p.x - a.x) (p.z - a.z)
-                            )
-                        |> Maybe.withDefault 0
+                        |> Maybe.map .position
+                        |> Maybe.withDefault course.startPosition
+                        |> Vec3.toRecord
+            in
+            atan2 (p.x - from.x) (p.z - from.z)
 
+        ( dx, dz ) =
+            ( sin approach, cos approach )
+
+        -- The pier (8 m long) runs along the approach, 4 m to one side of
+        -- the harbour's centre, its deck just above the water.
+        pierX =
+            p.x + 4 * dz - 4 * dx
+
+        pierZ =
+            p.z - 4 * dx - 4 * dz
+
+        pier =
+            sceneryEntities ctx width height scenery Scenery.pier (vec3 pierX -1.5 pierZ) (approach * 180 / pi)
+                ++ draw.fitted "pirateFlag"
+                    (BrickProps.fitHeight 3.2)
+                    (Mat4.makeTranslate3 (pierX + 6.5 * dx) 1.3 (pierZ + 6.5 * dz) |> rotY approach)
+                    plain
+    in
+    case wp.kind of
+        FinalHarbour ->
+            let
                 frame =
                     Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
 
@@ -553,11 +563,11 @@ buoyEntities ctx draw time nextIndex all wp =
                 )
                 ++ flag (negate wp.radius)
                 ++ flag wp.radius
+                ++ pier
                 ++ ring
 
-        _ ->
-            draw.fitted "buoy" (BrickProps.fitHeight 3.3) (Mat4.makeTranslate3 p.x (bob - 0.6) p.z) (tint3 color)
-                ++ ring
+        Harbour ->
+            pier ++ ring
 
 
 targetEntities : Draw -> Float -> Target -> List WebGL.Entity
