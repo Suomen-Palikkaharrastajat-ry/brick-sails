@@ -515,18 +515,52 @@ suite =
                         ()
             ]
         , describe "Islands, towns and treasure"
-            [ test "every island is clear of the buoy route" <|
+            [ test "every island is clear of the route, bar the islets the legs' harbours lie off" <|
                 \_ ->
+                    let
+                        -- An island a leg's end docks at: its shore within 6 m.
+                        docksAt ( px, pz ) isl =
+                            sqrt ((px - isl.x) ^ 2 + (pz - isl.z) ^ 2) <= isl.radius + 6
+
+                        -- 8 m clear of every other island, and outside the
+                        -- rock the boat bumps into (2 m off the shore) of an
+                        -- islet it docks at.
+                        tooClose ( a, b ) isl =
+                            if docksAt a isl || docksAt b isl then
+                                segmentDistance ( isl.x, isl.z ) a b <= isl.radius + 2
+
+                            else
+                                segmentDistance ( isl.x, isl.z ) a b < isl.radius + 8
+                    in
                     course.islands
-                        |> List.filter
-                            (\isl -> List.any (\( a, b ) -> segmentDistance ( isl.x, isl.z ) a b < isl.radius + 8) legs)
+                        |> List.filter (\isl -> List.any (\leg -> tooClose leg isl) legs)
                         |> Expect.equal []
-            , test "every buoy and the start are in open water" <|
+            , test "the start is in open water and every harbour lies just off an island's shore" <|
                 \_ ->
-                    (course.startPosition :: List.map .position course.waypoints)
-                        |> List.filter
-                            (\v -> List.any (\isl -> sqrt ((Vec3.getX v - isl.x) ^ 2 + (Vec3.getZ v - isl.z) ^ 2) < isl.radius + 10) course.islands)
-                        |> Expect.equal []
+                    let
+                        distance v isl =
+                            sqrt ((Vec3.getX v - isl.x) ^ 2 + (Vec3.getZ v - isl.z) ^ 2)
+
+                        offShore v =
+                            List.any (\isl -> distance v isl > isl.radius + 2 && distance v isl <= isl.radius + 6) course.islands
+                    in
+                    Expect.all
+                        [ \_ ->
+                            course.islands
+                                |> List.filter (\isl -> distance course.startPosition isl < isl.radius + 10)
+                                |> Expect.equal []
+                        , \_ ->
+                            course.waypoints
+                                |> List.filter (\wp -> not (offShore wp.position))
+                                |> List.map .index
+                                |> Expect.equal []
+                        , \_ ->
+                            course.waypoints
+                                |> List.filter (\wp -> List.any (\isl -> distance wp.position isl <= isl.radius + 2) course.islands)
+                                |> List.map .index
+                                |> Expect.equal []
+                        ]
+                        ()
             , test "towns stand on islands of the course and a treasure island has a chest" <|
                 \_ ->
                     Expect.all

@@ -55,6 +55,7 @@ import Sails.Types
         , CombatImpact
         , Course
         , HarbourKind(..)
+        , Island
         , SailingState
         , Target
         , Town
@@ -477,8 +478,8 @@ tint3 c =
     vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
 
 
-{-| A harbour: a pier with a pirate flag at its far end, alongside the
-approach from the harbour before (or from the start), a pulsing ring and a
+{-| A harbour: a pier from the shore of its islet out towards the harbour,
+with a pirate flag where it leaves the beach, a pulsing ring and a
 spinning beacon over the next harbour to dock at and a grey ring round the
 ones already visited. The final harbour also has the pirate arch across the
 approach. The piers are decoration: nothing bumps into them.
@@ -528,20 +529,27 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
         ( dx, dz ) =
             ( sin approach, cos approach )
 
-        -- The pier (8 m long) runs along the approach, 4 m to one side of
-        -- the harbour's centre, its deck just above the water.
-        pierX =
-            p.x + 4 * dz - 4 * dx
-
-        pierZ =
-            p.z - 4 * dx - 4 * dz
-
+        -- The pier runs from the beach of the islet the harbour lies off
+        -- (the island with the nearest shore) out towards the harbour, like
+        -- a town's pier, with a pirate flag where it leaves the beach.
         pier =
-            sceneryEntities ctx width height scenery Scenery.pier (vec3 pierX -1.5 pierZ) (approach * 180 / pi)
-                ++ draw.fitted "pirateFlag"
-                    (BrickProps.fitHeight 3.2)
-                    (Mat4.makeTranslate3 (pierX + 6.5 * dx) 1.3 (pierZ + 6.5 * dz) |> rotY approach)
-                    plain
+            case dockIsland course.islands p of
+                Just isl ->
+                    let
+                        bearing =
+                            180 / pi * atan2 (p.x - isl.x) (p.z - isl.z)
+
+                        edge =
+                            Vec3.toRecord (Physics.shorePoint isl bearing 1)
+                    in
+                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) bearing
+                        ++ draw.fitted "pirateFlag"
+                            (BrickProps.fitHeight 3.2)
+                            (Mat4.makeTranslate3 edge.x (Physics.beachHeight isl) edge.z |> rotY (degrees bearing))
+                            plain
+
+                Nothing ->
+                    []
 
         portX =
             p.x - 12 * dz - 6 * dx
@@ -591,6 +599,15 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
             pier ++ ring ++ channelBeacons
 
 
+{-| The island a harbour at `p` docks at: the one whose shore is nearest.
+-}
+dockIsland : List Island -> { x : Float, y : Float, z : Float } -> Maybe Island
+dockIsland islands p =
+    islands
+        |> List.sortBy (\isl -> sqrt ((p.x - isl.x) ^ 2 + (p.z - isl.z) ^ 2) - isl.radius)
+        |> List.head
+
+
 targetEntities : Draw -> Float -> Target -> List WebGL.Entity
 targetEntities draw time t =
     if t.sunk && t.sinkAge > 1.6 then
@@ -620,8 +637,8 @@ targetEntities draw time t =
 
 {-| Islands of round bricks stretched to each island's radius and height
 (the radius the boats bump into), with brick palm trees on the grass (clear
-of the towns and the treasure) and the fort's watchtower on the first
-island's hill.
+of the towns, the harbour piers and the treasure) and the fort's watchtower
+on the first island's hill.
 The beach and the grass are at `Physics.beachHeight` and
 `Physics.grassHeight`, where the towns and the chest stand.
 -}
@@ -637,7 +654,8 @@ islandEntities draw course =
                     3 + modBy 2 i
 
                 -- Compass bearings from the island's centre of its town's
-                -- houses and pier and of buried treasure, kept clear of trees.
+                -- houses and pier, of the piers of harbours docking at it and
+                -- of buried treasure, kept clear of trees.
                 occupied =
                     List.filterMap
                         (\town ->
@@ -661,6 +679,19 @@ islandEntities draw course =
                                     Nothing
                             )
                             course.treasures
+                        ++ List.filterMap
+                            (\wp ->
+                                let
+                                    wpp =
+                                        Vec3.toRecord wp.position
+                                in
+                                if dockIsland course.islands wpp == Just isl then
+                                    Just (180 / pi * atan2 (wpp.x - isl.x) (wpp.z - isl.z))
+
+                                else
+                                    Nothing
+                            )
+                            course.waypoints
 
                 clear k =
                     let

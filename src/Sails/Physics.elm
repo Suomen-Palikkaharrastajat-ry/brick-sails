@@ -82,7 +82,10 @@ import Sails.Types
 
 {-| A short loop around a small island: seven harbours to dock at in
 order, the last one the final harbour under the pirate arch back near the
-start. Seven floating targets sit beside the legs for bonus time.
+start. Each harbour lies about 3 m off the shore of its own islet
+(`harbourIslets`), on the side facing the route, so the boat moors
+alongside the islet's pier.
+Seven floating targets sit beside the legs for bonus time.
 -}
 defaultCourse : Course
 defaultCourse =
@@ -110,6 +113,7 @@ defaultCourse =
         , { x = -130, z = -60, radius = 35, height = 7 }
         , treasureIsland
         ]
+            ++ harbourIslets
     , towns =
         [ { name = "Tortuga Cove", island = lighthouseIsland, bearing = 100 }
         , { name = "Port Royal Brick", island = harbourIsland, bearing = 268 }
@@ -167,6 +171,25 @@ treasureIsland =
     { x = -78, z = 205, radius = 10, height = 5 }
 
 
+{-| The islets the harbours dock at, in the harbours' order: each one's
+shore is about 3 m (2.6 to 3.6 m) from its harbour, just outside the rock
+the boat bumps into (`boatRadius` off the shore, see `pushOutOfIsland`),
+on the side of the harbour away from the route, so the legs pass outside
+them. The final harbour's islet lies straight ahead of the
+boat sailing in, behind the arch.
+-}
+harbourIslets : List Island
+harbourIslets =
+    [ { x = 41, z = 30, radius = 10, height = 5 }
+    , { x = 80, z = 98, radius = 9, height = 4 }
+    , { x = 39, z = 168, radius = 10, height = 5 }
+    , { x = -26, z = 199, radius = 9, height = 4 }
+    , { x = -93, z = 141, radius = 8, height = 4 }
+    , { x = -80, z = 69, radius = 10, height = 5 }
+    , { x = -15, z = 14, radius = 8, height = 4 }
+    ]
+
+
 {-| A point on an island at a compass bearing from its centre, `share` of
 its radius out (1 is the water's edge), at sea level.
 -}
@@ -194,7 +217,8 @@ grassHeight island =
     0.58 * island.height - 0.6
 
 
-{-| A harbour on the way, with index `i`, at (x, z).
+{-| A harbour on the way, with index `i`, at (x, z): just off the shore of
+its islet in `harbourIslets`.
 -}
 harbour : Int -> Float -> Float -> Waypoint
 harbour i x z =
