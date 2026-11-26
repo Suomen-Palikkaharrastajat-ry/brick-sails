@@ -11,6 +11,7 @@ import Game.BrickModels as BrickModels
 import Game.BrickProps as BrickProps
 import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
 import LDraw.Document as Document
+import LDraw.Geometry as Geometry
 import LDraw.Parser as Parser
 import LDraw.Resolve exposing (PartStatus(..))
 import LDraw.Types exposing (LDrawLine)
@@ -954,6 +955,85 @@ suite =
                         , \_ -> Expect.equal False uncertifiedShip.sails.bfcCertified
                         , \_ -> Expect.equal True certifiedHouses.scene.bfcCertified
                         , \_ -> Expect.equal True certifiedIsland.scene.bfcCertified
+                        ]
+                        ()
+            , test "propDetailOptions strips studs, hollows and edges on island props while keeping foreground detail" <|
+                \_ ->
+                    let
+                        studPart =
+                            Parser.parseFile "0 BFC CERTIFY CCW\n4 16 -4 0 -4 4 0 -4 4 -4 4 -4 -4 4\n4 16 -4 -4 -4 4 -4 -4 4 -4 4 -4 -4 4"
+
+                        hollowPart =
+                            Parser.parseFile "0 BFC CERTIFY CCW\n4 16 -2 0 -2 2 0 -2 2 8 2 -2 8 2"
+
+                        baseBrick =
+                            Parser.parseFile
+                                (String.join "\n"
+                                    [ "0 BFC CERTIFY CCW"
+                                    , "4 16 -20 0 -20 20 0 -20 20 8 20 -20 8 20"
+                                    , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 stud.dat"
+                                    , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 48/stud2a.dat"
+                                    , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 stud4.dat"
+                                    , "2 24 -20 0 -20 20 0 -20"
+                                    ]
+                                )
+
+                        cache =
+                            Dict.fromList
+                                [ ( "3001.dat", Loaded baseBrick )
+                                , ( "3003.dat", Loaded baseBrick )
+                                , ( "3020.dat", Loaded baseBrick )
+                                , ( "3034.dat", Loaded baseBrick )
+                                , ( "3037.dat", Loaded baseBrick )
+                                , ( "3039.dat", Loaded baseBrick )
+                                , ( "3867.dat", Loaded baseBrick )
+                                , ( "stud.dat", Loaded studPart )
+                                , ( "48/stud2a.dat", Loaded studPart )
+                                , ( "stud4.dat", Loaded hollowPart )
+                                ]
+
+                        palette =
+                            World.islandPalette Archipelago.defaultMap
+
+                        islandSource =
+                            World.islandModel palette
+
+                        fullIsland =
+                            BrickProps.build islandSource cache
+
+                        strippedIsland =
+                            BrickProps.refreshWith Render.propDetailOptions [ ( palette.key, islandSource ), ( "rock", BrickModels.singlePart "3001.dat" ) ] cache Dict.empty
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal Geometry.NoStuds (Render.propDetailOptions palette.key).studs
+                        , \_ -> Expect.equal False (Render.propDetailOptions palette.key).includeHollows
+                        , \_ -> Expect.equal False (Render.propDetailOptions palette.key).includeLines
+                        , \_ -> Expect.equal Geometry.FullStuds (Render.propDetailOptions "rock").studs
+                        , \_ -> Expect.equal True (Render.propDetailOptions "rock").includeHollows
+                        , \_ ->
+                            Dict.get palette.key strippedIsland.props
+                                |> Maybe.map (\p -> ( p.triangleCount < fullIsland.triangleCount, p.scene.bfcCertified ))
+                                |> Expect.equal (Just ( True, True ))
+                        , \_ ->
+                            Dict.get "rock" strippedIsland.props
+                                |> Maybe.map .triangleCount
+                                |> Expect.equal (Just 12)
+                        ]
+                        ()
+            , test "harbour pier truncates deep submerged pilings below -0.8m while reaching past wave troughs" <|
+                \_ ->
+                    let
+                        pilings =
+                            Document.flattenedPlacements (Document.parse Scenery.pier.ldraw)
+                                |> List.filter (\p -> p.part == "3062b.dat")
+
+                        pilingYs =
+                            pilings
+                                |> List.map (\p -> Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0)))
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 28 (List.length pilings)
+                        , \_ -> Expect.equal True (List.all (\y -> y <= -24) pilingYs)
                         ]
                         ()
             ]

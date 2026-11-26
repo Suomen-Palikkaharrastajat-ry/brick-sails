@@ -4,6 +4,7 @@ module Sails.Render exposing
     , RenderBoat
     , ballEntity
     , ghostBoat
+    , propDetailOptions
     , propSources
     , renderShipyard
     , renderWorld
@@ -44,6 +45,7 @@ import Game.MapParams exposing (MapParams)
 import Game.Precipitation as Precipitation
 import Html exposing (Html)
 import Html.Attributes as Attr
+import LDraw.Geometry as Geometry
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 as Vec4 exposing (Vec4, vec4)
@@ -131,6 +133,26 @@ propSources map =
     , ( "finishArch", finishArchModel )
     , ( palette.key, World.islandModel palette )
     ]
+
+
+{-| Geometry detail options passed to `Game.BrickProps.refreshWith`: terrain
+island blocks (`island-*`) omit studs, underside hollows, edge lines, and
+conditional lines because `islandBase` renders them without edge outlines,
+while foreground props keep full brick detail.
+-}
+propDetailOptions : String -> Geometry.DetailOptions
+propDetailOptions name =
+    if String.startsWith "island-" name then
+        { flipYZ = True
+        , trackInherit = True
+        , studs = Geometry.NoStuds
+        , includeHollows = False
+        , includeLines = False
+        , includeConditionals = False
+        }
+
+    else
+        BrickProps.defaultDetailOptions
 
 
 finishArchUnit : Float

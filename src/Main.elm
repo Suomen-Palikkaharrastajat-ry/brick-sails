@@ -956,7 +956,7 @@ requestParts model =
             Dict.filter (\k _ -> not (String.startsWith "island-" k) || k == activeIslandKey) model.props
 
         scenery =
-            BrickProps.refresh (Render.propSources model.course.map) (Resolve.markLoading needed model.partCache) activeProps
+            BrickProps.refreshWith Render.propDetailOptions (Render.propSources model.course.map) (Resolve.markLoading needed model.partCache) activeProps
     in
     ( { model
         | partCache = scenery.cache

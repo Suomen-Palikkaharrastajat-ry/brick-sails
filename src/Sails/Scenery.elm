@@ -208,10 +208,6 @@ pier =
         post ( x, z ) =
             [ line 72 ( x, -48, z ) upright "3062b.dat"
             , line 72 ( x, -24, z ) upright "3062b.dat"
-            , line 72 ( x, 0, z ) upright "3062b.dat"
-            , line 72 ( x, 24, z ) upright "3062b.dat"
-            , line 72 ( x, 48, z ) upright "3062b.dat"
-            , line 72 ( x, 72, z ) upright "3062b.dat"
             ]
 
         posts =
@@ -246,7 +242,7 @@ pier =
              , "0 // Main walkway deck (4 studs wide, 16 studs long)"
              ]
                 ++ deckPlates
-                ++ [ "0 // Deep seabed pilings (anchor 2.5m down into seabed)" ]
+                ++ [ "0 // Submerged pilings (reach 1.4m down below waterline, clear of wave troughs)" ]
                 ++ List.concatMap post posts
                 ++ [ "0 // Mooring bollards"
                    , line 0 ( -30, deckY - 32, -30 ) upright "3062b.dat"
