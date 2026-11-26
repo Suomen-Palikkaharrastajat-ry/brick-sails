@@ -7,6 +7,7 @@ module Sails.CameraRig exposing
     , jolt
     , knockShake
     , lookAt
+    , lookYawDegrees
     , setBroadsideBias
     , setShootFocus
     , stepFollow
@@ -368,6 +369,24 @@ stepFollow dt aspect boat heading speed next follow =
     }
 
 
+{-| The yaw the camera looks along, in degrees. The side offset follows the
+side of the shot: it mirrors when the broadside bias is negative, so a right
+shot is framed as a mirror of a left shot. With no bias (sign of 0) it keeps
+the old +sideDegrees behaviour.
+-}
+lookYawDegrees : Follow -> Float
+lookYawDegrees follow =
+    let
+        sideSign =
+            if follow.broadsideBias < 0 then
+                -1
+
+            else
+                1
+    in
+    follow.yaw + follow.broadsideBias + sideSign * sideDegrees
+
+
 {-| Eye and look-at point for the current follow state.
 -}
 followView : Follow -> { eye : Vec3, target : Vec3 }
@@ -380,7 +399,7 @@ followView follow =
             degrees effectiveYaw
 
         eyeRad =
-            degrees (effectiveYaw + sideDegrees)
+            degrees (lookYawDegrees follow)
 
         pitch =
             degrees (pitchDegrees - follow.sink)

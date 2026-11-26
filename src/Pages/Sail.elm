@@ -606,7 +606,7 @@ update msg model =
                     (tap.y - toFloat model.viewportHeight * 0.5) / max 1.0 (toFloat model.viewportHeight * 0.5)
 
                 camYawRad =
-                    degrees (model.follow.yaw + model.follow.broadsideBias)
+                    degrees (CameraRig.lookYawDegrees model.follow)
 
                 depth =
                     0 - (dyNorm * 1.6)
