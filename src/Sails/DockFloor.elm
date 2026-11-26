@@ -109,11 +109,6 @@ waterColor =
     vec4 0.06 0.36 0.52 0.78
 
 
-waterShallowColor : Vec4
-waterShallowColor =
-    vec4 0.1 0.46 0.58 0.85
-
-
 waterLevelY : Float
 waterLevelY =
     12.0
@@ -125,16 +120,8 @@ waterLevelY =
 
 buildWaterTriangles : List ( Vertex, Vertex, Vertex )
 buildWaterTriangles =
-    let
-        -- Main translucent harbor sea surface plane
-        mainWater =
-            horizontalQuad waterLevelY -380.0 380.0 -380.0 380.0 waterColor
-
-        -- Calmer shallow slipway water in the open berth
-        slipWater =
-            horizontalQuad (waterLevelY - 0.05) -150.0 60.0 -185.0 140.0 waterShallowColor
-    in
-    List.concat [ mainWater, slipWater ]
+    -- Main translucent harbor sea surface plane (uniform marine water without harsh slipway rectangle)
+    horizontalQuad waterLevelY -380.0 380.0 -380.0 380.0 waterColor
 
 
 buildShadowTriangles : List ( Vertex, Vertex, Vertex )
