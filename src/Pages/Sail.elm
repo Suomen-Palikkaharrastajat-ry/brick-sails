@@ -420,6 +420,9 @@ aimPoints model =
         pirates =
             afloatPirates model |> List.map (Tuple.second >> .position)
 
+        remotes =
+            remotePlayers model |> List.map .position
+
         ghost =
             if GhostShip.canTarget model.ghostShip then
                 [ model.ghostShip.state.position ]
@@ -427,7 +430,7 @@ aimPoints model =
             else
                 []
     in
-    targets ++ pirates ++ ghost
+    targets ++ pirates ++ remotes ++ ghost
 
 
 {-| The pirates still afloat, with where they are now.
@@ -1074,8 +1077,18 @@ tick dt model =
             else
                 sailed
 
+        otherShipPositions =
+            List.map (\( _, ps ) -> ps.position) piratesNow
+                ++ (remotePlayers model |> List.map .position)
+                ++ (if GhostShip.canTarget model.ghostShip then
+                        [ model.ghostShip.state.position ]
+
+                    else
+                        []
+                   )
+
         bumpedDrifted =
-            Physics.bumpShips Pirates.collisionRadius (List.map (\( _, ps ) -> ps.position) piratesNow) drifted
+            Physics.bumpShips Pirates.collisionRadius otherShipPositions drifted
                 |> Physics.keepInArena model.course.arena
 
         reefImpact =
@@ -1149,16 +1162,16 @@ tick dt model =
         ( flying, splashes ) =
             Physics.stepProjectiles dt time model.cannonballs
 
-        -- The boat's own balls go for targets and pirates; a pirate's ball only
-        -- for the boat, and the pirates in reach of the boat fire at it.
-        ( ownFlying, pirateFlying ) =
-            List.partition (\b -> not (Pirates.isPirateSlot b.sourceSlot)) flying
+        -- The boat's own balls go for targets, pirates, ghost ship and other players;
+        -- balls from others (pirates or other players) can hit this boat.
+        ( ownFlying, othersFlying ) =
+            List.partition (\b -> b.sourceSlot == mySlot model) flying
 
         ( afterTargets, hitFlashes, ( targets, hits ) ) =
             Physics.checkTargetHits ownFlying model.targets
 
         ( afterBoatHits, boatFlashes, boatHitCount ) =
-            Physics.checkBoatHits state.position pirateFlying
+            Physics.checkBoatHits state.position othersFlying
 
         ( pirateShots, nextShotId, pirateGuns ) =
             if racing then
@@ -1168,7 +1181,7 @@ tick dt model =
                 ( [], model.nextCannonId, model.pirateGuns )
 
         -- Pirates where they are this frame (`Sails.Pirates`). Cannonballs
-        -- hit them, never a crewmate's ship.
+        -- can hit them, the ghost ship, or other player ships.
         piratesNow =
             afloatPirates { model | simTime = time }
 
@@ -1179,9 +1192,14 @@ tick dt model =
             else
                 []
 
+        remoteTargets =
+            remotePlayers model
+                |> List.map (\rp -> { slot = rp.slot, position = rp.position })
+
         shipsToCheck =
             List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position }) piratesNow
                 ++ ghostTargets
+                ++ remoteTargets
 
         ( afterPirates, pirateFlashes, pirateSlotsHit ) =
             Physics.checkShipHits afterTargets shipsToCheck

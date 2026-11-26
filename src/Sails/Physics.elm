@@ -1645,6 +1645,7 @@ bumpShip shipRadius ship state =
         { state
             | position = vec3 (s.x + dx / d * minD) p.y (s.z + dz / d * minD)
             , speed = state.speed * 0.6
+            , bumped = True
         }
 
     else

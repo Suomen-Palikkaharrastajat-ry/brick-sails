@@ -248,8 +248,8 @@ suite =
                         ]
                         ()
             ]
-        , describe "Cannons and crewmates"
-            [ test "a cannonball flies on past a crewmate's ship" <|
+        , describe "Cannons and other players"
+            [ test "a cannonball can hit another player's ship" <|
                 \_ ->
                     let
                         mate =
@@ -267,7 +267,7 @@ suite =
                     frame { base | cannonballs = [ ball ] }
                         |> .cannonballs
                         |> List.length
-                        |> Expect.equal 1
+                        |> Expect.equal 0
             , test "in a room a cannonball still sinks a pirate" <|
                 \_ ->
                     let
