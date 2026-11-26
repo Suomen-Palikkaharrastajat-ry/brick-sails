@@ -43,6 +43,7 @@ import Sails.GhostShip as GhostShip exposing (GhostShip)
 import Sails.HUD as HUD exposing (Side(..))
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
+import Sails.IslandMesh as IslandMesh
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
@@ -122,6 +123,7 @@ type alias SailModel =
     , anchored : Bool
     , showHelp : Bool
     , combatTurnTarget : Maybe Float
+    , islandMeshes : IslandMesh.CourseMesh
     }
 
 
@@ -169,10 +171,29 @@ initSail :
     -> Int
     -> Int
     -> SailModel
-initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
+initSail =
+    initSailWith Nothing
+
+
+initSailWith :
+    Maybe IslandMesh.CourseMesh
+    -> Language
+    -> Boat
+    -> Course
+    -> Bool
+    -> Maybe LeaderboardEntry
+    -> Maybe RoomState
+    -> { available : Bool, enabled : Bool }
+    -> Int
+    -> Int
+    -> SailModel
+initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti tilt width height =
     let
         course =
             routeCourse maybeMulti baseCourse
+
+        islandMeshes =
+            Maybe.withDefault (IslandMesh.forCourse course) cachedIslands
 
         state =
             Physics.initSailingState course
@@ -246,6 +267,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , anchored = False
     , showHelp = False
     , combatTurnTarget = Nothing
+    , islandMeshes = islandMeshes
     }
 
 
@@ -892,7 +914,7 @@ update msg model =
         RestartCourse ->
             let
                 fresh =
-                    initSail model.language model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
+                    initSailWith (Just model.islandMeshes) model.language model.boat model.course model.audioMuted model.personalBest model.multiplayer model.tilt model.viewportWidth model.viewportHeight
             in
             ( { fresh
                 | multiplayer = model.multiplayer
@@ -943,7 +965,7 @@ update msg model =
                         -- host too, back to the start line to sail together.
                         let
                             fresh =
-                                initSail model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
+                                initSailWith (Just model.islandMeshes) model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
                         ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch }, GamePorts.calibrateTilt () )
 
@@ -2016,6 +2038,7 @@ viewRace model callbacks maybeRoom =
             , scenery = callbacks.meshFor
             , treasureFound = model.progress.treasureFound
             , props = callbacks.props
+            , islandMeshes = model.islandMeshes
             , debris = model.debris
             , shipMeshOf = shipMeshOf
             , standards = model.standards

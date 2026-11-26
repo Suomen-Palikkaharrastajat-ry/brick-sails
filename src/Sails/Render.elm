@@ -20,12 +20,13 @@ the islands, the toy boats, and the weather (spray, rain or snow, and
 lightning).
 
 The boats are real brick models (`Sails.ShipMesh`), drawn with the brick
-pipeline's plastic shader and edge shader. The props around the course are
-brick models too, from catalog parts (`Game.BrickModels`, shared with Brick
+pipeline's plastic shader and edge shader. The props on and around the course
+are brick models too, from catalog parts (`Game.BrickModels`, shared with Brick
 Racer, and `Sails.Scenery` for the palms, the fort, the reefs, the wreck and
 the pirate flags), built once (`Props`) and drawn per piece with
 `Game.BrickProps`, stretched to the sizes the course and the physics use.
-The sea and the sky have the shared brick look (`Game.BrickLook`). Only the
+The sea, the sky, and the stepped 4-tier island terrain shells
+(`Sails.IslandMesh`) have the shared brick look (`Game.BrickLook`). Only the
 rings round the harbours, the guide arrow, the rain and the lightning are
 flat meshes. The towns and the treasure chest (`Sails.Scenery`) are brick
 models drawn like the boats.
@@ -54,6 +55,7 @@ import Render.Instanced as Instanced
 import Render.Mesh exposing (Vertex)
 import Render.Scene exposing (Scene)
 import Render.Shader as Shader
+import Sails.IslandMesh as IslandMesh
 import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
 import Sails.Physics as Physics
 import Sails.Scenery as Scenery
@@ -96,15 +98,11 @@ type alias Props =
 
 
 {-| Every prop model the course uses for the given map, by name: load them with
-`Game.BrickProps.refresh`. Only the active map's island palette model is
-registered so unused island meshes are not built or uploaded.
+`Game.BrickProps.refresh`. Island terrain shells are generated procedurally by
+`Sails.IslandMesh`, so no `island-*` LDraw prop models are registered here.
 -}
 propSources : MapParams -> List ( String, String )
-propSources map =
-    let
-        palette =
-            World.islandPalette map
-    in
+propSources _ =
     [ ( "buoy", BrickModels.buoy )
     , ( "beacon", BrickModels.beacon )
     , ( "floatingTarget", BrickModels.floatingTarget )
@@ -131,7 +129,6 @@ propSources map =
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     , ( "finishArch", finishArchModel )
-    , ( palette.key, World.islandModel palette )
     ]
 
 
@@ -247,6 +244,7 @@ renderWorld :
         , scenery : String -> Maybe ShipMesh
         , treasureFound : List Int
         , props : Props
+        , islandMeshes : IslandMesh.CourseMesh
         , debris : List Wreck.Piece
         , shipMeshOf : Wreck.Source -> Maybe ShipMesh
         , standards : List StandardState
@@ -284,19 +282,13 @@ renderWorld cam scene width height =
                 Nothing ->
                     []
 
-        withFitWidth edgeWidth name fit at tint =
+        withFit name fit at tint =
             case Dict.get name scene.props of
                 Just prop ->
-                    BrickProps.draw pv (Mat4.mul at (fit prop)) tint edgeWidth prop
+                    BrickProps.draw pv (Mat4.mul at (fit prop)) tint (edgeWidthAt ctx (Mat4.transform at (vec3 0 0 0))) prop
 
                 Nothing ->
                     []
-
-        withFit name fit at tint =
-            withFitWidth (edgeWidthAt ctx (Mat4.transform at (vec3 0 0 0))) name fit at tint
-
-        drawNoEdges =
-            withFitWidth 0
 
         draw =
             { prop = drawProp, fitted = withFit }
@@ -305,7 +297,7 @@ renderWorld cam scene width height =
             [ Ocean.skyEntity ctx
             , Ocean.oceanEntity ctx
             ]
-                ++ islandEntities inView drawNoEdges draw scene.course
+                ++ islandEntities inView ctx draw scene.course scene.islandMeshes
                 ++ decorEntities inView ctx width height scene.scenery draw scene.course
                 ++ seabirdFlockEntities inView draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
@@ -1000,28 +992,26 @@ targetEntities inView draw time t =
                 plain
 
 
-{-| Islands of round bricks in the map's colours (`Sails.World.islandPalette`)
-stretched to each island's radius and height (the radius the boats bump
-into), dressed for the biome (`Sails.World.dressing`): trees on the grass
-(clear of the towns, the harbour piers and the treasure), rocks, a barn and
-hay on farm islands, and the fort, lighthouse or cairn on the hub. Skerries
-are bare rock.
+{-| Islands generated procedurally as stepped 4-tier brick shells
+(`Sails.IslandMesh`) sized to each island's radius and height in the map's
+colours (`Sails.World.islandPalette`), dressed for the biome
+(`Sails.World.dressing`): trees on the grass (clear of the towns, the harbour
+piers and the treasure), rocks, a barn and hay on farm islands, and the fort,
+lighthouse or cairn on the hub. Skerries are bare rock.
 The beach and the grass are at `Physics.beachHeight` and
 `Physics.grassHeight`, where the towns and the chest stand.
 -}
 islandEntities :
     (Vec3 -> Float -> Bool)
-    -> (String -> (PropModel -> Mat4) -> Mat4 -> Vec4 -> List WebGL.Entity)
+    -> Ctx
     -> Draw
     -> Course
+    -> IslandMesh.CourseMesh
     -> List WebGL.Entity
-islandEntities inView drawNoEdges draw course =
+islandEntities inView ctx draw course islandMeshes =
     let
         look =
             World.dressing course.map
-
-        palette =
-            World.islandPalette course.map
 
         treeProp =
             case look.tree of
@@ -1039,7 +1029,7 @@ islandEntities inView drawNoEdges draw course =
     in
     List.indexedMap
         (\i isl ->
-            if not (inView (vec3 isl.x 6 isl.z) (max 28 (isl.radius + 14))) then
+            if not (inView (vec3 isl.x (0.45 * isl.height) isl.z) (max 28 (1.1 * isl.radius + isl.height + 12))) then
                 []
 
             else
@@ -1235,20 +1225,16 @@ islandEntities inView drawNoEdges draw course =
                             []
 
                     islandBase =
-                        if inView (vec3 isl.x 1.5 isl.z) 27 then
-                            drawNoEdges palette.key
-                                (\prop ->
-                                    let
-                                        h =
-                                            max 0.001 (Vec3.getY (BrickProps.size prop))
-                                    in
-                                    BrickProps.fitHeight (0.035 * h) prop
-                                )
-                                (Mat4.makeTranslate3 isl.x -0.84 isl.z)
-                                plain
+                        case findIslandMesh isl islandMeshes of
+                            Just mesh ->
+                                if inView (vec3 isl.x (0.4 * isl.height) isl.z) (1.1 * isl.radius + 0.6 * isl.height + 2.0) then
+                                    [ Ocean.islandEntity ctx isl mesh ]
 
-                        else
-                            []
+                                else
+                                    []
+
+                            Nothing ->
+                                []
                 in
                 islandBase
                     ++ trees
@@ -1257,6 +1243,20 @@ islandEntities inView drawNoEdges draw course =
         )
         course.islands
         |> List.concat
+
+
+findIslandMesh : Island -> IslandMesh.CourseMesh -> Maybe (WebGL.Mesh IslandMesh.IslandVertex)
+findIslandMesh isl meshes =
+    case meshes of
+        ( entryIsl, mesh ) :: rest ->
+            if entryIsl == isl then
+                Just mesh
+
+            else
+                findIslandMesh isl rest
+
+        [] ->
+            Nothing
 
 
 {-| The hub island of a course, where the landmark, its beam and the

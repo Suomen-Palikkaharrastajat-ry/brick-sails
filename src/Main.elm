@@ -72,7 +72,6 @@ import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
-import Sails.World as World
 import Task
 
 
@@ -949,14 +948,8 @@ requestParts model =
                 model.meshes
                 progress
 
-        activeIslandKey =
-            (World.islandPalette model.course.map).key
-
-        activeProps =
-            Dict.filter (\k _ -> not (String.startsWith "island-" k) || k == activeIslandKey) model.props
-
         scenery =
-            BrickProps.refreshWith Render.propDetailOptions (Render.propSources model.course.map) (Resolve.markLoading needed model.partCache) activeProps
+            BrickProps.refreshWith Render.propDetailOptions (Render.propSources model.course.map) (Resolve.markLoading needed model.partCache) (Dict.filter (\k _ -> not (String.startsWith "island-" k)) model.props)
     in
     ( { model
         | partCache = scenery.cache

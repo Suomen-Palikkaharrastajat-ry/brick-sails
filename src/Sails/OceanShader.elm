@@ -1,6 +1,7 @@
 module Sails.OceanShader exposing
     ( Ctx
     , PropVertex
+    , islandEntity
     , makeCtx
     , oceanEntity
     , propEntity
@@ -14,13 +15,14 @@ module Sails.OceanShader exposing
     )
 
 {-| WebGL shaders for Brick Sails: a tropical sea of turquoise studded plates
-on the swell of `Sails.Physics.seaElevation` and the brick sky (both the shared brick look
-of `Game.BrickLook`), the camera, sun and fog the brick-built props are drawn
-with (`propView`), and one flat-shaded shader for the course markers and the
-island scenery. The weather (`withWeather`) raises the sea, darkens the sea,
-sky and light under storm clouds, pulls the fog in and lights everything up
-in a lightning flash. The course (`withCourse`) sets the map's sea and sky
-colours (`Sails.World.SeaPalette`), where the sea is centred and the
+on the swell of `Sails.Physics.seaElevation`, stepped studded brick island
+shells (`islandEntity`), and the brick sky (all three using the shared brick
+look of `Game.BrickLook`), the camera, sun and fog the brick-built props are
+drawn with (`propView`), and one flat-shaded shader for the course markers and
+the floating targets. The weather (`withWeather`) raises the sea, darkens the
+sea, sky, islands and light under storm clouds, pulls the fog in and lights
+everything up in a lightning flash. The course (`withCourse`) sets the map's sea
+and sky colours (`Sails.World.SeaPalette`), where the sea is centred and the
 islands the lagoon and the surf ring; `withMap` sets only the colours (the
 shipyard preview).
 -}
@@ -31,9 +33,11 @@ import Game.MapParams exposing (MapParams)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 exposing (Vec4, vec4)
+import Sails.IslandMesh exposing (IslandVertex)
 import Sails.Types exposing (Course, Island)
 import Sails.World as World exposing (SeaPalette)
 import WebGL
+import WebGL.Settings
 import WebGL.Settings.DepthTest as DepthTest
 
 
@@ -424,6 +428,88 @@ waterVertexShader =
             v_color = mix(col, u_cap, foam);
             v_studs = 1.0;
             gl_Position = u_perspective * u_view * vec4(p, 1.0);
+        }
+    |]
+
+
+
+-- ISLANDS
+
+
+type alias IslandUniforms =
+    { u_model : Mat4
+    , u_view : Mat4
+    , u_perspective : Mat4
+    , u_tint : Vec3
+    , u_eyePos : Vec3
+    , u_sunDir : Vec3
+    , u_fogColor : Vec3
+    , u_fogNear : Float
+    , u_fogFar : Float
+    , u_fogMax : Float
+    , u_skyAmbient : Vec3
+    , u_groundAmbient : Vec3
+    , u_studPitch : Float
+    , u_plateStuds : Float
+    , u_gloss : Float
+    }
+
+
+{-| Draw a procedural stepped island shell (`Sails.IslandMesh`) using the
+shared `Game.BrickLook.surfaceFragmentShader` for studs, 16 x 16 plate seams,
+horizontal cliff mortar lines, and distance-faded anti-aliasing.
+-}
+islandEntity : Ctx -> Island -> WebGL.Mesh IslandVertex -> WebGL.Entity
+islandEntity ctx isl mesh =
+    WebGL.entityWith
+        [ DepthTest.default
+        , WebGL.Settings.cullFace WebGL.Settings.back
+        ]
+        islandVertexShader
+        BrickLook.surfaceFragmentShader
+        mesh
+        { u_model = Mat4.makeTranslate3 isl.x 0 isl.z
+        , u_view = ctx.view
+        , u_perspective = ctx.perspective
+        , u_tint = flashLight ctx (mixV (vec3 1 1 1) (vec3 0.65 0.68 0.75) ctx.gloom)
+        , u_eyePos = ctx.eye
+        , u_sunDir = sunDir
+        , u_fogColor = horizonColour ctx
+        , u_fogNear = fogNear ctx
+        , u_fogFar = fogFar ctx
+        , u_fogMax = 1
+        , u_skyAmbient = horizonColour ctx
+        , u_groundAmbient = mixV (vec3 0.32 0.44 0.46) (vec3 0.15 0.18 0.22) ctx.gloom
+        , u_studPitch = 0.35
+        , u_plateStuds = 16
+        , u_gloss = 0.05
+        }
+
+
+islandVertexShader : WebGL.Shader IslandVertex IslandUniforms BrickLook.SurfaceVaryings
+islandVertexShader =
+    [glsl|
+        precision mediump float;
+        attribute vec3 position;
+        attribute vec3 normal;
+        attribute vec3 color;
+        attribute float studs;
+        uniform mat4 u_model;
+        uniform mat4 u_view;
+        uniform mat4 u_perspective;
+        uniform vec3 u_tint;
+        varying vec3 v_worldPos;
+        varying vec3 v_normal;
+        varying vec3 v_color;
+        varying float v_studs;
+
+        void main () {
+            vec4 world = u_model * vec4(position, 1.0);
+            v_worldPos = world.xyz;
+            v_normal = normal;
+            v_color = color * u_tint;
+            v_studs = studs;
+            gl_Position = u_perspective * u_view * world;
         }
     |]
 

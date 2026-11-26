@@ -7,6 +7,7 @@ camera.
 
 import Dict
 import Expect
+import Game.BrickLook as BrickLook
 import Game.BrickModels as BrickModels
 import Game.BrickProps as BrickProps
 import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
@@ -23,6 +24,7 @@ import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
 import Sails.Handling as Handling
 import Sails.Ingest as Ingest
+import Sails.IslandMesh as IslandMesh
 import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
 import Sails.Render as Render
@@ -854,7 +856,7 @@ suite =
                         ()
             ]
         , describe "Phase 1 rendering optimizations"
-            [ test "propSources includes only the active course's island palette" <|
+            [ test "propSources omits legacy LDraw island props once procedural IslandMesh renders islands" <|
                 \_ ->
                     let
                         maps =
@@ -871,7 +873,7 @@ suite =
                     in
                     Expect.all
                         (List.map
-                            (\m -> \_ -> Expect.equal [ (World.islandPalette m).key ] (islandKeys m))
+                            (\m -> \_ -> Expect.equal [] (islandKeys m))
                             maps
                         )
                         ()
@@ -1036,5 +1038,205 @@ suite =
                         , \_ -> Expect.equal True (List.all (\y -> y <= -24) pilingYs)
                         ]
                         ()
+            ]
+        , describe "Phase 3 procedural island shells"
+            [ test "stepped island shells reduce geometry from 28,024 triangles to 180-270 triangles per island" <|
+                \_ ->
+                    let
+                        palette =
+                            World.islandPalette Archipelago.defaultMap
+
+                        sampleIslands =
+                            [ { x = 0, z = 0, radius = 8, height = 4, role = Skerry }
+                            , { x = 20, z = 20, radius = 10, height = 5, role = TreasureIsle }
+                            , { x = 0, z = 100, radius = 22, height = 7, role = Hub }
+                            , { x = 150, z = 0, radius = 42, height = 10, role = HarbourIsle }
+                            ]
+
+                        counts =
+                            List.map (\isl -> List.length (IslandMesh.triangles palette isl)) sampleIslands
+
+                        courseCounts =
+                            List.map (\isl -> List.length (IslandMesh.triangles palette isl)) course.islands
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal [ 180, 240, 270, 270 ] counts
+                        , \_ -> Expect.equal True (List.all (\c -> c >= 150 && c <= 300) courseCounts)
+                        ]
+                        ()
+            , test "island XZ radial extent scales cleanly with isl.radius across all roles" <|
+                \_ ->
+                    let
+                        palette =
+                            World.islandPalette Archipelago.defaultMap
+
+                        skerry =
+                            { x = 10, z = -15, radius = 8, height = 4, role = Skerry }
+
+                        treasure =
+                            { x = 35, z = 40, radius = 10, height = 5, role = TreasureIsle }
+
+                        hub =
+                            { x = 0, z = 100, radius = 20, height = 7, role = Hub }
+
+                        harbour =
+                            { x = -120, z = 60, radius = 45, height = 10, role = HarbourIsle }
+
+                        vertsOf isl =
+                            IslandMesh.triangles palette isl
+                                |> List.concatMap (\( a, b, c ) -> [ a, b, c ])
+
+                        xzRadius v =
+                            sqrt (Vec3.getX v.position ^ 2 + Vec3.getZ v.position ^ 2)
+
+                        maxXZ isl =
+                            vertsOf isl
+                                |> List.map xzRadius
+                                |> List.maximum
+                                |> Maybe.withDefault 0
+
+                        beachMaxXZ isl =
+                            let
+                                bh =
+                                    Physics.beachHeight isl
+                            in
+                            vertsOf isl
+                                |> List.filter (\v -> abs (Vec3.getY v.position - bh) < 1.0e-4)
+                                |> List.map xzRadius
+                                |> List.maximum
+                                |> Maybe.withDefault 0
+                    in
+                    Expect.all
+                        [ \_ -> Expect.within (Expect.Absolute 0.05) (1.08 * skerry.radius) (maxXZ skerry)
+                        , \_ -> Expect.within (Expect.Absolute 0.05) (1.08 * treasure.radius) (maxXZ treasure)
+                        , \_ -> Expect.within (Expect.Absolute 0.05) (1.075 * hub.radius) (maxXZ hub)
+                        , \_ -> Expect.within (Expect.Absolute 0.05) (1.075 * harbour.radius) (maxXZ harbour)
+                        , \_ -> Expect.greaterThan hub.radius (beachMaxXZ hub)
+                        , \_ -> Expect.greaterThan harbour.radius (beachMaxXZ harbour)
+                        ]
+                        ()
+            , test "tier elevations match Physics beachHeight, grassHeight, summit hill, and prop terraces" <|
+                \_ ->
+                    let
+                        palette =
+                            World.islandPalette Archipelago.defaultMap
+
+                        hub =
+                            { x = 0, z = 100, radius = 20, height = 7, role = Hub }
+
+                        harbour =
+                            { x = 150, z = 20, radius = 30, height = 10, role = HarbourIsle }
+
+                        treasure =
+                            { x = -40, z = 30, radius = 8, height = 5, role = TreasureIsle }
+
+                        flatYBandVertices isl targetY =
+                            IslandMesh.triangles palette isl
+                                |> List.filter (\( a, b, c ) -> abs (Vec3.getY a.position - targetY) < 1.0e-4 && abs (Vec3.getY b.position - targetY) < 1.0e-4 && abs (Vec3.getY c.position - targetY) < 1.0e-4)
+
+                        radialBounds tris =
+                            let
+                                rs =
+                                    tris
+                                        |> List.concatMap (\( a, b, c ) -> [ a, b, c ])
+                                        |> List.map (\v -> sqrt (Vec3.getX v.position ^ 2 + Vec3.getZ v.position ^ 2))
+                            in
+                            ( List.minimum rs |> Maybe.withDefault 0
+                            , List.maximum rs |> Maybe.withDefault 0
+                            )
+
+                        minY isl =
+                            IslandMesh.triangles palette isl
+                                |> List.concatMap (\( a, b, c ) -> [ a, b, c ])
+                                |> List.map (.position >> Vec3.getY)
+                                |> List.minimum
+                                |> Maybe.withDefault 0
+
+                        hubHillTris =
+                            flatYBandVertices hub (-0.6 + 0.94 * hub.height)
+
+                        ( harbourGrassMin, harbourGrassMax ) =
+                            radialBounds (flatYBandVertices harbour (Physics.grassHeight harbour))
+
+                        ( treasureBeachMin, treasureBeachMax ) =
+                            radialBounds (flatYBandVertices treasure (Physics.beachHeight treasure))
+
+                        ( hubHillMin, hubHillMax ) =
+                            radialBounds hubHillTris
+                    in
+                    Expect.all
+                        [ \_ -> Expect.atMost -1.8 (minY hub)
+                        , \_ -> Expect.atMost -1.8 (minY treasure)
+                        , \_ -> Expect.within (Expect.Absolute 0.01) 0 hubHillMin
+                        , \_ -> Expect.greaterThan (0.33 * hub.radius) (hubHillMax * cos (pi / 18))
+                        , \_ -> Expect.atMost (0.38 * harbour.radius) harbourGrassMin
+                        , \_ -> Expect.greaterThan (0.76 * harbour.radius) (harbourGrassMax * cos (pi / 18))
+                        , \_ -> Expect.atMost (0.85 * treasure.radius) treasureBeachMin
+                        , \_ -> Expect.greaterThan treasure.radius (treasureBeachMax * cos (pi / 16))
+                        ]
+                        ()
+            , test "normals, studs, palette colours, and CCW outward winding are valid across palettes and roles" <|
+                \_ ->
+                    let
+                        maps =
+                            [ { biome = Desert, season = Summer, weather = Clear, seed = 1 }
+                            , { biome = Boreal, season = Winter, weather = Snow, seed = 2 }
+                            , { biome = Farmland, season = Autumn, weather = Rain, seed = 3 }
+                            , { biome = Fell, season = Spring, weather = Fog, seed = 4 }
+                            ]
+
+                        roles =
+                            [ Skerry, TreasureIsle, Hub, HarbourIsle ]
+
+                        allPairs =
+                            List.concatMap
+                                (\m ->
+                                    let
+                                        p =
+                                            World.islandPalette m
+                                    in
+                                    List.indexedMap
+                                        (\k r ->
+                                            ( p
+                                            , { x = 10 * toFloat k, z = -15 * toFloat k, radius = 12 + 8 * toFloat k, height = 4 + 2 * toFloat k, role = r }
+                                            )
+                                        )
+                                        roles
+                                )
+                                maps
+
+                        expectedColors p =
+                            List.map BrickLook.colour [ p.beach, p.shore, p.grass, p.hill ]
+
+                        nearColor c target =
+                            Vec3.distanceSquared c target < 1.0e-5
+
+                        validTri p ( a, b, c ) =
+                            let
+                                geomN =
+                                    Vec3.normalize (Vec3.cross (Vec3.sub b.position a.position) (Vec3.sub c.position a.position))
+
+                                vs =
+                                    [ a, b, c ]
+
+                                isFlat =
+                                    abs (Vec3.getY a.position - Vec3.getY b.position) < 1.0e-5 && abs (Vec3.getY a.position - Vec3.getY c.position) < 1.0e-5
+
+                                unitNormals =
+                                    List.all (\v -> abs (Vec3.length v.normal - 1.0) < 1.0e-4) vs
+
+                                alignedWinding =
+                                    List.all (\v -> Vec3.dot geomN v.normal > 0.99 && Vec3.getY v.normal >= -1.0e-6) vs
+
+                                flatStuds =
+                                    not isFlat || List.all (\v -> Vec3.getY v.normal > 0.9999 && v.studs == 1.0) vs
+
+                                validPalette =
+                                    List.all (\v -> List.any (nearColor v.color) (expectedColors p)) vs
+                            in
+                            unitNormals && alignedWinding && flatStuds && validPalette
+                    in
+                    Expect.equal True
+                        (List.all (\( p, isl ) -> List.all (validTri p) (IslandMesh.triangles p isl)) allPairs)
             ]
         ]
