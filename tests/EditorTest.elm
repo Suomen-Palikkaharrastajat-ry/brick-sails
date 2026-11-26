@@ -60,6 +60,28 @@ suite =
                     , \bs -> Expect.equal (List.map .id bs) (List.filterMap (\b -> Editor.baseOf b.document |> Maybe.map .id) bs)
                     ]
                     Editor.bases
+        , test "the first ship is the narrow racer with a mast and a sail, and it sails" <|
+            \_ ->
+                case Editor.firstShip of
+                    Just ( base, doc ) ->
+                        let
+                            plain =
+                                Ingest.ingestDocument "test" base.document
+
+                            rigged =
+                                Ingest.ingestDocument "test" doc
+                        in
+                        Expect.all
+                            [ \_ -> Expect.equal "narrow-racer" base.id
+                            , \_ -> Expect.equal (Just base.id) (Editor.baseOf doc |> Maybe.map .id)
+                            , \_ -> Expect.equal (plain.mastPartCount + 1) rigged.mastPartCount
+                            , \_ -> Expect.equal (plain.sailPartCount + 1) rigged.sailPartCount
+                            , \_ -> Expect.ok (Ingest.validateShip doc)
+                            ]
+                            ()
+
+                    Nothing ->
+                        Expect.fail "no first ship"
         , describe "the rigging is read as rigging"
             (Editor.bases |> List.take 1 |> List.map riggingTest)
         , describe "every part added to every hull still makes a ship"

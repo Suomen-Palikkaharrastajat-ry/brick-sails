@@ -8,6 +8,7 @@ module Sails.Editor exposing
     , bases
     , defaultColour
     , dropMatrix
+    , firstShip
     , isBasePlacement
     , palette
     , partCategories
@@ -281,6 +282,42 @@ fromStarter file text =
 
         _ ->
             Nothing
+
+
+{-| The ship a new player starts with: the first starter hull (the narrow
+racer) with a mast (antenna `3957a.dat`) and a sail (flag `2335.dat`) hung on
+it, each placed where the editor would place it. It stands on a starter hull,
+so it opens in the editor like any other build.
+-}
+firstShip : Maybe ( Base, Document )
+firstShip =
+    List.head bases |> Maybe.map (\base -> ( base, rig base.document ))
+
+
+{-| Add a black mast to a hull, then a white sail on that mast.
+-}
+rig : Document -> Document
+rig doc =
+    let
+        mainName =
+            (Document.mainSubmodel doc).name
+
+        ( withMast, mastId ) =
+            Document.addPlacement mainName { part = mastPart, color = 0, matrix = dropMatrix doc Set.empty mastPart } doc
+    in
+    Document.addPlacement mainName { part = sailPart, color = 15, matrix = dropMatrix withMast (Set.singleton mastId) sailPart } withMast
+        |> Tuple.first
+        |> Document.clearTouched
+
+
+mastPart : String
+mastPart =
+    "3957a.dat"
+
+
+sailPart : String
+sailPart =
+    "2335.dat"
 
 
 {-| The starter hull a build stands on: its main model holds exactly one
