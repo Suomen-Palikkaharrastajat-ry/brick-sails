@@ -365,32 +365,29 @@ iconButton attrs label icon =
         [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
 
 
-{-| Top left: quick exit back to boats, restart race, and minimal hull health.
-Always visible and touch-ready on mobile.
+{-| Top left: quick exit icon back to boats shown only when anchored, and minimal hull health.
 -}
 viewTopLeftButtons :
     { a
         | language : Language
         , hull : Hull
+        , isAnchored : Bool
         , actions : HudActions msg
     }
     -> Html msg
-viewTopLeftButtons { language, hull, actions } =
+viewTopLeftButtons { language, hull, isAnchored, actions } =
     div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-left" ]
-        [ iconButton
-            [ Events.onClick actions.onExit
-            , Events.on "pointerdown" (Decode.succeed actions.onExit)
+        (if isAnchored then
+            [ iconButton
+                [ Events.onClick actions.onExit ]
+                (T.backToBoats language)
+                FeatherIcons.logOut
+            , viewMinimalHealth hull
             ]
-            (T.backToBoats language)
-            FeatherIcons.arrowLeft
-        , iconButton
-            [ Events.onClick actions.onRestart
-            , Events.on "pointerdown" (Decode.succeed actions.onRestart)
-            ]
-            (T.restartRace language)
-            FeatherIcons.rotateCcw
-        , viewMinimalHealth hull
-        ]
+
+         else
+            [ viewMinimalHealth hull ]
+        )
 
 
 {-| Top right: mute toggle and keyboard/touch control help (? / H).
@@ -683,7 +680,6 @@ anchorButton { canAnchor, isAnchored, actions } =
     button
         [ Attr.type_ "button"
         , Events.onClick actions.onDropAnchor
-        , Events.on "pointerdown" (Decode.succeed actions.onDropAnchor)
         , Attr.attribute "data-testid" "drop-anchor"
         , Attr.style "touch-action" "manipulation"
         , Attr.style "-webkit-user-select" "none"
