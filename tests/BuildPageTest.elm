@@ -9,14 +9,14 @@ and closes from its button.
 -}
 
 import Expect
-import I18n exposing (Language(..))
+import I18n
 import LDraw.Document as Document exposing (Document)
 import Pages.Build as Build exposing (BuilderTab(..), Msg(..))
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Editor as Editor exposing (Base)
 import Sails.Ingest as Ingest
 import Studio.Core as Core
-import Studio.Shortcuts exposing (TurnDirection(..))
+import Studio.Shortcuts as Shortcuts exposing (TurnDirection(..))
 import Test exposing (Test, describe, test)
 import Viewport
 
@@ -111,7 +111,7 @@ open base =
         { ldrawBase = ""
         , ldrawFallbackBase = ""
         , supportsPointerEvents = True
-        , language = En
+        , language = I18n.En
         , width = 390
         , height = 844
         }
@@ -177,7 +177,7 @@ baseTest base =
                                 opened |> step (AddPart "3001.dat") |> step (AddPart "3039.dat")
 
                             turned =
-                                step (Turn TurnLeft) added
+                                step (Turn Shortcuts.TurnLeft) added
 
                             deleted =
                                 step DeleteSelected turned
@@ -221,6 +221,21 @@ baseTest base =
                                 Document.mainPlacements (Build.document added) |> List.map .color
                         in
                         Expect.equal True (List.member 14 colours)
+               , test "toggling base lock unlocks and explodes hull grouping into individual placements" <|
+                    \_ ->
+                        let
+                            unlocked =
+                                step ToggleBaseLock opened
+
+                            doc =
+                                Build.document unlocked
+                        in
+                        Expect.all
+                            [ \_ -> Expect.equal False unlocked.baseLocked
+                            , \_ -> Expect.equal False (List.any (Editor.isBasePlacement base) (Document.mainPlacements doc))
+                            , \_ -> Expect.equal base.partCount (List.length (Document.mainPlacements doc))
+                            ]
+                            ()
                ]
         )
 

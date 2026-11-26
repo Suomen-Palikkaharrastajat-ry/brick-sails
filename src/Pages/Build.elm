@@ -561,7 +561,38 @@ updateModel msg model =
                 )
 
         ToggleBaseLock ->
-            ( { model | baseLocked = not model.baseLocked, notice = Nothing }, Cmd.none, Stay )
+            if model.baseLocked then
+                let
+                    doc =
+                        Core.getDocument model.studio
+
+                    maybeBasePlacement =
+                        Document.mainPlacements doc
+                            |> List.filter (Editor.isBasePlacement model.base)
+                            |> List.head
+                in
+                case maybeBasePlacement of
+                    Just basePlacement ->
+                        let
+                            unlockedModel =
+                                { model | baseLocked = False, notice = Nothing }
+
+                            ( selected, selCmd ) =
+                                runCore (Core.update (Core.Select (Set.singleton basePlacement.id))) unlockedModel
+
+                            ( exploded, expCmd ) =
+                                runCore (Core.update Core.ExplodeSelection) selected
+                        in
+                        ( { exploded | baseLocked = False, notice = Nothing }
+                        , Cmd.batch [ selCmd, expCmd ]
+                        , Stay
+                        )
+
+                    Nothing ->
+                        ( { model | baseLocked = False, notice = Nothing }, Cmd.none, Stay )
+
+            else
+                ( { model | baseLocked = True, notice = Nothing }, Cmd.none, Stay )
 
         PasteTextChanged textVal ->
             ( { model | pasteText = textVal, pasteError = Nothing }, Cmd.none, Stay )
@@ -625,7 +656,9 @@ runCore step model =
             step model.studio
 
         isAllowed =
-            not model.baseLocked || Editor.baseIntact model.base (Core.getDocument studio)
+            not model.baseLocked
+                || not (List.any (Editor.isBasePlacement model.base) (Document.mainPlacements (Core.getDocument studio)))
+                || Editor.baseIntact model.base (Core.getDocument studio)
     in
     if isAllowed then
         ( { model | studio = studio }
