@@ -254,6 +254,8 @@ viewActionButtons { language, hulls, canEditShip, actions } =
                 button
                     [ Attr.type_ "button"
                     , onClick msg
+                    , Attr.title label
+                    , Attr.attribute "aria-label" label
                     , Attr.attribute "data-testid" "build-action-button"
                     , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-white/10 border border-white/25 text-white font-extrabold text-base cursor-pointer transition-all active:bg-white/20"
                     ]
@@ -266,6 +268,8 @@ viewActionButtons { language, hulls, canEditShip, actions } =
         , button
             [ Attr.type_ "button"
             , onClick actions.onStartSailing
+            , Attr.title (T.setSail language)
+            , Attr.attribute "aria-label" (T.setSail language)
             , Attr.attribute "data-tilt-start" ""
             , Attr.attribute "data-testid" "sail-action-button"
             , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-brand-yellow text-brand font-extrabold text-base uppercase tracking-widest cursor-pointer transition-all shadow-lg shadow-brand-yellow/30 active:brightness-110"
@@ -314,13 +318,14 @@ viewTrackSection cfg =
         , Attr.attribute "data-testid" "track-section"
         ]
         [ div
-            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-2 border-r border-white/10"
-            , Attr.style "writing-mode" "vertical-rl"
-            , Attr.style "transform" "rotate(180deg)"
+            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-3 border-r border-white/10"
             , Attr.attribute "aria-hidden" "true"
             ]
             [ span
-                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow" ]
+                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow"
+                , Attr.style "writing-mode" "vertical-rl"
+                , Attr.style "transform" "rotate(180deg)"
+                ]
                 [ text labelText ]
             ]
         , div
@@ -497,17 +502,18 @@ viewCrew language roomCode actions =
         , Attr.class "flex flex-row items-stretch gap-3 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full"
         ]
         [ div
-            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-2 border-r border-white/10"
-            , Attr.style "writing-mode" "vertical-rl"
-            , Attr.style "transform" "rotate(180deg)"
+            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-3 border-r border-white/10"
             , Attr.attribute "aria-hidden" "true"
             ]
             [ span
-                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow" ]
+                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow"
+                , Attr.style "writing-mode" "vertical-rl"
+                , Attr.style "transform" "rotate(180deg)"
+                ]
                 [ text labelText ]
             ]
         , div
-            [ Attr.class "flex-1 flex flex-col justify-center gap-2 min-w-0" ]
+            [ Attr.class "flex-1 flex flex-col justify-between gap-2 min-w-0" ]
             [ div [ Attr.class "flex flex-wrap items-center gap-2", Attr.attribute "data-testid" "crew-controls-row" ]
                 [ hostButton language actions TwoPlayers FeatherIcons.users
                 , hostButton language actions GridSession FeatherIcons.tv
@@ -527,7 +533,41 @@ viewCrew language roomCode actions =
                     , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
                     ]
                 ]
+            , viewCrewStatusRow language roomCode
             ]
+        ]
+
+
+{-| A written description of the chosen gameplay combination under the crew controls.
+-}
+viewCrewStatusRow : Language -> String -> Html msg
+viewCrewStatusRow language roomCode =
+    let
+        desc =
+            if not (String.isEmpty (String.trim roomCode)) then
+                case language of
+                    I18n.Fi ->
+                        "Liittymässä huoneeseen: " ++ String.trim roomCode
+
+                    I18n.En ->
+                        "Joining room: " ++ String.trim roomCode
+
+            else
+                case language of
+                    I18n.Fi ->
+                        "Yksinpurjehdus (1 pelaaja) • Avaa huone moninpelille"
+
+                    I18n.En ->
+                        "Solo voyage (1 player) • Host room for multiplayer"
+    in
+    div
+        [ Attr.class "flex items-center justify-end gap-1.5 pt-1 w-full"
+        , Attr.attribute "data-testid" "crew-status-row"
+        ]
+        [ span
+            [ Attr.class "min-h-[32px] px-2 flex items-center text-xs font-medium text-slate-400"
+            ]
+            [ text desc ]
         ]
 
 
