@@ -121,7 +121,7 @@ viewShipyard cfg =
 
                     Nothing ->
                         text ""
-                , viewMenu cfg
+                , viewTrackSection cfg
                 , viewCrew cfg.language cfg.roomCode cfg.actions
                 ]
             ]
@@ -269,203 +269,96 @@ viewActionButtons { language, hulls, canEditShip, actions } =
         ]
 
 
-{-| The menu card: a two-way switch, then the course panel or the world
-panel.
+{-| Track randomization: a dice icon to randomize track, visualized with three
+icons representing the feature axes (biome, season, weather) that cycle when clicked.
+Below the icon row is the right-aligned code + seed without explanation and a small
+icon to copy it to clipboard. Clicking the code + seed enables inline editing.
 -}
-viewMenu :
+viewTrackSection :
     { a
-        | course : Course
-        , personalBest : Maybe LeaderboardEntry
-        , language : Language
-        , selection : Selection
-        , seedText : String
-        , seedEditing : Bool
-        , menuTab : MenuTab
-        , actions : ShipyardActions msg
-    }
-    -> Html msg
-viewMenu cfg =
-    div [ Attr.class "flex flex-col gap-3 p-3 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
-        [ div [ Attr.attribute "role" "group", Attr.class "flex p-1 rounded-lg bg-slate-900/80 border border-white/10" ]
-            [ tabButton cfg.actions cfg.menuTab CourseTab (T.courseTab cfg.language)
-            , tabButton cfg.actions cfg.menuTab WorldTab (T.worldTab cfg.language)
-            ]
-        , case cfg.menuTab of
-            CourseTab ->
-                viewCoursePanel cfg
-
-            WorldTab ->
-                viewWorldPanel cfg
-        ]
-
-
-tabButton : ShipyardActions msg -> MenuTab -> MenuTab -> String -> Html msg
-tabButton actions current tab label =
-    let
-        selected =
-            current == tab
-    in
-    button
-        [ Attr.type_ "button"
-        , onClick (actions.onSelectTab tab)
-        , Attr.attribute "aria-pressed"
-            (if selected then
-                "true"
-
-             else
-                "false"
-            )
-        , Attr.class
-            ("flex-1 min-h-[40px] rounded-md text-sm font-bold cursor-pointer transition-all "
-                ++ (if selected then
-                        "bg-brand-yellow text-brand"
-
-                    else
-                        "text-slate-300"
-                   )
-            )
-        ]
-        [ text label ]
-
-
-{-| The course: the map's name, the best time on it with its stars (nothing
-while there is none), and the previous map's button.
--}
-viewCoursePanel :
-    { a
-        | course : Course
-        , personalBest : Maybe LeaderboardEntry
-        , language : Language
-        , actions : ShipyardActions msg
-    }
-    -> Html msg
-viewCoursePanel { course, personalBest, language, actions } =
-    let
-        labels =
-            T.mapPickerLabels language
-    in
-    div [ Attr.class "flex flex-wrap items-center justify-between gap-2 min-h-[44px]" ]
-        [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
-            [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
-            , text (T.mapTitle language course.map)
-            ]
-        , div [ Attr.class "flex items-center gap-2" ]
-            [ case personalBest of
-                Just pb ->
-                    span [ Attr.class "text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 text-brand-yellow" ]
-                        [ text ("⏱ " ++ T.personalBestLine language (Leaderboard.formatRaceTime pb.timeSeconds) (Physics.starRating course.targetSeconds pb.timeSeconds)) ]
-
-                Nothing ->
-                    text ""
-            , case actions.onUsePreviousMap of
-                Just msg ->
-                    iconButton msg labels.previous FeatherIcons.rotateCcw
-
-                Nothing ->
-                    text ""
-            ]
-        ]
-
-
-{-| The world: the dice, the biome, season and weather buttons and the wind,
-then the seed number (or its field) with the copy-link button at the right.
--}
-viewWorldPanel :
-    { a
-        | course : Course
-        , language : Language
+        | language : Language
         , selection : Selection
         , seedText : String
         , seedEditing : Bool
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewWorldPanel { course, language, selection, seedText, seedEditing, actions } =
+viewTrackSection cfg =
     let
         labels =
-            T.mapPickerLabels language
+            T.mapPickerLabels cfg.language
 
         world =
-            MapParams.resolve selection
+            MapParams.resolve cfg.selection
+
+        codeText =
+            MapParams.toCode world
     in
-    div [ Attr.class "flex flex-col gap-1.5" ]
-        [ div [ Attr.class "flex flex-wrap items-center gap-2" ]
+    div [ Attr.class "flex flex-col gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10" ]
+        [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3" ]
             [ button
                 [ Attr.type_ "button"
-                , onClick actions.onRollWorld
-                , Attr.title (T.rollWorld language)
-                , Attr.attribute "aria-label" (T.rollWorld language)
-                , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110"
+                , onClick cfg.actions.onRollWorld
+                , Attr.title (T.rollWorld cfg.language)
+                , Attr.attribute "aria-label" (T.rollWorld cfg.language)
+                , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110 shadow-md transition-all"
                 ]
                 [ MenuIcons.dice |> FeatherIcons.withSize 26 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
             , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
-            , worldButton language
+            , worldButton cfg.language
                 { label = labels.biome
                 , valueName = labels.biomeName world.biome
-                , pick = selection.biome
+                , pick = cfg.selection.biome
                 , icon = MenuIcons.biome world.biome
-                , onPick = actions.onPickBiome (cycle MapParams.allBiomes selection.biome world.biome)
+                , onPick = cfg.actions.onPickBiome (cycle MapParams.allBiomes cfg.selection.biome world.biome)
                 }
-            , worldButton language
+            , worldButton cfg.language
                 { label = labels.season
                 , valueName = labels.seasonName world.season
-                , pick = selection.season
+                , pick = cfg.selection.season
                 , icon = MenuIcons.season world.season
-                , onPick = actions.onPickSeason (cycle MapParams.allSeasons selection.season world.season)
+                , onPick = cfg.actions.onPickSeason (cycle MapParams.allSeasons cfg.selection.season world.season)
                 }
-            , worldButton language
+            , worldButton cfg.language
                 { label = labels.weather
                 , valueName = labels.weatherName world.weather
-                , pick = selection.weather
+                , pick = cfg.selection.weather
                 , icon = MenuIcons.weather world.weather
-                , onPick = actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) selection.weather world.weather)
+                , onPick = cfg.actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) cfg.selection.weather world.weather)
                 }
-            , span
-                [ Attr.attribute "role" "img"
-                , Attr.attribute "aria-label" (T.windLabel language course.wind.speed)
-                , Attr.title (T.windLabel language course.wind.speed)
-                , Attr.class "w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl bg-white/5 border border-white/10 text-sky-200"
-                ]
-                [ FeatherIcons.wind |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
-                , span [ Attr.class "text-[10px] leading-none font-mono", Attr.attribute "aria-hidden" "true" ]
-                    [ text (String.fromInt (round course.wind.speed)) ]
-                ]
             ]
-        , div [ Attr.class "flex items-center justify-end gap-1" ]
-            [ if seedEditing then
+        , div [ Attr.class "flex items-center justify-end gap-1.5 pt-1" ]
+            [ if cfg.seedEditing then
                 input
                     [ Attr.type_ "text"
                     , Attr.id seedInputId
-                    , Attr.value seedText
-                    , onInput actions.onSeedInput
-                    , onBlur actions.onCommitSeed
-                    , Html.Events.on "keydown" (enterKey actions.onCommitSeed)
+                    , Attr.value cfg.seedText
+                    , onInput cfg.actions.onSeedInput
+                    , onBlur cfg.actions.onCommitSeed
+                    , Html.Events.on "keydown" (enterKey cfg.actions.onCommitSeed)
                     , Attr.attribute "aria-label" labels.seed
                     , Attr.attribute "autocomplete" "off"
                     , Attr.attribute "inputmode" "text"
-                    , Attr.class "w-40 min-h-[32px] px-2 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white"
+                    , Attr.class "min-w-[14rem] max-w-full min-h-[32px] px-2.5 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white text-right"
                     ]
                     []
 
               else
                 button
                     [ Attr.type_ "button"
-                    , onClick actions.onEditSeed
-                    , Attr.title (T.editSeed language)
-                    , Attr.attribute "aria-label" (labels.seed ++ " " ++ String.fromInt selection.seed ++ ". " ++ T.editSeed language)
-                    , Attr.class "min-h-[32px] px-2 rounded-md text-[10px] font-mono text-slate-400 cursor-pointer hover:text-white"
+                    , onClick cfg.actions.onEditSeed
+                    , Attr.title (T.editSeed cfg.language)
+                    , Attr.attribute "aria-label" (T.editSeed cfg.language)
+                    , Attr.class "min-h-[32px] px-2 rounded-md text-xs font-mono text-slate-400 cursor-pointer hover:text-white transition-colors"
                     ]
-                    [ text ("#" ++ String.fromInt selection.seed) ]
+                    [ text codeText ]
             , button
                 [ Attr.type_ "button"
-                , onClick actions.onCopyMapLink
-
-                -- Keep the seed field's focus, so a click copies instead of
-                -- first closing the field under the pointer.
-                , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( actions.onKeepFocus, True ))
-                , Attr.title (T.copyLink language)
-                , Attr.attribute "aria-label" (T.copyLink language)
-                , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white"
+                , onClick cfg.actions.onCopyMapLink
+                , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( cfg.actions.onKeepFocus, True ))
+                , Attr.title (T.copyLink cfg.language)
+                , Attr.attribute "aria-label" (T.copyLink cfg.language)
+                , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white transition-colors"
                 ]
                 [ FeatherIcons.copy |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
             ]

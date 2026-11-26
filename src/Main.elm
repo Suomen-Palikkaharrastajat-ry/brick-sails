@@ -206,7 +206,7 @@ init flags =
             , loadError = Nothing
             , boat = Boats.default
             , selection = selection
-            , seedText = String.fromInt selection.seed
+            , seedText = MapParams.toCode (MapParams.resolve selection)
             , seedEditing = False
             , menuTab = Shipyard.WorldTab
             , lastMap = previous
@@ -287,7 +287,7 @@ withSelection selection model =
             else
                 courseOf selection
     in
-    { model | selection = selection, seedText = String.fromInt selection.seed, course = course }
+    { model | selection = selection, seedText = MapParams.toCode (MapParams.resolve selection), course = course }
 
 
 {-| Change the selection from the map picker and write the map (and the
@@ -323,7 +323,7 @@ commitSeed : Model -> ( Model, Cmd Msg )
 commitSeed model =
     let
         closed =
-            { model | seedEditing = False, seedText = String.fromInt model.selection.seed }
+            { model | seedEditing = False, seedText = MapParams.toCode (MapParams.resolve model.selection) }
     in
     case MapParams.fromCode (String.trim model.seedText) of
         Just pasted ->
@@ -408,7 +408,7 @@ update msg model =
             ( { model | menuTab = tab }, Cmd.none )
 
         EditSeed ->
-            ( { model | seedEditing = True, seedText = String.fromInt model.selection.seed }
+            ( { model | seedEditing = True, seedText = MapParams.toCode (MapParams.resolve model.selection) }
             , Task.attempt (\_ -> NoOp) (Dom.focus Shipyard.seedInputId)
             )
 
@@ -431,7 +431,7 @@ update msg model =
                     else
                         ( model, Cmd.none )
             in
-            ( next, Cmd.batch [ cmd, GamePorts.copyShareUrl (mapLink next) ] )
+            ( next, Cmd.batch [ cmd, GamePorts.copyShareUrl (MapParams.toCode (MapParams.resolve next.selection)) ] )
 
         RollWorld ->
             -- A new seed with every pick left to chance, so the dice shows
