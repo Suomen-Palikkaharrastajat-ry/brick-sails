@@ -202,7 +202,7 @@ pick lang fi en =
 title : Language -> String
 title lang =
     -- The game name is the same in both languages, so it is not a translated phrase.
-    pick lang "Merirosvoleikki" "Merirosvoleikki"
+    pick lang "Laivaseikkailu" "Laivaseikkailu"
 
 
 subtitle : Language -> String
