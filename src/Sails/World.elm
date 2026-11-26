@@ -199,7 +199,8 @@ islandModels =
 
 
 {-| An island built from real catalog bricks: a sloped beach foundation,
-a stepped shore tier, a lush grassy plateau and an inland hill peak.
+a stepped shore terrace, a lush grassy plateau and an inland hill peak,
+built to genuine 1:1 scale without non-uniform stretching.
 -}
 islandModel : IslandPalette -> String
 islandModel p =
@@ -239,58 +240,95 @@ islandModel p =
         h =
             p.hill
 
+        outerCoords =
+            [ -400, -320, -240, -160, -80, 0, 80, 160, 240, 320, 400 ]
+
         beachTier =
-            [ part b 0 -24 -20 sMat "3001.dat"
-            , part b 0 -24 20 sMat "3001.dat"
-            , part b -60 -24 0 qMat "3001.dat"
-            , part b 60 -24 0 qMat "3001.dat"
-            , part b -20 -24 -60 hMat "3039.dat"
-            , part b 20 -24 -60 hMat "3039.dat"
-            , part b -20 -24 60 sMat "3039.dat"
-            , part b 20 -24 60 sMat "3039.dat"
-            , part b -80 -24 -20 qMat "3039.dat"
-            , part b -80 -24 20 qMat "3039.dat"
-            , part b 80 -24 -20 tMat "3039.dat"
-            , part b 80 -24 20 tMat "3039.dat"
-            , part b -60 -24 -60 sMat "3941.dat"
-            , part b 60 -24 -60 sMat "3941.dat"
-            , part b -60 -24 60 sMat "3941.dat"
-            , part b 60 -24 60 sMat "3941.dat"
-            ]
+            List.concatMap
+                (\c ->
+                    [ part b c -24 -480 hMat "3037.dat"
+                    , part b c -24 480 sMat "3037.dat"
+                    , part b -480 -24 c qMat "3037.dat"
+                    , part b 480 -24 c tMat "3037.dat"
+                    ]
+                )
+                outerCoords
+
+        terraceCoords =
+            [ -320, -240, -160, -80, 0, 80, 160, 240, 320 ]
+
+        shoreSlopes =
+            List.concatMap
+                (\c ->
+                    [ part s c -48 -400 hMat "3039.dat"
+                    , part s c -48 400 sMat "3039.dat"
+                    , part s -400 -48 c qMat "3039.dat"
+                    , part s 400 -48 c tMat "3039.dat"
+                    ]
+                )
+                terraceCoords
+
+        shorePlates =
+            List.concatMap
+                (\x ->
+                    List.map (\z -> part s x -48 z sMat "3867.dat") [ -160, 160 ]
+                )
+                [ -160, 160 ]
 
         shoreTier =
-            [ part s 0 -48 0 sMat "3001.dat"
-            , part s 0 -48 -40 sMat "3003.dat"
-            , part s 0 -48 40 sMat "3003.dat"
-            , part s -40 -48 -40 hMat "3039.dat"
-            , part s 40 -48 -40 hMat "3039.dat"
-            , part s -40 -48 40 sMat "3039.dat"
-            , part s 40 -48 40 sMat "3039.dat"
-            , part s -60 -48 0 qMat "3039.dat"
-            , part s 60 -48 0 tMat "3039.dat"
-            ]
+            shoreSlopes ++ shorePlates
+
+        grassCoords =
+            [ -240, -160, -80, 0, 80, 160, 240 ]
+
+        grassSlopes =
+            List.concatMap
+                (\c ->
+                    [ part g c -72 -320 hMat "3039.dat"
+                    , part g c -72 320 sMat "3039.dat"
+                    , part g -320 -72 c qMat "3039.dat"
+                    , part g 320 -72 c tMat "3039.dat"
+                    ]
+                )
+                grassCoords
+
+        grassPlates =
+            List.concatMap
+                (\x ->
+                    List.map (\z -> part g x -72 z sMat "3867.dat") [ -80, 80 ]
+                )
+                [ -80, 80 ]
 
         grassPlateau =
-            [ part g 0 -72 0 sMat "3001.dat"
-            , part g -20 -72 -40 hMat "3039.dat"
-            , part g 20 -72 -40 hMat "3039.dat"
-            , part g -20 -72 40 sMat "3039.dat"
-            , part g 20 -72 40 sMat "3039.dat"
-            , part g -40 -72 0 qMat "3039.dat"
-            , part g 40 -72 0 tMat "3039.dat"
-            ]
+            grassSlopes ++ grassPlates
 
-        hillPeak =
-            [ part h 10 -96 -10 sMat "3003.dat"
-            , part h 10 -96 10 sMat "3039.dat"
-            , part h 10 -96 -30 hMat "3039.dat"
-            , part h -10 -96 -10 qMat "3039.dat"
-            , part h 30 -96 -10 tMat "3039.dat"
-            ]
+        hillCoords =
+            [ -120, -40, 40, 120 ]
+
+        hillSlopes =
+            List.concatMap
+                (\c ->
+                    [ part h c -96 -160 hMat "3039.dat"
+                    , part h c -96 160 sMat "3039.dat"
+                    , part h -160 -96 c qMat "3039.dat"
+                    , part h 160 -96 c tMat "3039.dat"
+                    ]
+                )
+                hillCoords
+
+        hillSummit =
+            hillSlopes
+                ++ [ part h 0 -96 0 sMat "3867.dat"
+                   , part h 0 -120 0 sMat "3001.dat"
+                   , part h -20 -120 -20 hMat "3039.dat"
+                   , part h 20 -120 -20 hMat "3039.dat"
+                   , part h -20 -120 20 sMat "3039.dat"
+                   , part h 20 -120 20 sMat "3039.dat"
+                   ]
     in
     String.join "\n"
         ([ "0 FILE " ++ p.key ++ ".ldr"
-         , "0 Name: Brick Sails Island"
+         , "0 Name: Brick Sails 1:1 Modular Island"
          , "0 Author: Brick Sails"
          , "0 // Beach Tier"
          ]
@@ -299,8 +337,8 @@ islandModel p =
             ++ shoreTier
             ++ [ "0 // Grass Plateau" ]
             ++ grassPlateau
-            ++ [ "0 // Hill Peak" ]
-            ++ hillPeak
+            ++ [ "0 // Hill Summit" ]
+            ++ hillSummit
         )
 
 

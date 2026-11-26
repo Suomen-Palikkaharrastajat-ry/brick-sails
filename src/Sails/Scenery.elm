@@ -205,20 +205,35 @@ pier =
             -48
 
         post ( x, z ) =
-            [ line 72 ( x, -24, z ) upright "3062b.dat"
-            , line 72 ( x, -48, z ) upright "3062b.dat"
+            [ line 72 ( x, -48, z ) upright "3062b.dat"
+            , line 72 ( x, -24, z ) upright "3062b.dat"
+            , line 72 ( x, 0, z ) upright "3062b.dat"
+            , line 72 ( x, 24, z ) upright "3062b.dat"
+            , line 72 ( x, 48, z ) upright "3062b.dat"
+            , line 72 ( x, 72, z ) upright "3062b.dat"
             ]
 
         posts =
             [ ( -30, -30 )
             , ( 30, -30 )
-            , ( -30, -70 )
-            , ( 30, -70 )
-            , ( -30, -110 )
-            , ( 30, -110 )
+            , ( -30, -90 )
+            , ( 30, -90 )
             , ( -30, -150 )
             , ( 30, -150 )
+            , ( -30, -210 )
+            , ( 30, -210 )
+            , ( -30, -270 )
+            , ( 30, -270 )
             ]
+
+        deckPlates =
+            List.concatMap
+                (\z ->
+                    [ line 70 ( -20, deckY - 8, z ) alongZ "3034.dat"
+                    , line 70 ( 20, deckY - 8, z ) alongZ "3034.dat"
+                    ]
+                )
+                [ -80, -240 ]
     in
     { name = "pier"
     , ldraw =
@@ -226,24 +241,23 @@ pier =
             ([ "0 FILE pier.ldr"
              , "0 Name: Brick Sails harbour pier"
              , "0 Author: Brick Sails"
-             , "0 // Main walkway deck (4 studs wide)"
-             , line 70 ( -20, deckY - 8, -80 ) alongZ "3034.dat"
-             , line 70 ( 20, deckY - 8, -80 ) alongZ "3034.dat"
-             , "0 // Pilings"
+             , "0 // Main walkway deck (4 studs wide, 16 studs long)"
              ]
+                ++ deckPlates
+                ++ [ "0 // Deep seabed pilings (anchor 2.5m down into seabed)" ]
                 ++ List.concatMap post posts
                 ++ [ "0 // Mooring bollards"
                    , line 0 ( -30, deckY - 32, -30 ) upright "3062b.dat"
                    , line 0 ( 30, deckY - 32, -30 ) upright "3062b.dat"
-                   , line 0 ( -30, deckY - 32, -70 ) upright "3062b.dat"
-                   , line 0 ( 30, deckY - 32, -70 ) upright "3062b.dat"
                    , line 0 ( -30, deckY - 32, -150 ) upright "3062b.dat"
                    , line 0 ( 30, deckY - 32, -150 ) upright "3062b.dat"
+                   , line 0 ( -30, deckY - 32, -270 ) upright "3062b.dat"
+                   , line 0 ( 30, deckY - 32, -270 ) upright "3062b.dat"
                    , "0 // Dock lanterns"
-                   , line 0 ( -30, deckY - 32, -110 ) upright "3062b.dat"
-                   , line 14 ( -30, deckY - 40, -110 ) upright "6141.dat"
-                   , line 0 ( 30, deckY - 32, -110 ) upright "3062b.dat"
-                   , line 14 ( 30, deckY - 40, -110 ) upright "6141.dat"
+                   , line 0 ( -30, deckY - 32, -210 ) upright "3062b.dat"
+                   , line 14 ( -30, deckY - 40, -210 ) upright "6141.dat"
+                   , line 0 ( 30, deckY - 32, -210 ) upright "3062b.dat"
+                   , line 14 ( 30, deckY - 40, -210 ) upright "6141.dat"
                    ]
             )
     }

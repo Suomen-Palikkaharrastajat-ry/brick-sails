@@ -771,7 +771,7 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
                                     )
                                 |> Maybe.withDefault "pirateFlag"
                     in
-                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 6 / isl.radius) |> Vec3.setY -1.2) bearing
+                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 5 / isl.radius) |> Vec3.setY -1.4) bearing
                         ++ draw.fitted flagProp
                             (BrickProps.fitHeight 3.2)
                             (Mat4.makeTranslate3 edge.x (max 0.48 (Physics.beachHeight isl)) edge.z |> rotY (degrees bearing))
@@ -1027,7 +1027,16 @@ islandEntities draw course =
                                    )
 
                         Skerry ->
-                            draw.fitted "rock" (BrickProps.fitWidth (1.2 * isl.radius)) (Mat4.makeTranslate3 isl.x (-0.6 + 0.4 * isl.height) isl.z |> rotY (toFloat i)) plain
+                            draw.fitted palette.key
+                                (\prop ->
+                                    let
+                                        h =
+                                            max 0.001 (Vec3.getY (BrickProps.size prop))
+                                    in
+                                    BrickProps.fitHeight (0.035 * h) prop
+                                )
+                                (Mat4.makeTranslate3 isl.x -0.84 isl.z |> rotY (toFloat i))
+                                plain
 
                         _ ->
                             []
@@ -1059,8 +1068,14 @@ islandEntities draw course =
                         []
             in
             draw.fitted palette.key
-                (BrickProps.fitBox { width = 2 * isl.radius, height = 1.5 * isl.height, depth = 2 * isl.radius })
-                (Mat4.makeTranslate3 isl.x (-0.6 - 0.5 * isl.height) isl.z)
+                (\prop ->
+                    let
+                        h =
+                            max 0.001 (Vec3.getY (BrickProps.size prop))
+                    in
+                    BrickProps.fitHeight (0.035 * h) prop
+                )
+                (Mat4.makeTranslate3 isl.x -0.84 isl.z)
                 plain
                 ++ trees
                 ++ extras
@@ -1254,7 +1269,7 @@ townEntities ctx width height scenery draw standards towns =
                             []
             in
             sceneryEntities ctx width height scenery Scenery.houses (Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)) town.bearing
-                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY -1.2) town.bearing
+                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 5 / isl.radius) |> Vec3.setY -1.4) town.bearing
                 ++ standardEntities
         )
         towns
