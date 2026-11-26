@@ -823,7 +823,7 @@ update msg model =
             ( model, Cmd.none )
 
 
-fireInDirection : Float -> Model -> ( Model, Cmd Msg )
+fireInDirection : Float -> SailModel -> ( SailModel, Cmd SailMsg )
 fireInDirection sideSign m =
     if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) then
         let
