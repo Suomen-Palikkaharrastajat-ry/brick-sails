@@ -83,6 +83,7 @@ type alias Follow =
     , broadsideBias : Float
     , shootFocusTimer : Float
     , targetBroadsideBias : Float
+    , shootBearing : Float
     }
 
 
@@ -122,6 +123,7 @@ initFollow boat heading =
     , broadsideBias = 0
     , shootFocusTimer = 0
     , targetBroadsideBias = 0
+    , shootBearing = 0
     }
 
 
@@ -199,24 +201,23 @@ knockShake speed =
     clamp 0 1 (max 0 (speed - 2.5) * 0.12)
 
 
-{-| Smoothly pivot camera towards a broadside shot direction to frame the cannonballs.
+{-| Smoothly pivot camera towards a shot's world bearing (degrees) to frame the cannonballs.
 -}
 setBroadsideBias : Float -> Follow -> Follow
-setBroadsideBias bias follow =
-    setShootFocus bias 1.8 follow
+setBroadsideBias bearing follow =
+    setShootFocus bearing 1.8 follow
 
 
 {-| Smoothly pivot camera towards cannon shot direction and hold focus while shooting is active.
-When the timer expires, the camera starts returning to its usual position.
+`bearing` is the shot's world bearing in degrees (same convention as heading);
+each frame the bias is recomputed as `bearing - yaw`, so the camera keeps
+framing the shot while the ship turns. When the timer expires, the camera
+starts returning to its usual position.
 -}
 setShootFocus : Float -> Float -> Follow -> Follow
-setShootFocus bias duration follow =
-    let
-        clampedBias =
-            clamp -70.0 70.0 bias
-    in
+setShootFocus bearing duration follow =
     { follow
-        | targetBroadsideBias = clampedBias
+        | shootBearing = bearing
         , shootFocusTimer = max 0 duration
     }
 
@@ -312,11 +313,28 @@ stepFollow dt aspect boat heading speed next follow =
 
         goalSink =
             speedSinkMax * clamp 0 1 (abs speed / sinkSpeed)
+
+        newYaw =
+            dampAngle 3.5 follow.yaw goalYaw dt
+
+        -- While the shot focus runs, aim the camera at the shot's world
+        -- bearing, whatever the ship is doing.
+        shotRel =
+            follow.shootBearing - newYaw - 360.0 * toFloat (floor ((follow.shootBearing - newYaw + 180.0) / 360.0))
+
+        shotBias =
+            (if shotRel >= 0 then
+                1.0
+
+             else
+                -1.0
+            )
+                * clamp 40.0 65.0 (abs shotRel)
     in
     -- Rates as the racer's chase camera (distance 5, target 8.5 per second);
     -- yaw is slower than the racer's 9 so a tack or a buoy rounding swings
     -- the view round smoothly instead of snapping.
-    { yaw = dampAngle 3.5 follow.yaw goalYaw dt
+    { yaw = newYaw
     , distance = follow.distance + (goalDistance - follow.distance) * min 1 (5.0 * dt)
     , focus = Vec3.add follow.focus (Vec3.scale (min 1 (8.5 * dt)) (Vec3.sub goalFocus follow.focus))
     , heading = heading
@@ -331,7 +349,7 @@ stepFollow dt aspect boat heading speed next follow =
     , clock = follow.clock + dt
     , broadsideBias =
         if follow.shootFocusTimer > 0 then
-            follow.broadsideBias + (follow.targetBroadsideBias - follow.broadsideBias) * min 1 (6.0 * dt)
+            follow.broadsideBias + (shotBias - follow.broadsideBias) * min 1 (6.0 * dt)
 
         else if abs follow.broadsideBias < 0.1 then
             0
@@ -342,10 +360,11 @@ stepFollow dt aspect boat heading speed next follow =
         max 0 (follow.shootFocusTimer - dt)
     , targetBroadsideBias =
         if follow.shootFocusTimer > 0 then
-            follow.targetBroadsideBias
+            shotBias
 
         else
             0
+    , shootBearing = follow.shootBearing
     }
 
 

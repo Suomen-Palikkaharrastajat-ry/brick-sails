@@ -387,7 +387,7 @@ steerInput model =
                     0
 
                 else
-                    clamp -1.0 1.0 (err * 0.05)
+                    clamp -1.0 1.0 (-err * 0.05)
 
             Nothing ->
                 if model.tilt.enabled then
@@ -613,9 +613,9 @@ update msg model =
 
                 worldDir =
                     vec3
-                        (dxNorm * cos camYawRad + depth * sin camYawRad)
+                        (0 - (dxNorm * cos camYawRad + depth * sin camYawRad))
                         0
-                        (0 - (dxNorm * sin camYawRad) + depth * cos camYawRad)
+                        (dxNorm * sin camYawRad - depth * cos camYawRad)
             in
             fireInAimDirection worldDir { model | touchShoot = tap.pointerType == "touch" }
 
@@ -878,32 +878,23 @@ fireInDirection sideSign m =
 
 fireInAimDirection : Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
 fireInAimDirection aimDir m =
-    if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) then
+    if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) && not m.progress.finished then
         let
-            ( balls, camBias, targetHeading ) =
+            ( balls, _, targetHeading ) =
                 Physics.fireTowards (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
 
+            aimRec =
+                Vec3.toRecord aimDir
+
+            -- World bearing of the shot, in the same convention as heading.
+            shotBearing =
+                atan2 aimRec.x aimRec.z * 180.0 / pi
+
             newFollow =
-                CameraRig.setShootFocus camBias 1.8 m.follow
-
-            rawErr =
-                targetHeading - m.state.heading
-
-            headingErr =
-                rawErr - 360.0 * toFloat (floor ((rawErr + 180.0) / 360.0))
-
-            turnImpulse =
-                clamp -25.0 25.0 (headingErr * 0.7)
-
-            curState =
-                m.state
-
-            newState =
-                { curState | steer = clamp -1 1 (curState.steer + turnImpulse / 25) }
+                CameraRig.setShootFocus shotBearing 1.8 m.follow
         in
         ( { m
-            | state = newState
-            , cannonballs = m.cannonballs ++ balls
+            | cannonballs = m.cannonballs ++ balls
             , cannonCooldown = cannonReload
             , nextCannonId = m.nextCannonId + List.length balls
             , follow = newFollow
@@ -1685,7 +1676,7 @@ tick dt model =
                         err =
                             rawErr - 360.0 * toFloat (floor ((rawErr + 180.0) / 360.0))
                     in
-                    if abs err < 3.0 || model.touchLeft || model.touchRight || model.keyLeft || model.keyRight then
+                    if abs err < 3.0 || model.touchLeft || model.touchRight || model.keyLeft || model.keyRight || model.anchored || (model.tilt.enabled && model.tiltSteer /= 0) then
                         Nothing
 
                     else
