@@ -117,7 +117,6 @@ propSources =
     , ( "seabird", Scenery.seabird )
     , ( "cannonball", BrickModels.cannonball )
     , ( "splash", BrickModels.splash )
-    , ( "waterArrow", waterArrowModel )
     , ( "plateRound", BrickModels.singlePart "6141.dat" )
     , ( "plateOpenRound", BrickModels.singlePart "85861.dat" )
     , ( "plate1x1", BrickModels.singlePart "3024.dat" )
@@ -125,18 +124,6 @@ propSources =
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     ]
         ++ World.islandModels
-
-
-waterArrowModel : String
-waterArrowModel =
-    String.join "\n"
-        [ "0 FILE waterArrow.ldr"
-        , "0 Name: Water Arrow"
-        , "0 Author: Brick Sails"
-        , "1 16 0 0 -20 1 0 0 0 1 0 0 0 1 85984.dat"
-        , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 3023.dat"
-        , "1 16 0 0 20 1 0 0 0 1 0 0 0 1 3024.dat"
-        ]
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
@@ -1348,7 +1335,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                 bob =
                     sin (time * 3.2) * 0.03
 
-                drawArrow ( goalX, goalZ ) color radius =
+                drawIndicator ( goalX, goalZ ) mesh radius =
                     let
                         dx =
                             goalX - p.x
@@ -1371,15 +1358,15 @@ goalArrowEntities ctx draw time boats guide standards targets =
                                 p.z + cos angle * radius
 
                             mat =
-                                Mat4.makeTranslate3 ax (0.08 + bob) az
+                                Mat4.makeTranslate3 ax (0.12 + bob) az
                                     |> Mat4.mul (Mat4.makeRotate angle (vec3 0 1 0))
                         in
-                        draw.fitted "waterArrow" (BrickProps.fitLength 1.6) mat color
+                        [ ocean ctx mat (vec3 1 1 1) mesh ]
 
                     else
                         []
 
-                -- 1. Next Waypoint / Harbour (Emerald Green)
+                -- 1. Next Waypoint / Harbour (Emerald Green Portal, r = 2.1)
                 harbourArrow =
                     case guide of
                         Just g ->
@@ -1387,12 +1374,12 @@ goalArrowEntities ctx draw time boats guide standards targets =
                                 b =
                                     Vec3.toRecord g.to
                             in
-                            drawArrow ( b.x, b.z ) (vec4 0.15 0.95 0.35 1.0) 3.6
+                            drawIndicator ( b.x, b.z ) harbourIndicatorMesh 2.1
 
                         Nothing ->
                             []
 
-                -- 2. Nearest Lost Standard at Sea (Gold)
+                -- 2. Nearest Lost Standard at Sea (Golden Star, r = 2.3)
                 nearestStandard =
                     standards
                         |> List.filterMap
@@ -1415,7 +1402,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                                     sr =
                                         Vec3.toRecord spos
                                 in
-                                drawArrow ( sr.x, sr.z ) (vec4 1.0 0.85 0.1 1.0) 4.3
+                                drawIndicator ( sr.x, sr.z ) standardIndicatorMesh 2.3
 
                             else
                                 []
@@ -1423,7 +1410,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                         Nothing ->
                             []
 
-                -- 3. Nearest Target / Enemy (Fiery Red)
+                -- 3. Nearest Target / Enemy (Crimson Crosshair, r = 2.5)
                 nearestTarget =
                     targets
                         |> List.map (\t -> ( Physics.horizontalDistance playerBoat.state.position t.position, t.position ))
@@ -1438,7 +1425,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                                     tr =
                                         Vec3.toRecord tpos
                                 in
-                                drawArrow ( tr.x, tr.z ) (vec4 0.95 0.2 0.2 1.0) 5.0
+                                drawIndicator ( tr.x, tr.z ) targetIndicatorMesh 2.5
 
                             else
                                 []
@@ -1446,7 +1433,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                         Nothing ->
                             []
 
-                -- 4. Ghost Ship (Spectral Cyan)
+                -- 4. Ghost Ship (Spectral Cyan Wings, r = 2.7)
                 ghostArrow =
                     case List.filter .isGhost (List.drop 1 boats) |> List.head of
                         Just ghost ->
@@ -1459,7 +1446,7 @@ goalArrowEntities ctx draw time boats guide standards targets =
                                     gr =
                                         Vec3.toRecord ghost.state.position
                                 in
-                                drawArrow ( gr.x, gr.z ) (vec4 0.2 0.95 0.85 1.0) 5.7
+                                drawIndicator ( gr.x, gr.z ) ghostIndicatorMesh 2.7
 
                             else
                                 []
@@ -1668,6 +1655,121 @@ lighthouseBeamMesh =
     in
     WebGL.triangles
         (face (p -0.5 -0.4 0) (p 0.5 0.4 0) (p 9 1.8 90) (p -9 -1.8 90) white)
+
+
+{-| Navigational indicator chevron arm pointing forward along +Z.
+-}
+chevronArm : Float -> Vec3 -> List Tri
+chevronArm sign col =
+    box ( -0.06, 0.0, -0.55 ) ( 0.06, 0.12, 0.0 ) col
+        |> transformTris
+            (Mat4.makeTranslate3 0 0 0.75
+                |> Mat4.mul (Mat4.makeRotate (sign * 0.65) (vec3 0 1 0))
+            )
+
+
+chevronSideFin : Float -> Vec3 -> List Tri
+chevronSideFin sign col =
+    box ( -0.05, 0.0, -0.4 ) ( 0.05, 0.1, 0.0 ) col
+        |> transformTris (Mat4.makeTranslate3 (sign * 0.33) 0 0.31)
+
+
+badgeBase : Vec3 -> List Tri
+badgeBase col =
+    box ( -0.22, 0.0, -0.25 ) ( 0.22, 0.08, 0.2 ) (Vec3.scale 0.55 col)
+
+
+indicatorMesh : Vec3 -> List Tri -> WebGL.Mesh PropVertex
+indicatorMesh col iconTris =
+    let
+        chevron =
+            chevronArm 1 col
+                ++ chevronArm -1 col
+                ++ chevronSideFin 1 (Vec3.scale 0.85 col)
+                ++ chevronSideFin -1 (Vec3.scale 0.85 col)
+                ++ badgeBase col
+                ++ iconTris
+    in
+    WebGL.triangles chevron
+
+
+{-| Harbour / Waypoint indicator: Emerald green with port gateway beacon icon.
+-}
+harbourIndicatorMesh : WebGL.Mesh PropVertex
+harbourIndicatorMesh =
+    let
+        postX =
+            0.11
+
+        icon =
+            List.concat
+                [ box ( -postX - 0.03, 0.08, -0.15 ) ( -postX + 0.03, 0.18, 0.12 ) white
+                , box ( postX - 0.03, 0.08, -0.15 ) ( postX + 0.03, 0.18, 0.12 ) white
+                , box ( -postX - 0.04, 0.16, -0.04 ) ( postX + 0.04, 0.21, 0.04 ) white
+                , box ( -0.03, 0.21, -0.03 ) ( 0.03, 0.26, 0.03 ) (vec3 1.0 0.95 0.4)
+                ]
+    in
+    indicatorMesh (vec3 0.15 0.95 0.35) icon
+
+
+{-| Lost Standard / Treasure indicator: Radiant gold with 8-point compass star icon.
+-}
+standardIndicatorMesh : WebGL.Mesh PropVertex
+standardIndicatorMesh =
+    let
+        arm sign =
+            box ( -0.03, 0.08, -0.16 ) ( 0.03, 0.17, 0.16 ) white
+                |> transformTris (Mat4.makeRotate (sign * (pi / 4.0)) (vec3 0 1 0))
+
+        icon =
+            List.concat
+                [ arm 0
+                , arm 1
+                , box ( -0.05, 0.08, -0.05 ) ( 0.05, 0.19, 0.05 ) (vec3 1.0 0.95 0.4)
+                ]
+    in
+    indicatorMesh (vec3 1.0 0.84 0.12) icon
+
+
+{-| Target / Enemy ship indicator: Fiery crimson red with crosshair bullseye icon.
+-}
+targetIndicatorMesh : WebGL.Mesh PropVertex
+targetIndicatorMesh =
+    let
+        icon =
+            List.concat
+                [ box ( -0.04, 0.08, -0.04 ) ( 0.04, 0.18, 0.04 ) white
+                , box ( -0.16, 0.08, -0.025 ) ( 0.16, 0.16, 0.025 ) white
+                , box ( -0.025, 0.08, -0.16 ) ( 0.025, 0.16, 0.16 ) white
+                , box ( -0.14, 0.08, 0.11 ) ( -0.11, 0.15, 0.14 ) (vec3 1.0 0.4 0.4)
+                , box ( 0.11, 0.08, 0.11 ) ( 0.14, 0.15, 0.14 ) (vec3 1.0 0.4 0.4)
+                , box ( -0.14, 0.08, -0.14 ) ( -0.11, 0.15, -0.11 ) (vec3 1.0 0.4 0.4)
+                , box ( 0.11, 0.08, -0.14 ) ( 0.14, 0.15, -0.11 ) (vec3 1.0 0.4 0.4)
+                ]
+    in
+    indicatorMesh (vec3 0.95 0.2 0.2) icon
+
+
+{-| Ghost Vessel indicator: Spectral cyan with phantom twin sail icon.
+-}
+ghostIndicatorMesh : WebGL.Mesh PropVertex
+ghostIndicatorMesh =
+    let
+        sail sign =
+            box ( -0.025, 0.08, -0.14 ) ( 0.025, 0.19, 0.0 ) white
+                |> transformTris
+                    (Mat4.makeTranslate3 (sign * 0.08) 0 0.0
+                        |> Mat4.mul (Mat4.makeRotate (sign * 0.35) (vec3 0 1 0))
+                    )
+
+        icon =
+            List.concat
+                [ sail 1
+                , sail -1
+                , box ( -0.02, 0.08, -0.15 ) ( 0.02, 0.22, 0.12 ) (vec3 0.6 1.0 0.9)
+                ]
+    in
+    indicatorMesh (vec3 0.18 0.95 0.85) icon
 
 
 
