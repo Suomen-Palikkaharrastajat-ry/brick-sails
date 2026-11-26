@@ -163,12 +163,12 @@ plankTeak =
 
 plankOak : Vec4
 plankOak =
-    vec4 0.46 0.33 0.20 1.0
+    vec4 0.46 0.33 0.2 1.0
 
 
 plankCedar : Vec4
 plankCedar =
-    vec4 0.40 0.28 0.18 1.0
+    vec4 0.4 0.28 0.18 1.0
 
 
 plankPine : Vec4
@@ -178,12 +178,12 @@ plankPine =
 
 plankSeam : Vec4
 plankSeam =
-    vec4 0.14 0.10 0.06 1.0
+    vec4 0.14 0.1 0.06 1.0
 
 
 timberBumper : Vec4
 timberBumper =
-    vec4 0.28 0.18 0.10 1.0
+    vec4 0.28 0.18 0.1 1.0
 
 
 ironFitting : Vec4
@@ -203,7 +203,7 @@ waterColor =
 
 waterShallowColor : Vec4
 waterShallowColor =
-    vec4 0.10 0.46 0.58 0.85
+    vec4 0.1 0.46 0.58 0.85
 
 
 
