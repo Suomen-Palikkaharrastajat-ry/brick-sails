@@ -44,6 +44,7 @@ import LDraw.Colors as Colors
 import LDraw.Document as Document exposing (Document)
 import Ports
 import Sails.Analyze as Analyze
+import Sails.DockFloor as DockFloor
 import Sails.Editor as Editor exposing (Base, PartEntry)
 import Sails.Ingest as Ingest
 import Set
@@ -794,7 +795,17 @@ view model =
             , Attr.style "touch-action" "none"
             , Html.Events.on "pointerdown" (Decode.succeed CanvasTapped)
             ]
-            [ Html.map StudioMsg (Core.view { width = model.width, height = canvasHeight model } model.studio) ]
+            [ Html.map StudioMsg
+                (Core.viewWithExtra
+                    { width = model.width
+                    , height = canvasHeight model
+                    , extraEntities =
+                        \camera aspect ->
+                            DockFloor.entities 0.0 camera aspect
+                    }
+                    model.studio
+                )
+            ]
         , topBar model
         , noticeView model
         , bottomPanel model
@@ -822,7 +833,6 @@ topBar model =
             button
                 [ Attr.type_ "button"
                 , onClick (SelectTab tab)
-                , Html.Events.on "pointerdown" (Decode.succeed (SelectTab tab))
                 , Attr.attribute dataAttr ""
                 , Attr.attribute "aria-label" label
                 , Attr.attribute "aria-pressed"
@@ -885,7 +895,6 @@ topBar model =
         [ button
             (buttonStyle True
                 ++ [ onClick Finish
-                   , Html.Events.on "pointerdown" (Decode.succeed Finish)
                    , Attr.style "background" Brand.legoYellow
                    , Attr.style "color" Brand.legoBlack
                    , Attr.style "border" "none"
@@ -1180,7 +1189,6 @@ toolButton label icon maybeMsg =
             ++ (case maybeMsg of
                     Just msg ->
                         [ onClick msg
-                        , Html.Events.on "pointerdown" (Decode.succeed msg)
                         ]
 
                     Nothing ->
@@ -2207,7 +2215,6 @@ iconButton label icon maybeMsg =
             ++ (case maybeMsg of
                     Just msg ->
                         [ onClick msg
-                        , Html.Events.on "pointerdown" (Decode.succeed msg)
                         ]
 
                     Nothing ->
