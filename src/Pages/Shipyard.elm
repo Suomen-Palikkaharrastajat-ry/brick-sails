@@ -7,19 +7,17 @@ module Pages.Shipyard exposing
 
 {-| Start screen: the shared app header (title and mute), a framed preview of
 the boat bobbing on the water with its name and loading state, the two main
-buttons (build or edit your own ship, set sail), a two-way switch between the
-course (its name, best time and the previous map) and the world (a dice that
-rolls a new one; biome, season and weather buttons that each step through
-their values or leave it to chance; the wind they make; and the small seed
-number, which opens a field for a seed or a map code, with a copy-link
-button), and online play as icon buttons (host a room of two or eight, or
-join one by code). Every player sails on their own screen.
+buttons (build or edit your own ship, set sail), a track randomization section
+(a dice button that rolls a new world and three icons for biome, season and
+weather that each step through their values on click, with the right-aligned
+map code + seed and copy button below), and online play as icon buttons (host a
+room of two or eight, or join one by code). Every player sails on their own
+screen.
 -}
 
 import Component.Navbar as Navbar
 import DesignTokens.Colors as Brand
 import FeatherIcons
-import Game.Leaderboard as Leaderboard
 import Game.MapParams as MapParams exposing (Biome, Pick(..), Season, Selection, WeatherKind)
 import Game.Multiplayer as Multiplayer exposing (SessionMode(..))
 import Html exposing (Html, button, div, input, p, section, span, text)
@@ -29,7 +27,6 @@ import I18n exposing (Language)
 import Json.Decode as Decode
 import Sails.I18n as T
 import Sails.MenuIcons as MenuIcons
-import Sails.Physics as Physics
 import Sails.Render as Render
 import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, Course, LeaderboardEntry)
@@ -402,22 +399,17 @@ worldButton language { label, valueName, pick, icon, onPick } =
         [ icon |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
 
 
-{-| The next pick of a world setting: from chance to the first value, from a
-value (the one the map has) to the next, and from the last back to chance.
+{-| The next pick of a world setting: steps from the currently shown value to
+the next value in the list, wrapping around to the first.
 -}
 cycle : List a -> Pick a -> a -> Pick a
-cycle values current shown =
-    case current of
-        Any ->
+cycle values _ shown =
+    case dropUntil shown values of
+        _ :: next :: _ ->
+            Exactly next
+
+        _ ->
             List.head values |> Maybe.map Exactly |> Maybe.withDefault Any
-
-        Exactly _ ->
-            case dropUntil shown values of
-                _ :: next :: _ ->
-                    Exactly next
-
-                _ ->
-                    Any
 
 
 dropUntil : a -> List a -> List a

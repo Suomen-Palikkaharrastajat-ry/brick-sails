@@ -1,5 +1,6 @@
 module Pages.Build exposing
-    ( Model
+    ( BuilderTab(..)
+    , Model
     , Msg(..)
     , Outcome(..)
     , document
@@ -11,32 +12,20 @@ module Pages.Build exposing
     , view
     )
 
-{-| The ship editor: a small Brick Play builder for one ship.
+{-| The ship editor (`Pages.Build`): a Brick Play builder for one ship, matching
+Brick Racer's builder experience.
 
-It wraps the shared 3D builder `Studio.Core` as Brick Play does, with a
-fixed dock instead of Brick Play's tabs: a modelling toolbar (undo, redo,
-turn, raise, lower, copy, paste, delete) above the palette row: the 8
-colours of `Sails.Editor.palette` in two rows of four, the full-catalog
-button and the parts used last, the active one starred. The full catalog
-(`Sails.Editor.partCategories`, with a filter by name or number) opens
-above the palette row; its button closes it again.
-The top bar holds only icons: "Use ship" (the check mark) on the left, then
-the hull's name with the hulls button beside it, "Show the whole ship" and
-"Close". As in Brick Racer's bases drawer, the hulls button opens the
-starter hulls above the palette row; picking another one starts the ship
-again on that hull.
+Includes the 3D builder `Studio.Core`, the parts dock with colour palette, recent
+parts and base lock toggle, starter hulls drawer (`BasesTab`), build link / LDraw
+import drawer (`ImportBuildTab`), and live seaworthiness & rigging evaluation
+drawer (`ReviewTab`) with one-tap helpers and hints to add masts, sails, cannons,
+and deck fittings.
 
-The ship starts from one of the starter hulls (`Sails.Editor.bases`): bow,
-deck and keel grouped as one submodel, so the hull is selected and moved as
-one piece. The player adds parts (each goes on free studs of the deck, a sail
-on the selected mast, `Sails.Editor.dropMatrix`), colours them, turns, raises,
-lowers, drags, copies and pastes them, and deletes them. The hull itself cannot be deleted,
-recoloured or ungrouped: every studio update is checked with
-`Sails.Editor.baseIntact` and one that would split the hull is dropped. Brick
-Sails has no ungroup flow, so the hull stays fixed.
-
-"Use ship" hands the document to `Main`, which loads it like a build link
-(`validateShip`, "Your ship" in the shipyard, share link, race).
+The top bar holds only icons, matching Brick Racer:
+- Left: "Use this ship" (`FeatherIcons.check`)
+- Center: three drawer tabs — Starter hulls (`FeatherIcons.anchor`), Open build
+  (`FeatherIcons.download`), and Evaluation (`FeatherIcons.award`)
+- Right: "Show the whole ship" (`FeatherIcons.maximize`)
 
 -}
 
@@ -44,16 +33,18 @@ import DesignTokens.Colors as Brand
 import Dict exposing (Dict)
 import FeatherIcons
 import Game.Ports as GamePorts
-import Html exposing (Html, button, div, input, span, text)
+import Html exposing (Html, button, div, h3, input, span, text, textarea)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick, onInput, onMouseLeave)
 import I18n exposing (Language(..))
 import Json.Decode as Decode
 import LDraw.ColorData as ColorData
 import LDraw.Colors as Colors
-import LDraw.Document exposing (Document)
+import LDraw.Document as Document exposing (Document)
 import Ports
+import Sails.Analyze as Analyze
 import Sails.Editor as Editor exposing (Base, PartEntry)
+import Sails.Ingest as Ingest
 import Set
 import Studio.Colours as Colours
 import Studio.Core as Core
@@ -62,24 +53,38 @@ import UI.PartCard as PartCard
 import Viewport
 
 
-{-| Editor state: the studio, the hull it stands on, the colour for new parts,
-the part pictures received so far (by `PartCard.thumbnailKey`), whether the
-full catalog is open and its filter, whether the hulls drawer is open, and
-the palette row: the part added last (`activePart`) and the parts used
-before it (`recentParts`).
+{-| Tabs available within the ship builder experience (matching Brick Racer).
+-}
+type BuilderTab
+    = BuildBricksTab
+    | AllBricksTab
+    | BasesTab
+    | ImportBuildTab
+    | ReviewTab
+
+
+{-| Editor state: the studio, the hull it stands on, whether the hull is locked,
+the colour for new parts, the part pictures received so far (by
+`PartCard.thumbnailKey`), the active drawer tab (`catalogOpen` and `hullsOpen`
+stay in sync with `activeTab`), the catalog filter, paste buffer, and the
+palette row (`activePart` and `recentParts`).
 -}
 type alias Model =
     { studio : Core.Model
     , base : Base
+    , baseLocked : Bool
     , colour : Int
     , language : Language
     , width : Int
     , height : Int
     , thumbnails : Dict String String
     , notice : Maybe String
+    , activeTab : BuilderTab
     , catalogOpen : Bool
     , hullsOpen : Bool
     , catalogFilter : String
+    , pasteText : String
+    , pasteError : Maybe String
     , activePart : String
     , recentParts : List String
     }
@@ -91,6 +96,9 @@ type Msg
     = StudioMsg Core.Msg
     | PickColour Int
     | AddPart String
+    | AddPartList (List String)
+    | SelectPlacements (List Int)
+    | RemovePlacements (List Int)
     | Turn TurnDirection
     | Raise
     | Lower
@@ -103,9 +111,13 @@ type Msg
     | Finish
     | Leave
     | ThumbnailLoaded { file : String, color : Int, url : String }
+    | SelectTab BuilderTab
     | ToggleCatalog
     | ToggleHulls
     | SelectHull Base
+    | ToggleBaseLock
+    | PasteTextChanged String
+    | SubmitPaste
     | CatalogFilterChanged String
     | PaletteLeft
     | CanvasTapped
@@ -119,8 +131,8 @@ type Outcome
     | Finished Document
 
 
-{-| Open the editor on a build that stands on the hull `base` (a starter document, or a
-build made on it earlier).
+{-| Open the editor on a build that stands on the hull `base` (a starter
+document, or a build made on it earlier).
 -}
 init :
     { ldrawBase : String, ldrawFallbackBase : String, supportsPointerEvents : Bool, language : Language, width : Int, height : Int }
@@ -144,7 +156,7 @@ init config base doc =
                 }
                 |> Tuple.mapFirst
                     (Core.setGizmoStyle Core.NoGizmo
-                        -- As in Brick Play: one finger (or a left drag) on a part
+                        -- As in Brick Play & Brick Racer: one finger (or a left drag) on a part
                         -- moves it, on empty space pans; two fingers or a right drag orbit.
                         >> Core.setDragMode (Core.DragPartsOrPan Core.OneFingerPans)
                         >> Core.setTwoFingerOrbits True
@@ -152,18 +164,25 @@ init config base doc =
                         >> Core.setNudgeSteps { horizontal = 20, vertical = 8 }
                     )
 
+        ( fittedStudio, fitCmd ) =
+            Core.fitView studio
+
         model =
-            { studio = studio
+            { studio = fittedStudio
             , base = base
+            , baseLocked = True
             , colour = Editor.defaultColour
             , language = config.language
             , width = config.width
             , height = config.height
             , thumbnails = Dict.empty
             , notice = Nothing
+            , activeTab = BuildBricksTab
             , catalogOpen = False
             , hullsOpen = False
             , catalogFilter = ""
+            , pasteText = ""
+            , pasteError = Nothing
             , activePart = "3001.dat"
             , recentParts = initialRecentParts
             }
@@ -172,7 +191,7 @@ init config base doc =
             resize config.width config.height model
     in
     ( sized
-    , Cmd.batch [ Cmd.map StudioMsg studioCmd, sizeCmd, requestThumbnails sized ]
+    , Cmd.batch [ Cmd.map StudioMsg studioCmd, Cmd.map StudioMsg fitCmd, sizeCmd, requestThumbnails sized ]
     )
 
 
@@ -232,12 +251,39 @@ commitRecent model =
     }
 
 
+{-| Set the active drawer tab and keep `catalogOpen` and `hullsOpen` in sync.
+-}
+setTab : BuilderTab -> Model -> Model
+setTab tab model =
+    { model
+        | activeTab = tab
+        , catalogOpen = tab == AllBricksTab
+        , hullsOpen = tab == BasesTab
+        , notice = Nothing
+    }
+
+
+{-| Toggle a drawer tab: pressing the active tab's button closes it back to
+`BuildBricksTab`.
+-}
+toggleTab : BuilderTab -> Model -> Model
+toggleTab tab model =
+    if model.activeTab == tab then
+        setTab BuildBricksTab model
+
+    else
+        setTab tab model
+
+
 {-| Messages that mean the player has moved on from the palette card they
 tapped.
 -}
 endsPaletteTap : Msg -> Bool
 endsPaletteTap msg =
     case msg of
+        SelectTab _ ->
+            True
+
         ToggleCatalog ->
             True
 
@@ -245,6 +291,9 @@ endsPaletteTap msg =
             True
 
         SelectHull _ ->
+            True
+
+        ToggleBaseLock ->
             True
 
         PaletteLeft ->
@@ -287,9 +336,8 @@ endsPaletteTap msg =
             False
 
 
-{-| Handle an editor message. Opening or closing the full catalog or the
-hulls drawer changes the height of the 3D view, so the studio is resized
-whenever it does.
+{-| Handle an editor message. Any change of drawer tab changes the height of
+the 3D view, so the studio is resized whenever it does.
 -}
 update : Msg -> Model -> ( Model, Cmd Msg, Outcome )
 update msg model =
@@ -311,7 +359,7 @@ update msg model =
                     model
                 )
     in
-    if next.catalogOpen /= model.catalogOpen || next.hullsOpen /= model.hullsOpen then
+    if next.activeTab /= model.activeTab || next.catalogOpen /= model.catalogOpen || next.hullsOpen /= model.hullsOpen then
         let
             ( resized, resizeCmd ) =
                 runCore (Core.update (Core.ViewportMsg (Viewport.WindowResize next.width (canvasHeight next)))) next
@@ -344,7 +392,7 @@ updateModel msg model =
                 in
                 ( next, Cmd.batch [ cmd, requestThumbnails next ], Stay )
 
-            else if baseSelected model then
+            else if Core.hasSelection model.studio && baseSelected model then
                 ( { picked | notice = Just (keepBaseColours model.language) }, requestThumbnails picked, Stay )
 
             else
@@ -354,8 +402,81 @@ updateModel msg model =
             let
                 matrix =
                     Editor.dropMatrix (Core.getDocument model.studio) model.studio.selection file
+
+                partName =
+                    Editor.parts
+                        |> List.filter (\p -> p.file == file)
+                        |> List.head
+                        |> Maybe.map (\p -> tr model.language p.nameEn p.nameFi)
+                        |> Maybe.withDefault file
+
+                noticeText =
+                    tr model.language ("➕ Added: " ++ partName) ("➕ Lisätty: " ++ partName)
+
+                closed =
+                    setTab BuildBricksTab model
             in
-            stay (runCore (Core.addPartAt file model.colour matrix) { model | notice = Nothing, activePart = file, catalogOpen = False })
+            stay
+                (runCore
+                    (Core.addPartAt file model.colour matrix)
+                    { closed | activePart = file, notice = Just noticeText }
+                )
+
+        AddPartList files ->
+            List.foldl
+                (\file ( acc, accCmd, _ ) ->
+                    let
+                        ( added, addCmd, _ ) =
+                            updateModel (AddPart file) acc
+                    in
+                    ( added, Cmd.batch [ accCmd, addCmd ], Stay )
+                )
+                ( model, Cmd.none, Stay )
+                files
+
+        SelectPlacements ids ->
+            stay (selectPlacements ids (setTab BuildBricksTab model))
+
+        RemovePlacements ids ->
+            let
+                doc =
+                    Core.getDocument model.studio
+
+                removable =
+                    Document.mainPlacements doc
+                        |> List.filter
+                            (\p ->
+                                List.member p.id ids
+                                    && not (Document.isSubmodelReference p doc)
+                                    && not (isLockedBase model p)
+                            )
+                        |> List.map .id
+
+                kept =
+                    List.filter (\id -> not (List.member id removable)) ids
+
+                closed =
+                    setTab BuildBricksTab model
+            in
+            if List.isEmpty removable then
+                stay (selectPlacements ids closed)
+
+            else
+                let
+                    ( selected, selectCmd ) =
+                        runCore (Core.update (Core.Select (Set.fromList removable))) closed
+
+                    ( removed, removeCmd ) =
+                        runCore Core.deleteSelection selected
+
+                    ( shown, showCmd ) =
+                        if List.isEmpty kept then
+                            ( removed, Cmd.none )
+
+                        else
+                            selectPlacements kept removed
+                in
+                ( shown, Cmd.batch [ selectCmd, removeCmd, showCmd ], Stay )
 
         Turn direction ->
             stay (runCore (Core.turnSelected direction) model)
@@ -404,26 +525,31 @@ updateModel msg model =
             , Stay
             )
 
+        SelectTab tab ->
+            ( toggleTab tab model, Cmd.none, Stay )
+
         ToggleCatalog ->
-            ( { model | catalogOpen = not model.catalogOpen, hullsOpen = False, notice = Nothing }, Cmd.none, Stay )
+            ( toggleTab AllBricksTab model, Cmd.none, Stay )
 
         ToggleHulls ->
-            ( { model | hullsOpen = not model.hullsOpen, catalogOpen = False, notice = Nothing }, Cmd.none, Stay )
+            ( toggleTab BasesTab model, Cmd.none, Stay )
 
         SelectHull base ->
             if base.id == model.base.id then
-                ( { model | hullsOpen = False, notice = Nothing }, Cmd.none, Stay )
+                ( setTab BuildBricksTab model, Cmd.none, Stay )
 
             else
-                -- As Brick Racer's bases drawer: start again on the picked hull.
                 let
                     ( resetStudio, resetCmd, events ) =
                         Core.resetDocument base.document model.studio
 
                     ( fittedStudio, fitCmd ) =
                         Core.fitView resetStudio
+
+                    closed =
+                        setTab BuildBricksTab model
                 in
-                ( { model | studio = fittedStudio, base = base, hullsOpen = False, notice = Nothing }
+                ( { closed | studio = fittedStudio, base = base, baseLocked = True }
                 , Cmd.batch
                     (Cmd.map StudioMsg resetCmd
                         :: Cmd.map StudioMsg fitCmd
@@ -431,6 +557,50 @@ updateModel msg model =
                     )
                 , Stay
                 )
+
+        ToggleBaseLock ->
+            ( { model | baseLocked = not model.baseLocked, notice = Nothing }, Cmd.none, Stay )
+
+        PasteTextChanged textVal ->
+            ( { model | pasteText = textVal, pasteError = Nothing }, Cmd.none, Stay )
+
+        SubmitPaste ->
+            case Ingest.decodeShipInput Nothing model.pasteText of
+                Ok decoded ->
+                    let
+                        newBase =
+                            Editor.baseOf decoded.document |> Maybe.withDefault model.base
+
+                        ( nextStudio, cmd, events ) =
+                            Core.resetDocument decoded.document model.studio
+
+                        ( fittedStudio, fitCmd ) =
+                            Core.fitView nextStudio
+
+                        closed =
+                            setTab BuildBricksTab model
+
+                        updated =
+                            { closed
+                                | studio = fittedStudio
+                                , base = newBase
+                                , baseLocked = Editor.baseOf decoded.document /= Nothing
+                                , pasteText = ""
+                                , pasteError = Nothing
+                            }
+                    in
+                    ( updated
+                    , Cmd.batch
+                        [ Cmd.map StudioMsg cmd
+                        , Cmd.map StudioMsg fitCmd
+                        , Cmd.batch (List.map eventCmd events)
+                        , requestThumbnails updated
+                        ]
+                    , Stay
+                    )
+
+                Err err ->
+                    ( { model | pasteError = Just err }, Cmd.none, Stay )
 
         CatalogFilterChanged query ->
             ( { model | catalogFilter = query }, Cmd.none, Stay )
@@ -442,18 +612,20 @@ updateModel msg model =
             ( model, Cmd.none, Stay )
 
 
-{-| Run a studio step, unless it would split the hull: then the step is
-dropped (its model, commands and events) and the player is told why. This
-catches every path to the hull: the keyboard (Delete, Ctrl+X, Ctrl+D,
-Ctrl+V, Ctrl+G, Ctrl+Shift+G), the buttons and drags.
+{-| Run a studio step, unless the hull is locked and the step would split it:
+then the step is dropped (its model, commands and events) and the player is
+told why.
 -}
 runCore : (Core.Model -> ( Core.Model, Cmd Core.Msg, List Core.Event )) -> Model -> ( Model, Cmd Msg )
 runCore step model =
     let
         ( studio, cmd, events ) =
             step model.studio
+
+        isAllowed =
+            not model.baseLocked || Editor.baseIntact model.base (Core.getDocument studio)
     in
-    if Editor.baseIntact model.base (Core.getDocument studio) then
+    if isAllowed then
         ( { model | studio = studio }
         , Cmd.batch (Cmd.map StudioMsg cmd :: List.map eventCmd events)
         )
@@ -472,10 +644,40 @@ eventCmd event =
             Cmd.none
 
 
+{-| Select the main-model placements that hold the flattened placements `ids`.
+-}
+selectPlacements : List Int -> Model -> ( Model, Cmd Msg )
+selectPlacements ids model =
+    let
+        doc =
+            Core.getDocument model.studio
+
+        holds p =
+            List.member p.id ids
+                || List.any (\inner -> List.member inner.id ids) (Document.constituentPlacements p.id doc)
+
+        selection =
+            Document.mainPlacements doc
+                |> List.filter holds
+                |> List.map .id
+                |> Set.fromList
+    in
+    runCore (Core.update (Core.Select selection)) model
+
+
+{-| Whether `placement` is the locked starter hull.
+-}
+isLockedBase : Model -> Document.Placement -> Bool
+isLockedBase model placement =
+    model.baseLocked && Editor.isBasePlacement model.base placement
+
+
 baseSelected : Model -> Bool
 baseSelected model =
-    Core.getPlacements model.studio
-        |> List.any (\p -> Set.member p.id model.studio.selection && Editor.isBasePlacement model.base p)
+    model.baseLocked
+        && (Core.getPlacements model.studio
+                |> List.any (\p -> Set.member p.id model.studio.selection && Editor.isBasePlacement model.base p)
+           )
 
 
 requestThumbnails : Model -> Cmd Msg
@@ -518,63 +720,54 @@ subscriptions model =
 
 
 {-| Height of the dock at the bottom: the modelling toolbar and the palette
-row (without the full catalog): the 44 px tools, the palette cards and the
-gaps and padding around them.
+row (without the full catalog).
 -}
 dockHeight : Int
 dockHeight =
-    144
+    126
 
 
-{-| Height of the full catalog, shown above the palette row while open. On a
-desktop-width screen it grows to nearly the full window; on a phone it is up
-to twice its compact height. Either way a strip of the 3D view stays above it.
+{-| Compact height of the full catalog drawer.
 -}
-catalogHeight : Model -> Int
-catalogHeight model =
-    let
-        compact =
-            240
-
-        tallest =
-            if model.width >= 768 then
-                model.height
-
-            else
-                2 * compact
-    in
-    max 120 (min tallest (model.height - dockHeight - 120))
+catalogDrawerHeight : Int
+catalogDrawerHeight =
+    240
 
 
-{-| Height of the hulls drawer, shown above the palette row while open: room
-for the hull cards, never taller than the catalog.
+{-| Height of a drawer. On desktop-width screens it grows to nearly the full
+window, leaving a strip of the 3D view above it; phones keep the compact height.
 -}
-hullsHeight : Model -> Int
-hullsHeight model =
-    min 220 (catalogHeight model)
-
-
-{-| Height of the whole bottom panel: the dock, and the catalog or the hulls
-drawer while open.
--}
-panelHeight : Model -> Int
-panelHeight model =
-    if model.catalogOpen then
-        dockHeight + 6 + catalogHeight model
-
-    else if model.hullsOpen then
-        dockHeight + 6 + hullsHeight model
+drawerHeight : Model -> Int -> Int
+drawerHeight model compact =
+    if model.width >= 768 then
+        max compact (model.height - 120)
 
     else
-        dockHeight
+        max compact (min (2 * compact) (model.height - 200))
+
+
+{-| Height of the bottom panel depending on the active tab.
+-}
+tabDrawerHeight : Model -> BuilderTab -> Int
+tabDrawerHeight model tab =
+    case tab of
+        BuildBricksTab ->
+            dockHeight
+
+        AllBricksTab ->
+            dockHeight + drawerHeight model catalogDrawerHeight
+
+        _ ->
+            drawerHeight model 280
 
 
 canvasHeight : Model -> Int
 canvasHeight model =
-    max 160 (model.height - panelHeight model)
+    max 160 (model.height - tabDrawerHeight model model.activeTab)
 
 
-{-| The editor screen: the studio canvas, a top bar and the dock.
+{-| The editor screen: the studio canvas, a top bar (matching Brick Racer) and
+the bottom panel.
 -}
 view : Model -> Html Msg
 view model =
@@ -583,7 +776,7 @@ view model =
         , Attr.style "position" "fixed"
         , Attr.style "inset" "0"
         , Attr.style "overflow" "hidden"
-        , Attr.style "background" "linear-gradient(180deg, #bfe3f5 0%, #e8f4ec 100%)"
+        , Attr.style "background" "radial-gradient(ellipse 85% 65% at 50% 18%, #1f2e3d 0%, #0d1722 55%, #050b10 100%)"
         , Attr.style "color" "#f8fafc"
         , Attr.style "font-family" "var(--font-sans, system-ui, sans-serif)"
         , Attr.style "user-select" "none"
@@ -601,15 +794,74 @@ view model =
             [ Html.map StudioMsg (Core.view { width = model.width, height = canvasHeight model } model.studio) ]
         , topBar model
         , noticeView model
-        , dock model
+        , bottomPanel model
         ]
 
 
+{-| Top bar matching Brick Racer's top bar:
+- Left: Check button (`Finish`)
+- Center: Starter hulls (`BasesTab`), Open build (`ImportBuildTab`), Evaluation (`ReviewTab`)
+- Right: Fit view (`FitView`)
+-}
 topBar : Model -> Html Msg
 topBar model =
     let
         lang =
             model.language
+
+        tabBtn tab dataAttr label icon =
+            let
+                isActive =
+                    model.activeTab == tab
+            in
+            button
+                [ Attr.type_ "button"
+                , onClick (SelectTab tab)
+                , Html.Events.on "pointerdown" (Decode.succeed (SelectTab tab))
+                , Attr.attribute dataAttr ""
+                , Attr.attribute "aria-label" label
+                , Attr.attribute "aria-pressed"
+                    (if isActive then
+                        "true"
+
+                     else
+                        "false"
+                    )
+                , Attr.title label
+                , Attr.style "display" "inline-flex"
+                , Attr.style "align-items" "center"
+                , Attr.style "justify-content" "center"
+                , Attr.style "width" "40px"
+                , Attr.style "height" "40px"
+                , Attr.style "flex-shrink" "0"
+                , Attr.style "border-radius" "12px"
+                , Attr.style "border"
+                    (if isActive then
+                        "2px solid " ++ Brand.legoYellow
+
+                     else
+                        "1px solid rgba(255, 255, 255, 0.18)"
+                    )
+                , Attr.style "background"
+                    (if isActive then
+                        Brand.legoYellow
+
+                     else
+                        "rgba(15, 23, 42, 0.82)"
+                    )
+                , Attr.style "color"
+                    (if isActive then
+                        Brand.legoBlack
+
+                     else
+                        "#e2e8f0"
+                    )
+                , Attr.style "cursor" "pointer"
+                , Attr.style "pointer-events" "auto"
+                , Attr.style "touch-action" "manipulation"
+                , Attr.style "transition" "all 0.15s ease"
+                ]
+                [ icon |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
     in
     div
         [ Attr.style "position" "absolute"
@@ -618,6 +870,7 @@ topBar model =
         , Attr.style "right" "0"
         , Attr.style "z-index" "30"
         , Attr.style "display" "flex"
+        , Attr.style "flex-wrap" "wrap"
         , Attr.style "align-items" "center"
         , Attr.style "gap" "6px"
         , Attr.style "padding" "max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left))"
@@ -630,71 +883,75 @@ topBar model =
                    , Attr.style "background" Brand.legoYellow
                    , Attr.style "color" Brand.legoBlack
                    , Attr.style "border" "none"
-                   , Attr.attribute "aria-label" (tr lang "Use this ship" "Käytä tätä laivaa")
-                   , Attr.title (tr lang "Use this ship" "Käytä tätä laivaa")
+                   , Attr.attribute "aria-label" (tr lang "To the shipyard" "Telakalle")
+                   , Attr.title (tr lang "To the shipyard" "Telakalle")
                    ]
             )
             [ FeatherIcons.check |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
         , div
-            [ Attr.style "flex" "1"
-            , Attr.style "min-width" "0"
-            , Attr.style "display" "flex"
+            [ Attr.style "display" "flex"
             , Attr.style "align-items" "center"
             , Attr.style "justify-content" "center"
-            , Attr.style "gap" "6px"
+            , Attr.style "gap" "4px"
+            , Attr.style "flex" "1"
+            , Attr.style "min-width" "0"
+            , Attr.style "overflow-x" "auto"
             ]
-            [ div
-                [ Attr.style "min-width" "0"
-                , Attr.style "display" "flex"
-                , Attr.style "flex-direction" "column"
-                , Attr.style "align-items" "center"
-                , Attr.style "padding" "4px 10px"
-                , Attr.style "border-radius" "12px"
-                , Attr.style "background" "rgba(15, 23, 42, 0.78)"
-                , Attr.style "pointer-events" "auto"
-                ]
-                [ span [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "white-space" "nowrap", Attr.style "overflow" "hidden", Attr.style "text-overflow" "ellipsis", Attr.style "max-width" "100%" ]
-                    [ text (tr lang "Build your ship" "Rakenna laivasi") ]
-                , span
-                    [ Attr.style "font-size" "14px"
-                    , Attr.style "font-weight" "700"
-                    , Attr.style "white-space" "nowrap"
-                    , Attr.style "overflow" "hidden"
-                    , Attr.style "text-overflow" "ellipsis"
-                    , Attr.style "max-width" "100%"
-                    ]
-                    [ text (baseName lang model.base) ]
-                ]
-            , hullsButton model
+            [ tabBtn BasesTab "data-hulls-toggle" (tr lang "Starter hulls" "Aloitusrungot") FeatherIcons.anchor
+            , tabBtn ImportBuildTab "data-import-toggle" (tr lang "Open build" "Avaa malli") FeatherIcons.download
+            , tabBtn ReviewTab "data-review-toggle" (tr lang "Evaluation" "Arviointi") FeatherIcons.award
             ]
-        , iconButton (tr lang "Show the whole ship" "Näytä koko laiva") FeatherIcons.maximize (Just FitView)
-        , iconButton (tr lang "Close without using the ship" "Sulje käyttämättä laivaa") FeatherIcons.x (Just Leave)
+        , div [ Attr.style "margin-left" "auto", Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "gap" "4px" ]
+            [ iconButton (tr lang "Show the whole ship" "Näytä koko laiva") FeatherIcons.maximize (Just FitView)
+            ]
         ]
 
 
-{-| Opens the hulls drawer above the palette row, and closes it again; it is
-yellow while the drawer is open, like Brick Racer's drawer tabs.
+noticeView : Model -> Html Msg
+noticeView model =
+    case model.notice of
+        Just message ->
+            div
+                [ Attr.attribute "role" "status"
+                , Attr.style "position" "absolute"
+                , Attr.style "left" "50%"
+                , Attr.style "transform" "translateX(-50%)"
+                , Attr.style "top" "64px"
+                , Attr.style "max-width" "calc(100% - 32px)"
+                , Attr.style "padding" "6px 12px"
+                , Attr.style "border-radius" "10px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.86)"
+                , Attr.style "font-size" "13px"
+                , Attr.style "text-align" "center"
+                ]
+                [ text message ]
+
+        Nothing ->
+            text ""
+
+
+{-| Base lock toggle, shown at the far right of the palette row (matching Brick
+Racer).
 -}
-hullsButton : Model -> Html Msg
-hullsButton model =
+lockButton : Model -> Html Msg
+lockButton model =
     let
+        lang =
+            model.language
+
+        locked =
+            model.baseLocked
+
         label =
-            tr model.language "Change hull" "Vaihda runko"
+            if locked then
+                tr lang "Hull locked (click to unlock and edit hull)" "Runko lukittu (klikkaa avataksesi rungon muokkaus)"
+
+            else
+                tr lang "Hull unlocked (click to lock hull)" "Runko avattu (klikkaa lukitaksesi runko)"
     in
     button
         [ Attr.type_ "button"
-        , onClick ToggleHulls
-        , Html.Events.on "pointerdown" (Decode.succeed ToggleHulls)
-        , Attr.attribute "data-hulls-toggle" ""
-        , Attr.attribute "aria-label" label
-        , Attr.attribute "aria-pressed"
-            (if model.hullsOpen then
-                "true"
-
-             else
-                "false"
-            )
-        , Attr.title label
+        , onClick ToggleBaseLock
         , Attr.style "display" "inline-flex"
         , Attr.style "align-items" "center"
         , Attr.style "justify-content" "center"
@@ -703,38 +960,102 @@ hullsButton model =
         , Attr.style "flex-shrink" "0"
         , Attr.style "border-radius" "12px"
         , Attr.style "border"
-            (if model.hullsOpen then
-                "2px solid " ++ Brand.legoYellow
+            (if locked then
+                "1px solid rgba(255, 255, 255, 0.2)"
 
              else
-                "1px solid rgba(255, 255, 255, 0.18)"
+                "1px solid #f59e0b"
             )
         , Attr.style "background"
-            (if model.hullsOpen then
-                Brand.legoYellow
+            (if locked then
+                "rgba(15, 23, 42, 0.82)"
 
              else
-                "rgba(15, 23, 42, 0.82)"
+                "rgba(245, 158, 11, 0.25)"
             )
         , Attr.style "color"
-            (if model.hullsOpen then
-                Brand.legoBlack
+            (if locked then
+                "#cbd5e1"
 
              else
-                "#e2e8f0"
+                "#fbbf24"
             )
         , Attr.style "cursor" "pointer"
         , Attr.style "pointer-events" "auto"
-        , Attr.style "touch-action" "manipulation"
-        , Attr.style "transition" "all 0.15s ease"
+        , Attr.title label
+        , Attr.attribute "aria-label" label
         ]
-        [ FeatherIcons.anchor |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+        [ (if locked then
+            FeatherIcons.lock
+
+           else
+            FeatherIcons.unlock
+          )
+            |> FeatherIcons.withSize 18
+            |> FeatherIcons.toHtml []
+        ]
+
+
+{-| Render bottom panel according to active tab (matching Brick Racer).
+-}
+bottomPanel : Model -> Html Msg
+bottomPanel model =
+    case model.activeTab of
+        BuildBricksTab ->
+            dock model
+
+        AllBricksTab ->
+            dock model
+
+        BasesTab ->
+            viewBasesDrawer model
+
+        ImportBuildTab ->
+            viewImportDrawer model
+
+        ReviewTab ->
+            viewReviewDrawer model
+
+
+dock : Model -> Html Msg
+dock model =
+    let
+        isCatalogOpen =
+            model.activeTab == AllBricksTab || model.catalogOpen
+
+        height =
+            if isCatalogOpen then
+                tabDrawerHeight model AllBricksTab
+
+            else
+                dockHeight
+    in
+    div
+        [ Attr.style "position" "absolute"
+        , Attr.style "left" "0"
+        , Attr.style "right" "0"
+        , Attr.style "bottom" "0"
+        , Attr.style "height" ("calc(" ++ px height ++ " + env(safe-area-inset-bottom, 0px))")
+        , Attr.style "box-sizing" "border-box"
+        , Attr.style "display" "flex"
+        , Attr.style "flex-direction" "column"
+        , Attr.style "gap" "6px"
+        , Attr.style "padding" "6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
+        , Attr.style "background" "rgba(15, 23, 42, 0.94)"
+        , Attr.style "border-top" "1px solid rgba(148, 163, 184, 0.25)"
+        ]
+        ((if isCatalogOpen then
+            [ catalogView model ]
+
+          else
+            []
+         )
+            ++ [ modellingControls model, paletteRow model ]
+        )
 
 
 {-| The modelling toolbar above the palette: undo and redo, then the tools
 for the selected part. A tool is greyed out while it has nothing to work on.
-Copy and paste appear from 640 px wide, so they stay off a narrow phone in
-portrait; Ctrl+C, Ctrl+V and Ctrl+D work on a keyboard.
 -}
 modellingControls : Model -> Html Msg
 modellingControls model =
@@ -753,7 +1074,7 @@ modellingControls model =
     in
     div
         [ Attr.attribute "role" "toolbar"
-        , Attr.attribute "aria-label" (tr lang "Part tools" "Osan työkalut")
+        , Attr.attribute "aria-label" (tr lang "Part modeling tools" "Osan muokkaustyökalut")
         , Attr.style "display" "flex"
         , Attr.style "align-items" "center"
         , Attr.style "justify-content" "center"
@@ -822,7 +1143,13 @@ toolButton label icon maybeMsg =
              else
                 "rgba(15, 23, 42, 0.4)"
             )
-         , Attr.style "color" "#f8fafc"
+         , Attr.style "color"
+            (if enabled then
+                "#f8fafc"
+
+             else
+                "#475569"
+            )
          , Attr.style "cursor"
             (if enabled then
                 "pointer"
@@ -838,6 +1165,7 @@ toolButton label icon maybeMsg =
                 "0.35"
             )
          , Attr.style "touch-action" "manipulation"
+         , Attr.style "transition" "all 0.15s ease"
          ]
             ++ (case maybeMsg of
                     Just msg ->
@@ -850,58 +1178,6 @@ toolButton label icon maybeMsg =
                )
         )
         [ icon |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
-
-
-noticeView : Model -> Html Msg
-noticeView model =
-    case model.notice of
-        Just message ->
-            div
-                [ Attr.attribute "role" "status"
-                , Attr.style "position" "absolute"
-                , Attr.style "left" "50%"
-                , Attr.style "transform" "translateX(-50%)"
-                , Attr.style "top" "64px"
-                , Attr.style "max-width" "calc(100% - 32px)"
-                , Attr.style "padding" "6px 12px"
-                , Attr.style "border-radius" "10px"
-                , Attr.style "background" "rgba(15, 23, 42, 0.86)"
-                , Attr.style "font-size" "13px"
-                , Attr.style "text-align" "center"
-                ]
-                [ text message ]
-
-        Nothing ->
-            text ""
-
-
-dock : Model -> Html Msg
-dock model =
-    div
-        [ Attr.style "position" "absolute"
-        , Attr.style "left" "0"
-        , Attr.style "right" "0"
-        , Attr.style "bottom" "0"
-        , Attr.style "height" ("calc(" ++ px (panelHeight model) ++ " + env(safe-area-inset-bottom, 0px))")
-        , Attr.style "box-sizing" "border-box"
-        , Attr.style "display" "flex"
-        , Attr.style "flex-direction" "column"
-        , Attr.style "gap" "6px"
-        , Attr.style "padding" "6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
-        , Attr.style "background" "rgba(15, 23, 42, 0.94)"
-        , Attr.style "border-top" "1px solid rgba(148, 163, 184, 0.25)"
-        ]
-        ((if model.catalogOpen then
-            [ catalogView model ]
-
-          else if model.hullsOpen then
-            [ hullsView model ]
-
-          else
-            []
-         )
-            ++ [ modellingControls model, paletteRow model ]
-        )
 
 
 colourRow : Model -> Html Msg
@@ -971,7 +1247,8 @@ swatchView model swatch =
 
 
 {-| The palette row: the colours, then the full-catalog button and the parts
-used last, centred while they fit and scrolling sideways when they do not.
+used last, followed by the base lock toggle on the right (matching Brick
+Racer).
 -}
 paletteRow : Model -> Html Msg
 paletteRow model =
@@ -1023,6 +1300,14 @@ paletteRow model =
                 ]
                 (catalogButton model :: List.filterMap (partCard model) shownParts)
             ]
+        , div
+            [ Attr.style "width" "1px"
+            , Attr.style "height" "48px"
+            , Attr.style "background" "rgba(255, 255, 255, 0.18)"
+            , Attr.style "flex-shrink" "0"
+            ]
+            []
+        , lockButton model
         ]
 
 
@@ -1030,6 +1315,10 @@ paletteRow model =
 -}
 catalogButton : Model -> Html Msg
 catalogButton model =
+    let
+        isOpen =
+            model.activeTab == AllBricksTab || model.catalogOpen
+    in
     button
         [ Attr.type_ "button"
         , onClick ToggleCatalog
@@ -1044,7 +1333,7 @@ catalogButton model =
         , Attr.style "border-radius" "10px"
         , Attr.style "border" "2px dashed rgba(250, 200, 10, 0.6)"
         , Attr.style "background"
-            (if model.catalogOpen then
+            (if isOpen then
                 "rgba(250, 200, 10, 0.35)"
 
              else
@@ -1053,15 +1342,15 @@ catalogButton model =
         , Attr.style "color" Brand.legoYellow
         , Attr.style "cursor" "pointer"
         , Attr.style "touch-action" "manipulation"
-        , Attr.attribute "aria-label" (tr model.language "All parts" "Kaikki osat")
+        , Attr.attribute "aria-label" (tr model.language "All bricks" "Kaikki palikat")
         , Attr.attribute "aria-pressed"
-            (if model.catalogOpen then
+            (if isOpen then
                 "true"
 
              else
                 "false"
             )
-        , Attr.title (tr model.language "Browse all parts" "Selaa kaikkia osia")
+        , Attr.title (tr model.language "Browse all categorized bricks" "Selaa kaikkia osia kategorioittain")
         ]
         [ FeatherIcons.box |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml [] ]
 
@@ -1087,8 +1376,26 @@ partCard model file =
                 in
                 PartCard.compactView
                     { imageUrl = Dict.get (PartCard.thumbnailKey entry.file model.colour) model.thumbnails
-                    , tooltip = name ++ " (" ++ number ++ ")"
-                    , ariaLabel = tr model.language "Add " "Lisää " ++ name
+                    , tooltip =
+                        name
+                            ++ " ("
+                            ++ number
+                            ++ ")"
+                            ++ (if isActive then
+                                    " [" ++ tr model.language "Active" "Valittu" ++ "]"
+
+                                else
+                                    ""
+                               )
+                    , ariaLabel =
+                        (if isActive then
+                            "[★] "
+
+                         else
+                            ""
+                        )
+                            ++ tr model.language "Add " "Lisää "
+                            ++ name
                     , badge =
                         if isActive then
                             Just { text = "★", muted = False }
@@ -1141,7 +1448,7 @@ catalogView model =
     div
         [ Attr.attribute "data-catalog" ""
         , Attr.style "flex-shrink" "0"
-        , Attr.style "height" (px (catalogHeight model))
+        , Attr.style "height" (px (drawerHeight model catalogDrawerHeight))
         , Attr.style "box-sizing" "border-box"
         , Attr.style "overflow-y" "auto"
         , Attr.style "padding" "10px 12px"
@@ -1164,7 +1471,7 @@ catalogView model =
                     , Attr.value model.catalogFilter
                     , onInput CatalogFilterChanged
                     , Attr.placeholder (tr lang "Filter by name or number" "Suodata nimellä tai numerolla")
-                    , Attr.attribute "aria-label" (tr lang "Filter parts" "Suodata osia")
+                    , Attr.attribute "aria-label" (tr lang "Filter bricks" "Suodata palikoita")
                     , Attr.attribute "autocomplete" "off"
                     , Attr.attribute "autocapitalize" "none"
                     , Attr.attribute "spellcheck" "false"
@@ -1218,6 +1525,7 @@ catalogCard model entry =
         , Attr.style "color" "#f8fafc"
         , Attr.style "cursor" "pointer"
         , Attr.style "touch-action" "manipulation"
+        , Attr.style "transition" "all 0.15s ease"
         ]
         [ div
             [ Attr.style "width" "64px"
@@ -1244,7 +1552,7 @@ catalogCard model entry =
                         []
 
                 Nothing ->
-                    text ""
+                    span [ Attr.style "font-size" "20px" ] [ text "🧊" ]
             ]
         , div [ Attr.style "font-size" "11px", Attr.style "font-weight" "700", Attr.style "text-align" "center", Attr.style "line-height" "1.2" ]
             [ text name ]
@@ -1253,22 +1561,21 @@ catalogCard model entry =
         ]
 
 
-{-| The hulls drawer, as Brick Racer's bases drawer: a card for each starter
-hull with its prerendered picture (`public/base-previews/<id>.png`, drawn
-from the hull's real parts by `starters/tools/render_base_previews.mjs`), its
-name and part count, the current one framed in yellow. Picking another hull
-starts the ship again on it.
+{-| Drawer showing the 4 starter hulls (matching Brick Racer's `viewBasesDrawer`).
 -}
-hullsView : Model -> Html Msg
-hullsView model =
+viewBasesDrawer : Model -> Html Msg
+viewBasesDrawer model =
     let
         lang =
             model.language
 
-        hullCard base =
+        renderBaseCard base =
             let
                 isCurrent =
                     base.id == model.base.id
+
+                name =
+                    baseName lang base
             in
             button
                 [ Attr.type_ "button"
@@ -1282,8 +1589,8 @@ hullsView model =
                         "false"
                     )
                 , Attr.style "display" "flex"
-                , Attr.style "align-items" "center"
-                , Attr.style "gap" "10px"
+                , Attr.style "flex-direction" "column"
+                , Attr.style "gap" "8px"
                 , Attr.style "padding" "10px 12px"
                 , Attr.style "border-radius" "12px"
                 , Attr.style "border"
@@ -1300,64 +1607,566 @@ hullsView model =
                      else
                         "rgba(15, 23, 42, 0.7)"
                     )
-                , Attr.style "color" "#f8fafc"
+                , Attr.style "color" Brand.legoWhite
                 , Attr.style "cursor" "pointer"
                 , Attr.style "text-align" "left"
                 , Attr.style "touch-action" "manipulation"
                 ]
                 [ div
-                    [ Attr.style "width" "72px"
-                    , Attr.style "height" "72px"
-                    , Attr.style "flex-shrink" "0"
+                    [ Attr.style "width" "100%"
+                    , Attr.style "aspect-ratio" "1 / 1"
                     , Attr.style "border-radius" "8px"
                     , Attr.style "overflow" "hidden"
-                    , Attr.style "background" "#05131d"
+                    , Attr.style "background" "#070c14"
                     , Attr.style "border" "1px solid rgba(255, 255, 255, 0.08)"
                     ]
                     [ Html.img
                         [ Attr.src ("base-previews/" ++ base.id ++ ".png")
-                        , Attr.alt (baseName lang base)
+                        , Attr.alt name
                         , Attr.style "width" "100%"
                         , Attr.style "height" "100%"
                         , Attr.style "object-fit" "contain"
                         ]
                         []
                     ]
-                , div [ Attr.style "min-width" "0" ]
-                    [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px", Attr.style "line-height" "1.2" ] [ text (baseName lang base) ]
+                , div []
+                    [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px" ] [ text ("⚓ " ++ name) ]
                     , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
-                        [ text (String.fromInt base.partCount ++ tr lang " parts · bow, deck and hull" " osaa · keula, kansi ja runko") ]
+                        [ text (String.fromInt base.partCount ++ tr lang " parts • bow, deck and hull" " osaa • keula, kansi ja runko") ]
                     ]
                 ]
     in
-    div
-        [ Attr.attribute "data-hulls" ""
-        , Attr.style "flex-shrink" "0"
-        , Attr.style "height" (px (hullsHeight model))
-        , Attr.style "box-sizing" "border-box"
-        , Attr.style "overflow-y" "auto"
-        , Attr.style "padding" "10px 12px"
-        , Attr.style "border-radius" "12px"
-        , Attr.style "border" "1px solid rgba(255, 255, 255, 0.12)"
-        , Attr.style "background" "rgba(5, 19, 29, 0.96)"
-        ]
-        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px" ]
-            [ div
-                [ Attr.style "font-size" "12px"
-                , Attr.style "font-weight" "800"
-                , Attr.style "color" Brand.legoYellow
-                , Attr.style "text-transform" "uppercase"
-                , Attr.style "letter-spacing" "0.5px"
-                ]
-                [ text (tr lang "Choose a starter hull" "Valitse aloitusrunko") ]
-            , div
-                [ Attr.style "display" "grid"
-                , Attr.style "grid-template-columns" "repeat(auto-fill, minmax(200px, 1fr))"
-                , Attr.style "gap" "10px"
-                ]
-                (List.map hullCard Editor.bases)
+    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "" ])
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
+            [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
+                [ text (tr lang "Choose Starter Hull" "Valitse aloitusrunko") ]
+            , div [ Attr.style "display" "grid", Attr.style "grid-template-columns" "repeat(2, minmax(0, 1fr))", Attr.style "gap" "10px" ]
+                (List.map renderBaseCard Editor.bases)
             ]
         ]
+
+
+{-| Drawer for pasting build links or LDraw `.ldr` / `.mpd` text (matching
+Brick Racer's `viewImportDrawer`).
+-}
+viewImportDrawer : Model -> Html Msg
+viewImportDrawer model =
+    let
+        lang =
+            model.language
+    in
+    div (drawerStyle (drawerHeight model 280))
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "max-width" "680px", Attr.style "margin" "0 auto" ]
+            [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
+                [ text (tr lang "Open build" "Avaa malli") ]
+            , div [ Attr.style "display" "flex", Attr.style "gap" "8px" ]
+                [ textarea
+                    [ Attr.placeholder (tr lang "Paste a build link (#b/...) or LDraw (.ldr / .mpd) text..." "Liitä rakennuslinkki (#b/...) tai LDraw (.ldr / .mpd) -teksti...")
+                    , Attr.value model.pasteText
+                    , onInput PasteTextChanged
+                    , Attr.style "flex" "1"
+                    , Attr.style "height" "70px"
+                    , Attr.style "padding" "8px"
+                    , Attr.style "border-radius" "8px"
+                    , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+                    , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+                    , Attr.style "color" Brand.legoWhite
+                    , Attr.style "font-family" "monospace"
+                    , Attr.style "font-size" "12px"
+                    , Attr.style "resize" "none"
+                    ]
+                    []
+                , button
+                    [ Attr.type_ "button"
+                    , onClick SubmitPaste
+                    , Attr.style "padding" "0 16px"
+                    , Attr.style "border-radius" "8px"
+                    , Attr.style "background" Brand.legoYellow
+                    , Attr.style "color" Brand.legoBlack
+                    , Attr.style "font-weight" "800"
+                    , Attr.style "font-size" "13px"
+                    , Attr.style "cursor" "pointer"
+                    , Attr.style "border" "none"
+                    ]
+                    [ text (tr lang "Open" "Avaa") ]
+                ]
+            , case model.pasteError of
+                Just err ->
+                    div [ Attr.style "color" "#ef4444", Attr.style "font-size" "12px" ] [ text err ]
+
+                Nothing ->
+                    text ""
+            ]
+        ]
+
+
+type EvalSeverity
+    = EvalBlocker
+    | EvalWarning
+    | EvalBonus
+
+
+type alias EvalHint =
+    { severity : EvalSeverity
+    , title : String
+    , detail : Maybe String
+    , addParts : Maybe (List String)
+    }
+
+
+{-| Drawer showing ship evaluation, seaworthiness rating, telemetry specs,
+one-tap missing-part helpers (mast, sail, cannon, ship's wheel), evaluation
+hints with quick-fix buttons, and the Set Sail CTA (matching Brick Racer's
+`viewReviewDrawer`).
+-}
+viewReviewDrawer : Model -> Html Msg
+viewReviewDrawer model =
+    let
+        lang =
+            model.language
+
+        title =
+            baseName lang model.base
+
+        doc =
+            Core.getDocument model.studio
+
+        allParts =
+            Document.flattenedPlacements doc
+                |> List.map (.part >> String.toLower)
+
+        hasShipsWheel =
+            List.member "3829c01.dat" allParts
+
+        spec =
+            Ingest.ingestDocument title doc
+
+        report =
+            Analyze.analyzeShip spec
+
+        hasBlocking =
+            spec.hullPartCount < 2
+
+        ready =
+            not hasBlocking && spec.mastPartCount >= 1 && spec.sailPartCount >= 1
+
+        starCount =
+            if hasBlocking then
+                1
+
+            else
+                2
+                    + (if spec.mastPartCount >= 1 then
+                        1
+
+                       else
+                        0
+                      )
+                    + (if spec.sailPartCount >= 1 then
+                        1
+
+                       else
+                        0
+                      )
+                    + (if spec.cannonCount >= 1 || hasShipsWheel then
+                        1
+
+                       else
+                        0
+                      )
+
+        statusChip =
+            div
+                [ Attr.style "padding" "4px 10px"
+                , Attr.style "border-radius" "8px"
+                , Attr.style "font-size" "11px"
+                , Attr.style "font-weight" "800"
+                , Attr.style "white-space" "nowrap"
+                , Attr.style "background"
+                    (if ready then
+                        "rgba(34, 197, 94, 0.22)"
+
+                     else if hasBlocking then
+                        "rgba(239, 68, 68, 0.22)"
+
+                     else
+                        "rgba(245, 158, 11, 0.22)"
+                    )
+                , Attr.style "color"
+                    (if ready then
+                        "#22c55e"
+
+                     else if hasBlocking then
+                        "#ef4444"
+
+                     else
+                        "#f59e0b"
+                    )
+                ]
+                [ text
+                    (if ready then
+                        tr lang "Ready to sail" "Purjehdusvalmis"
+
+                     else if hasBlocking then
+                        tr lang "Needs fix" "Korjausta vailla"
+
+                     else
+                        tr lang "Needs sails" "Kaipaa purjeita"
+                    )
+                ]
+
+        stars =
+            div
+                [ Attr.attribute "role" "img"
+                , Attr.attribute "aria-label" (tr lang "Quality" "Laatu" ++ ": " ++ String.fromInt starCount ++ " / 5")
+                , Attr.style "display" "flex"
+                , Attr.style "gap" "4px"
+                , Attr.style "font-size" "28px"
+                , Attr.style "line-height" "1"
+                ]
+                (List.map
+                    (\n ->
+                        span
+                            [ Attr.style "color"
+                                (if n <= starCount then
+                                    "#facc15"
+
+                                 else
+                                    "#334155"
+                                )
+                            ]
+                            [ text "★" ]
+                    )
+                    (List.range 1 5)
+                )
+
+        fact lbl val =
+            div
+                [ Attr.style "flex" "1"
+                , Attr.style "min-width" "0"
+                , Attr.style "padding" "8px 10px"
+                , Attr.style "border-radius" "10px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+                , Attr.style "border" "1px solid rgba(255, 255, 255, 0.08)"
+                ]
+                [ div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8" ] [ text lbl ]
+                , div [ Attr.style "font-size" "15px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoWhite, Attr.style "overflow-wrap" "anywhere" ] [ text val ]
+                ]
+
+        -- Icon button that adds missing parts, drawn with the target part's real
+        -- LDraw thumbnail (matching Brick Racer's helperBtn).
+        helperBtn label thumbFile partFiles =
+            button
+                [ Attr.type_ "button"
+                , onClick (AddPartList partFiles)
+                , Attr.title label
+                , Attr.attribute "aria-label" label
+                , Attr.style "position" "relative"
+                , Attr.style "width" "56px"
+                , Attr.style "height" "56px"
+                , Attr.style "padding" "4px"
+                , Attr.style "display" "flex"
+                , Attr.style "align-items" "center"
+                , Attr.style "justify-content" "center"
+                , Attr.style "border-radius" "10px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+                , Attr.style "border" "1px solid rgba(250, 200, 10, 0.5)"
+                , Attr.style "cursor" "pointer"
+                ]
+                [ case Dict.get (PartCard.thumbnailKey thumbFile model.colour) model.thumbnails of
+                    Just url ->
+                        Html.img
+                            [ Attr.src url
+                            , Attr.alt label
+                            , Attr.style "max-width" "100%"
+                            , Attr.style "max-height" "100%"
+                            , Attr.style "object-fit" "contain"
+                            ]
+                            []
+
+                    Nothing ->
+                        span [ Attr.style "font-size" "18px" ] [ text "⛵" ]
+                , span
+                    [ Attr.style "position" "absolute"
+                    , Attr.style "top" "-6px"
+                    , Attr.style "right" "-6px"
+                    , Attr.style "width" "18px"
+                    , Attr.style "height" "18px"
+                    , Attr.style "border-radius" "50%"
+                    , Attr.style "display" "flex"
+                    , Attr.style "align-items" "center"
+                    , Attr.style "justify-content" "center"
+                    , Attr.style "background" Brand.legoYellow
+                    , Attr.style "color" Brand.legoBlack
+                    , Attr.style "font-size" "13px"
+                    , Attr.style "font-weight" "900"
+                    ]
+                    [ text "+" ]
+                ]
+
+        sailFixFiles =
+            if spec.mastPartCount == 0 then
+                [ "3957a.dat", "2335.dat" ]
+
+            else
+                [ "2335.dat" ]
+
+        missingButtons =
+            List.filterMap identity
+                [ if spec.mastPartCount == 0 then
+                    Just (helperBtn (tr lang "Add mast" "Lisää masto") "3957a.dat" [ "3957a.dat" ])
+
+                  else
+                    Nothing
+                , if spec.sailPartCount == 0 then
+                    Just (helperBtn (tr lang "Add sail" "Lisää purje") "2335.dat" sailFixFiles)
+
+                  else
+                    Nothing
+                , if spec.cannonCount == 0 then
+                    Just (helperBtn (tr lang "Add cannon" "Lisää tykki") "32828.dat" [ "32828.dat" ])
+
+                  else
+                    Nothing
+                , if not hasShipsWheel then
+                    Just (helperBtn (tr lang "Add ship's wheel" "Lisää ruori") "3829c01.dat" [ "3829c01.dat" ])
+
+                  else
+                    Nothing
+                ]
+
+        missingSection =
+            if List.isEmpty missingButtons then
+                text ""
+
+            else
+                div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "6px" ]
+                    [ sectionLabel (tr lang "Missing parts" "Puuttuvat osat")
+                    , div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "gap" "8px" ] missingButtons
+                    ]
+
+        hints : List EvalHint
+        hints =
+            List.filterMap identity
+                [ if hasBlocking then
+                    Just
+                        { severity = EvalBlocker
+                        , title = tr lang "Insufficient hull volume to float" "Liian vähän runkoa kellumiseen"
+                        , detail = Just (tr lang "Add hull bricks or slopes to form a buoyant hull." "Lisää runkopalikoita tai viisteitä kantavaksi rungoksi.")
+                        , addParts = Just [ "3001.dat", "3039.dat" ]
+                        }
+
+                  else
+                    Nothing
+                , if spec.mastPartCount == 0 then
+                    Just
+                        { severity = EvalWarning
+                        , title = tr lang "No mast detected" "Mastoa ei löytynyt"
+                        , detail = Just (tr lang "Add an antenna mast (3957a) or mast pillar (43888) on the deck." "Lisää antennimasto (3957a) tai mastopylväs (43888) kannelle.")
+                        , addParts = Just [ "3957a.dat" ]
+                        }
+
+                  else
+                    Nothing
+                , if spec.sailPartCount == 0 then
+                    Just
+                        { severity = EvalWarning
+                        , title = tr lang "No sail detected — ship will only drift" "Purjetta ei löytynyt — laiva vain ajelehtii"
+                        , detail = Just (tr lang "Attach a sail (flag 2335) to the mast to catch the wind." "Kiinnitä purje (lippu 2335) mastoon ottamaan tuulta.")
+                        , addParts = Just sailFixFiles
+                        }
+
+                  else
+                    Nothing
+                , if spec.cannonCount == 0 then
+                    Just
+                        { severity = EvalWarning
+                        , title = tr lang "Unarmed vessel — no cannons on deck" "Aseistamaton alus — ei tykkejä kannella"
+                        , detail = Just (tr lang "Add a cannon (32828) to shoot sea targets for time bonuses." "Lisää tykki (32828) ampuaksesi maalitauluja aikabonuksiksi.")
+                        , addParts = Just [ "32828.dat" ]
+                        }
+
+                  else
+                    Nothing
+                , if not hasShipsWheel then
+                    Just
+                        { severity = EvalWarning
+                        , title = tr lang "No ship's wheel on deck" "Ei ruoria kannella"
+                        , detail = Just (tr lang "Add a ship's wheel (3829c01) to complete the helm." "Lisää ruori (3829c01) täydentämään ohjaamo.")
+                        , addParts = Just [ "3829c01.dat" ]
+                        }
+
+                  else
+                    Nothing
+                , if spec.mastPartCount > 0 && spec.sailPartCount > 0 then
+                    Just
+                        { severity = EvalBonus
+                        , title =
+                            if report.sailAreaDisplacementRatio > 20.0 then
+                                tr lang "Corsair rig — swift in light and moderate winds" "Korsaaritakila — nopea kevyessä ja kohtalaisessa tuulessa"
+
+                            else
+                                tr lang "Galleon rig — steady and forgiving in heavy seas" "Kaljuunatakila — vakaa kovassa merenkäynnissä"
+                        , detail =
+                            Just
+                                (tr lang
+                                    ("Sail area: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Hull speed: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " kn")
+                                    ("Purjepinta-ala: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Runkonopeus: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " solmua")
+                                )
+                        , addParts = Nothing
+                        }
+
+                  else
+                    Nothing
+                , if spec.cannonCount > 0 then
+                    Just
+                        { severity = EvalBonus
+                        , title =
+                            tr lang
+                                ("Broadside battery ready (" ++ String.fromInt spec.cannonCount ++ " cannons)")
+                                ("Täyslaidallinen valmiina (" ++ String.fromInt spec.cannonCount ++ " tykkiä)")
+                        , detail = Just (tr lang "Tap water or press Space while sailing to fire." "Napauta vettä tai paina välilyöntiä purjehtiessa ampuaksesi.")
+                        , addParts = Nothing
+                        }
+
+                  else
+                    Nothing
+                ]
+
+        severityColour sev =
+            case sev of
+                EvalBlocker ->
+                    "#ef4444"
+
+                EvalWarning ->
+                    "#f59e0b"
+
+                EvalBonus ->
+                    "#22c55e"
+
+        fixButton files =
+            button
+                [ Attr.type_ "button"
+                , onClick (AddPartList files)
+                , Attr.style "flex-shrink" "0"
+                , Attr.style "padding" "4px 10px"
+                , Attr.style "border-radius" "8px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+                , Attr.style "border" "1px solid rgba(250, 200, 10, 0.5)"
+                , Attr.style "color" Brand.legoYellow
+                , Attr.style "font-size" "12px"
+                , Attr.style "font-weight" "800"
+                , Attr.style "cursor" "pointer"
+                ]
+                [ text (tr lang "Add" "Lisää") ]
+
+        issuesSection =
+            if List.isEmpty hints then
+                div [ Attr.style "font-size" "13px", Attr.style "color" "#22c55e" ]
+                    [ text (tr lang "No issues found" "Ei huomautuksia") ]
+
+            else
+                div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "6px" ]
+                    (List.map
+                        (\hint ->
+                            div
+                                [ Attr.style "display" "flex"
+                                , Attr.style "align-items" "center"
+                                , Attr.style "gap" "8px"
+                                , Attr.style "font-size" "13px"
+                                , Attr.style "color" "#e2e8f0"
+                                ]
+                                [ span
+                                    [ Attr.style "width" "8px"
+                                    , Attr.style "height" "8px"
+                                    , Attr.style "border-radius" "50%"
+                                    , Attr.style "flex-shrink" "0"
+                                    , Attr.style "background" (severityColour hint.severity)
+                                    ]
+                                    []
+                                , div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "2px", Attr.style "flex" "1", Attr.style "min-width" "0" ]
+                                    [ text hint.title
+                                    , case hint.detail of
+                                        Just detail ->
+                                            span [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8" ] [ text detail ]
+
+                                        Nothing ->
+                                            text ""
+                                    ]
+                                , case hint.addParts of
+                                    Just files ->
+                                        fixButton files
+
+                                    Nothing ->
+                                        text ""
+                                ]
+                        )
+                        hints
+                    )
+    in
+    div (drawerStyle (drawerHeight model 280))
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "12px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
+            [ div [ Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "justify-content" "space-between", Attr.style "gap" "8px" ]
+                [ h3 [ Attr.style "font-size" "14px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "margin" "0" ]
+                    [ text title ]
+                , statusChip
+                ]
+            , stars
+            , div [ Attr.style "display" "flex", Attr.style "gap" "8px" ]
+                [ fact (tr lang "Sails" "Purjeet") (String.fromInt spec.sailPartCount ++ tr lang " pcs" " kpl")
+                , fact (tr lang "Cannons" "Tykit") (String.fromInt spec.cannonCount ++ tr lang " pcs" " kpl")
+                , fact (tr lang "Displacement" "Uppouma") (String.fromInt (round spec.mass) ++ " kg")
+                ]
+            , missingSection
+            , issuesSection
+            , if not hasBlocking then
+                button
+                    [ Attr.type_ "button"
+                    , onClick Finish
+                    , Attr.style "width" "100%"
+                    , Attr.style "padding" "10px 16px"
+                    , Attr.style "border-radius" "12px"
+                    , Attr.style "background" Brand.legoYellow
+                    , Attr.style "color" Brand.legoBlack
+                    , Attr.style "font-size" "14px"
+                    , Attr.style "font-weight" "800"
+                    , Attr.style "cursor" "pointer"
+                    , Attr.style "border" "none"
+                    , Attr.style "display" "flex"
+                    , Attr.style "align-items" "center"
+                    , Attr.style "justify-content" "center"
+                    , Attr.style "gap" "8px"
+                    , Attr.style "box-shadow" "0 4px 14px rgba(0, 0, 0, 0.3)"
+                    ]
+                    [ FeatherIcons.play |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
+                    , span [] [ text (tr lang "Use this ship" "Käytä tätä laivaa") ]
+                    ]
+
+              else
+                text ""
+            ]
+        ]
+
+
+sectionLabel : String -> Html msg
+sectionLabel label =
+    div [ Attr.style "font-size" "11px", Attr.style "font-weight" "800", Attr.style "color" "#94a3b8", Attr.style "text-transform" "uppercase", Attr.style "letter-spacing" "0.5px" ]
+        [ text label ]
+
+
+drawerStyle : Int -> List (Html.Attribute Msg)
+drawerStyle heightPx =
+    [ Attr.style "position" "absolute"
+    , Attr.style "left" "0"
+    , Attr.style "right" "0"
+    , Attr.style "bottom" "0"
+    , Attr.style "height" (px heightPx)
+    , Attr.style "box-sizing" "border-box"
+    , Attr.style "padding" "12px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))"
+    , Attr.style "background" "rgba(5, 19, 29, 0.96)"
+    , Attr.style "border-top" "1px solid rgba(255, 255, 255, 0.15)"
+    , Attr.style "box-shadow" "0 -4px 16px rgba(0, 0, 0, 0.4)"
+    ]
 
 
 {-| Whether a part matches the catalog filter: by its English or Finnish

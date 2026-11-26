@@ -324,13 +324,24 @@ commitSeed model =
     let
         closed =
             { model | seedEditing = False, seedText = MapParams.toCode (MapParams.resolve model.selection) }
+
+        trimmed =
+            String.trim model.seedText
+
+        maybeMap =
+            case MapParams.fromCode trimmed of
+                Just pasted ->
+                    Just pasted
+
+                Nothing ->
+                    Ingest.mapFromHash trimmed
     in
-    case MapParams.fromCode (String.trim model.seedText) of
+    case maybeMap of
         Just pasted ->
             applySelection (\_ -> exactSelection pasted) closed
 
         Nothing ->
-            case String.toInt (String.trim model.seedText) of
+            case String.toInt (String.replace "#" "" trimmed) of
                 Just n ->
                     applySelection (\sel -> { sel | seed = clamp 1 999999 n }) closed
 

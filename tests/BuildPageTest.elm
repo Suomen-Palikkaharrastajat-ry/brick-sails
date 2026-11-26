@@ -11,8 +11,10 @@ and closes from its button.
 import Expect
 import I18n exposing (Language(..))
 import LDraw.Document as Document exposing (Document)
-import Pages.Build as Build exposing (Msg(..))
+import Pages.Build as Build exposing (BuilderTab(..), Msg(..))
+import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Editor as Editor exposing (Base)
+import Sails.Ingest as Ingest
 import Studio.Core as Core
 import Studio.Shortcuts exposing (TurnDirection(..))
 import Test exposing (Test, describe, test)
@@ -69,6 +71,34 @@ paletteTests =
                 , test "adding a part from the catalog closes it" <|
                     \_ ->
                         Expect.equal False (opened |> step ToggleCatalog |> step (AddPart "2335.dat")).catalogOpen
+                , test "top toolbar drawer tabs toggle BasesTab, ImportBuildTab and ReviewTab" <|
+                    \_ ->
+                        Expect.equal
+                            [ BasesTab, BuildBricksTab, ImportBuildTab, ReviewTab, BuildBricksTab ]
+                            [ (step (SelectTab BasesTab) opened).activeTab
+                            , (opened |> step (SelectTab BasesTab) |> step (SelectTab BasesTab)).activeTab
+                            , (step (SelectTab ImportBuildTab) opened).activeTab
+                            , (opened |> step (SelectTab ImportBuildTab) |> step (SelectTab ReviewTab)).activeTab
+                            , (opened |> step (SelectTab ReviewTab) |> step (SelectTab ReviewTab)).activeTab
+                            ]
+                , test "evaluation AddPartList helper rigs a bare starter hull with mast and sail to seaworthy" <|
+                    \_ ->
+                        let
+                            rigged =
+                                opened
+                                    |> step (SelectTab ReviewTab)
+                                    |> step (AddPartList [ "3957a.dat", "2335.dat" ])
+
+                            spec =
+                                Ingest.ingestDocument "Rigged" (Build.document rigged)
+                        in
+                        Expect.all
+                            [ \_ -> Expect.equal BuildBricksTab rigged.activeTab
+                            , \_ -> Expect.equal 1 spec.mastPartCount
+                            , \_ -> Expect.equal 1 spec.sailPartCount
+                            , \_ -> Expect.equal Seaworthy (Analyze.analyzeShip spec).seaworthiness
+                            ]
+                            ()
                 ]
 
         [] ->

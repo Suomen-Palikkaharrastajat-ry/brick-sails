@@ -402,9 +402,19 @@ dropMatrix doc selection partFile =
 
         newPart =
             localInfo partFile
+
+        barBox =
+            if isBar targetBox then
+                targetBox
+
+            else
+                everything
+                    |> List.filterMap worldBox
+                    |> List.filter (\b -> isBar (Just b))
+                    |> List.head
     in
-    if newPart.clips && isBar targetBox then
-        hangOn targetBox newPart
+    if newPart.clips && barBox /= Nothing then
+        hangOn barBox newPart
 
     else if List.isEmpty newPart.antiStuds then
         restOn
