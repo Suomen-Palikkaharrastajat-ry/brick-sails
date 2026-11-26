@@ -22,10 +22,11 @@ drawer (`ReviewTab`) with one-tap helpers and hints to add masts, sails, cannons
 and deck fittings.
 
 The top bar holds only icons, matching Brick Racer:
-- Left: "Use this ship" (`FeatherIcons.check`)
-- Center: three drawer tabs — Starter hulls (`FeatherIcons.anchor`), Open build
-  (`FeatherIcons.download`), and Evaluation (`FeatherIcons.award`)
-- Right: "Show the whole ship" (`FeatherIcons.maximize`)
+
+  - Left: "Use this ship" (`FeatherIcons.check`)
+  - Center: three drawer tabs — Starter hulls (`FeatherIcons.anchor`), Open build
+    (`FeatherIcons.download`), and Evaluation (`FeatherIcons.award`)
+  - Right: "Show the whole ship" (`FeatherIcons.maximize`)
 
 -}
 
@@ -799,9 +800,11 @@ view model =
 
 
 {-| Top bar matching Brick Racer's top bar:
-- Left: Check button (`Finish`)
-- Center: Starter hulls (`BasesTab`), Open build (`ImportBuildTab`), Evaluation (`ReviewTab`)
-- Right: Fit view (`FitView`)
+
+  - Left: Check button (`Finish`)
+  - Center: Starter hulls (`BasesTab`), Open build (`ImportBuildTab`), Evaluation (`ReviewTab`)
+  - Right: Fit view (`FitView`)
+
 -}
 topBar : Model -> Html Msg
 topBar model =
