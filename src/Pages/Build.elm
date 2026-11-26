@@ -657,7 +657,7 @@ runCore step model =
 
         isAllowed =
             not model.baseLocked
-                || not (List.any (Editor.isBasePlacement model.base) (Document.mainPlacements (Core.getDocument studio)))
+                || not (List.any (Editor.isBasePlacement model.base) (Document.mainPlacements (Core.getDocument model.studio)))
                 || Editor.baseIntact model.base (Core.getDocument studio)
     in
     if isAllowed then
