@@ -225,38 +225,22 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
                   else
                     span [ Attr.class "text-[11px] text-slate-500" ] [ text nextGoal ]
                 ]
-            , div [ Attr.class "flex gap-2 w-full", Attr.attribute "data-testid" "results-actions" ]
+            , div [ Attr.class "flex justify-center w-full pt-2", Attr.attribute "data-testid" "results-actions" ]
                 [ button
-                    [ Attr.type_ "button"
-                    , onClick actions.onSailAgain
-                    , Attr.attribute "data-retry" ""
-                    , Attr.attribute "data-testid" "ending-sail-again"
-                    , Attr.class "flex-[2] min-h-[52px] px-4 rounded-2xl bg-brand-yellow active:brightness-110 text-brand font-black text-sm uppercase tracking-wider shadow-lg shadow-brand-yellow/25 flex items-center justify-center gap-2"
-                    ]
-                    [ FeatherIcons.refreshCw |> FeatherIcons.toHtml []
-                    , text (T.sailAgain language)
-                    ]
-                , if crew == Nothing then
-                    button
-                        [ Attr.type_ "button"
-                        , onClick actions.onNewMap
-                        , Attr.attribute "data-testid" "ending-new-map"
-                        , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
-                        ]
-                        [ FeatherIcons.map |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                        , text (T.newMapButton language)
-                        ]
-
-                  else
-                    text ""
-                , button
                     [ Attr.type_ "button"
                     , onClick actions.onBackToMenu
                     , Attr.attribute "data-testid" "ending-menu"
-                    , Attr.class "flex-1 min-h-[52px] px-3 rounded-2xl bg-slate-800 active:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5"
+                    , Attr.class "min-h-[48px] px-6 rounded-2xl bg-brand-yellow hover:brightness-105 active:brightness-110 text-brand font-black text-sm uppercase tracking-wider shadow-lg shadow-brand-yellow/25 flex items-center justify-center gap-2 cursor-pointer transition-all"
                     ]
                     [ FeatherIcons.home |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                    , text (T.mainMenuButton language)
+                    , text
+                        (case language of
+                            I18n.Fi ->
+                                "Palaa päävalikkoon"
+
+                            I18n.En ->
+                                "Return to Main Menu"
+                        )
                     ]
                 ]
             ]

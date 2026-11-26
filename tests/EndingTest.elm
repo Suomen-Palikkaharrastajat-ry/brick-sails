@@ -123,13 +123,12 @@ suite =
                         Sail.update RestartCourse (ticks 30 (1 / 60) finishing)
                 in
                 Expect.equal ( Nothing, False, 0 ) ( again.ending, again.progress.finished, List.length again.debris )
-        , test "the finish screen shows the headline, the time and both choices" <|
+        , test "the finish screen shows the headline, the time and menu choice" <|
             \_ ->
                 resultsFor (ticks 90 (1 / 60) finishing)
                     |> Expect.all
                         [ Query.has [ Selector.text "SATAMASSA!" ]
-                        , Query.find [ testId "ending-menu" ] >> Query.has [ Selector.text "Valikkoon" ]
-                        , Query.find [ testId "ending-sail-again" ] >> Query.has [ Selector.text "Uudestaan" ]
+                        , Query.find [ testId "ending-menu" ] >> Query.has [ Selector.text "Palaa päävalikkoon" ]
                         ]
         , test "the menu button goes back to the main menu" <|
             \_ ->
@@ -137,16 +136,4 @@ suite =
                     |> Query.find [ testId "ending-menu" ]
                     |> Event.simulate Event.click
                     |> Event.expect Menu
-        , test "the sail again button sails again" <|
-            \_ ->
-                resultsFor (tick (1 / 60) finishing)
-                    |> Query.find [ testId "ending-sail-again" ]
-                    |> Event.simulate Event.click
-                    |> Event.expect Again
-        , test "the new map button rolls a new map, sailing alone" <|
-            \_ ->
-                resultsFor (tick (1 / 60) finishing)
-                    |> Query.find [ testId "ending-new-map" ]
-                    |> Event.simulate Event.click
-                    |> Event.expect NewMap
         ]

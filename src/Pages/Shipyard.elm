@@ -300,78 +300,102 @@ viewTrackSection cfg =
 
         codeText =
             MapParams.toCode world
-    in
-    div [ Attr.class "flex flex-col justify-between gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full", Attr.attribute "data-testid" "track-section" ]
-        [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3", Attr.attribute "data-testid" "track-axes-row" ]
-            [ button
-                [ Attr.type_ "button"
-                , onClick cfg.actions.onRollWorld
-                , Attr.title (T.rollWorld cfg.language)
-                , Attr.attribute "aria-label" (T.rollWorld cfg.language)
-                , Attr.attribute "data-testid" "track-dice-button"
-                , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110 shadow-md transition-all"
-                ]
-                [ MenuIcons.dice |> FeatherIcons.withSize 26 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
-            , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
-            , worldButton cfg.language
-                { label = labels.biome
-                , valueName = labels.biomeName world.biome
-                , pick = cfg.selection.biome
-                , icon = MenuIcons.biome world.biome
-                , onPick = cfg.actions.onPickBiome (cycle MapParams.allBiomes cfg.selection.biome world.biome)
-                }
-            , worldButton cfg.language
-                { label = labels.season
-                , valueName = labels.seasonName world.season
-                , pick = cfg.selection.season
-                , icon = MenuIcons.season world.season
-                , onPick = cfg.actions.onPickSeason (cycle MapParams.allSeasons cfg.selection.season world.season)
-                }
-            , worldButton cfg.language
-                { label = labels.weather
-                , valueName = labels.weatherName world.weather
-                , pick = cfg.selection.weather
-                , icon = MenuIcons.weather world.weather
-                , onPick = cfg.actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) cfg.selection.weather world.weather)
-                }
-            ]
-        , div [ Attr.class "flex items-center justify-end gap-1.5 pt-1", Attr.attribute "data-testid" "track-seed-row" ]
-            [ if cfg.seedEditing then
-                input
-                    [ Attr.type_ "text"
-                    , Attr.id seedInputId
-                    , Attr.value cfg.seedText
-                    , onInput cfg.actions.onSeedInput
-                    , onBlur cfg.actions.onCommitSeed
-                    , Html.Events.on "keydown" (enterKey cfg.actions.onCommitSeed)
-                    , Attr.attribute "aria-label" labels.seed
-                    , Attr.attribute "autocomplete" "off"
-                    , Attr.attribute "inputmode" "text"
-                    , Attr.attribute "data-testid" "track-seed-input"
-                    , Attr.class "min-w-[14rem] max-w-full min-h-[32px] px-2.5 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white text-right"
-                    ]
-                    []
 
-              else
-                button
+        labelText =
+            case cfg.language of
+                I18n.Fi ->
+                    "Maailma"
+
+                I18n.En ->
+                    "World"
+    in
+    div
+        [ Attr.class "flex flex-row items-stretch gap-3 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full"
+        , Attr.attribute "data-testid" "track-section"
+        ]
+        [ div
+            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-2 border-r border-white/10"
+            , Attr.style "writing-mode" "vertical-rl"
+            , Attr.style "transform" "rotate(180deg)"
+            , Attr.attribute "aria-hidden" "true"
+            ]
+            [ span
+                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow" ]
+                [ text labelText ]
+            ]
+        , div
+            [ Attr.class "flex-1 flex flex-col justify-between gap-2 min-w-0" ]
+            [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3", Attr.attribute "data-testid" "track-axes-row" ]
+                [ button
                     [ Attr.type_ "button"
-                    , onClick cfg.actions.onEditSeed
-                    , Attr.title (T.editSeed cfg.language)
-                    , Attr.attribute "aria-label" (T.editSeed cfg.language)
-                    , Attr.attribute "data-testid" "track-seed-display"
-                    , Attr.class "min-h-[32px] px-2 rounded-md text-xs font-mono text-slate-400 cursor-pointer hover:text-white transition-colors"
+                    , onClick cfg.actions.onRollWorld
+                    , Attr.title (T.rollWorld cfg.language)
+                    , Attr.attribute "aria-label" (T.rollWorld cfg.language)
+                    , Attr.attribute "data-testid" "track-dice-button"
+                    , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110 shadow-md transition-all"
                     ]
-                    [ text codeText ]
-            , button
-                [ Attr.type_ "button"
-                , onClick cfg.actions.onCopyMapLink
-                , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( cfg.actions.onKeepFocus, True ))
-                , Attr.title (T.copyLink cfg.language)
-                , Attr.attribute "aria-label" (T.copyLink cfg.language)
-                , Attr.attribute "data-testid" "track-seed-copy"
-                , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white transition-colors"
+                    [ MenuIcons.dice |> FeatherIcons.withSize 26 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+                , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
+                , worldButton cfg.language
+                    { label = labels.biome
+                    , valueName = labels.biomeName world.biome
+                    , pick = cfg.selection.biome
+                    , icon = MenuIcons.biome world.biome
+                    , onPick = cfg.actions.onPickBiome (cycle MapParams.allBiomes cfg.selection.biome world.biome)
+                    }
+                , worldButton cfg.language
+                    { label = labels.season
+                    , valueName = labels.seasonName world.season
+                    , pick = cfg.selection.season
+                    , icon = MenuIcons.season world.season
+                    , onPick = cfg.actions.onPickSeason (cycle MapParams.allSeasons cfg.selection.season world.season)
+                    }
+                , worldButton cfg.language
+                    { label = labels.weather
+                    , valueName = labels.weatherName world.weather
+                    , pick = cfg.selection.weather
+                    , icon = MenuIcons.weather world.weather
+                    , onPick = cfg.actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) cfg.selection.weather world.weather)
+                    }
                 ]
-                [ FeatherIcons.copy |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+            , div [ Attr.class "flex items-center justify-end gap-1.5 pt-1", Attr.attribute "data-testid" "track-seed-row" ]
+                [ if cfg.seedEditing then
+                    input
+                        [ Attr.type_ "text"
+                        , Attr.id seedInputId
+                        , Attr.value cfg.seedText
+                        , onInput cfg.actions.onSeedInput
+                        , onBlur cfg.actions.onCommitSeed
+                        , Html.Events.on "keydown" (enterKey cfg.actions.onCommitSeed)
+                        , Attr.attribute "aria-label" labels.seed
+                        , Attr.attribute "autocomplete" "off"
+                        , Attr.attribute "inputmode" "text"
+                        , Attr.attribute "data-testid" "track-seed-input"
+                        , Attr.class "min-w-[14rem] max-w-full min-h-[32px] px-2.5 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white text-right"
+                        ]
+                        []
+
+                  else
+                    button
+                        [ Attr.type_ "button"
+                        , onClick cfg.actions.onEditSeed
+                        , Attr.title (T.editSeed cfg.language)
+                        , Attr.attribute "aria-label" (T.editSeed cfg.language)
+                        , Attr.attribute "data-testid" "track-seed-display"
+                        , Attr.class "min-h-[32px] px-2 rounded-md text-xs font-mono text-slate-400 cursor-pointer hover:text-white transition-colors"
+                        ]
+                        [ text codeText ]
+                , button
+                    [ Attr.type_ "button"
+                    , onClick cfg.actions.onCopyMapLink
+                    , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( cfg.actions.onKeepFocus, True ))
+                    , Attr.title (T.copyLink cfg.language)
+                    , Attr.attribute "aria-label" (T.copyLink cfg.language)
+                    , Attr.attribute "data-testid" "track-seed-copy"
+                    , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white transition-colors"
+                    ]
+                    [ FeatherIcons.copy |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+                ]
             ]
         ]
 
@@ -458,28 +482,50 @@ room code (or paste a link) and join it.
 -}
 viewCrew : Language -> String -> ShipyardActions msg -> Html msg
 viewCrew language roomCode actions =
+    let
+        labelText =
+            case language of
+                I18n.Fi ->
+                    "Miehistö"
+
+                I18n.En ->
+                    "Crew"
+    in
     section
         [ Attr.attribute "aria-label" (T.crewHeading language)
         , Attr.attribute "data-testid" "crew-section"
-        , Attr.class "flex flex-col justify-between gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full"
+        , Attr.class "flex flex-row items-stretch gap-3 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full"
         ]
-        [ div [ Attr.class "flex flex-wrap items-center gap-2", Attr.attribute "data-testid" "crew-controls-row" ]
-            [ hostButton language actions TwoPlayers FeatherIcons.users
-            , hostButton language actions GridSession FeatherIcons.tv
-            , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
-            , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]", Attr.attribute "data-testid" "crew-join-row" ]
-                [ input
-                    [ Attr.type_ "text"
-                    , Attr.value roomCode
-                    , onInput actions.onRoomCodeChanged
-                    , Attr.placeholder (T.roomCodePlaceholder language)
-                    , Attr.attribute "aria-label" (T.roomCodeLabel language)
-                    , Attr.attribute "autocomplete" "off"
-                    , Attr.attribute "data-testid" "crew-room-input"
-                    , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
+        [ div
+            [ Attr.class "flex items-center justify-center select-none shrink-0 pr-2 border-r border-white/10"
+            , Attr.style "writing-mode" "vertical-rl"
+            , Attr.style "transform" "rotate(180deg)"
+            , Attr.attribute "aria-hidden" "true"
+            ]
+            [ span
+                [ Attr.class "text-xs font-black uppercase tracking-widest text-brand-yellow" ]
+                [ text labelText ]
+            ]
+        , div
+            [ Attr.class "flex-1 flex flex-col justify-center gap-2 min-w-0" ]
+            [ div [ Attr.class "flex flex-wrap items-center gap-2", Attr.attribute "data-testid" "crew-controls-row" ]
+                [ hostButton language actions TwoPlayers FeatherIcons.users
+                , hostButton language actions GridSession FeatherIcons.tv
+                , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
+                , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]", Attr.attribute "data-testid" "crew-join-row" ]
+                    [ input
+                        [ Attr.type_ "text"
+                        , Attr.value roomCode
+                        , onInput actions.onRoomCodeChanged
+                        , Attr.placeholder (T.roomCodePlaceholder language)
+                        , Attr.attribute "aria-label" (T.roomCodeLabel language)
+                        , Attr.attribute "autocomplete" "off"
+                        , Attr.attribute "data-testid" "crew-room-input"
+                        , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
+                        ]
+                        []
+                    , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
                     ]
-                    []
-                , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
                 ]
             ]
         ]
