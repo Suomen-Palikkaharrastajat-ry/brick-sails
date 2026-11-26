@@ -33,20 +33,27 @@ The top bar holds only icons, matching Brick Racer:
 import DesignTokens.Colors as Brand
 import Dict exposing (Dict)
 import FeatherIcons
+import Game.PartLoading as PartLoading
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, h3, input, span, text, textarea)
 import Html.Attributes as Attr
 import Html.Events exposing (onClick, onInput, onMouseLeave)
+import Http
 import I18n exposing (Language(..))
 import Json.Decode as Decode
 import LDraw.ColorData as ColorData
 import LDraw.Colors as Colors
 import LDraw.Document as Document exposing (Document)
+import LDraw.Parser as Parser
+import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
 import Ports
+import Render.Scene exposing (Scene)
 import Sails.Analyze as Analyze
+import Sails.BuilderDock as BuilderDock
 import Sails.DockFloor as DockFloor
 import Sails.Editor as Editor exposing (Base, PartEntry)
 import Sails.Ingest as Ingest
+import Sails.ShipMesh as ShipMesh
 import Set
 import Studio.Colours as Colours
 import Studio.Core as Core
@@ -89,6 +96,9 @@ type alias Model =
     , pasteError : Maybe String
     , activePart : String
     , recentParts : List String
+    , dockResolver : ResolverConfig
+    , dockParts : PartCache
+    , dockScene : Maybe Scene
     }
 
 
@@ -123,6 +133,7 @@ type Msg
     | CatalogFilterChanged String
     | PaletteLeft
     | CanvasTapped
+    | DockPartFetched String (Result Http.Error String)
 
 
 {-| What the editor asks `Main` to do after an update.
@@ -187,14 +198,47 @@ init config base doc =
             , pasteError = Nothing
             , activePart = "3001.dat"
             , recentParts = initialRecentParts
+            , dockResolver = PartLoading.resolverFromFlags config
+            , dockParts = Resolve.initCache
+            , dockScene = Nothing
             }
 
         ( sized, sizeCmd ) =
             resize config.width config.height model
+
+        ( docked, dockCmd ) =
+            requestDockParts sized
     in
-    ( sized
-    , Cmd.batch [ Cmd.map StudioMsg studioCmd, Cmd.map StudioMsg fitCmd, sizeCmd, requestThumbnails sized ]
+    ( docked
+    , Cmd.batch [ Cmd.map StudioMsg studioCmd, Cmd.map StudioMsg fitCmd, sizeCmd, dockCmd, requestThumbnails docked ]
     )
+
+
+{-| Fetch the parts of the harbour (`Sails.BuilderDock`) that are still
+missing, and build its mesh once they are all in. Called at start-up and
+after every fetched dock part. The harbour has a part cache of its own and
+never touches the build's document.
+-}
+requestDockParts : Model -> ( Model, Cmd Msg )
+requestDockParts model =
+    case model.dockScene of
+        Just _ ->
+            ( model, Cmd.none )
+
+        Nothing ->
+            let
+                progress =
+                    ShipMesh.partProgress BuilderDock.document model.dockParts
+            in
+            if List.isEmpty progress.needed && progress.inFlight == 0 then
+                ( { model | dockScene = Just (ShipMesh.buildScenery 1.0 BuilderDock.document model.dockParts).scene }
+                , Cmd.none
+                )
+
+            else
+                ( { model | dockParts = Resolve.markLoading progress.needed model.dockParts }
+                , PartLoading.fetchParts model.dockResolver DockPartFetched progress.needed
+                )
 
 
 {-| The build as it stands.
@@ -644,6 +688,9 @@ updateModel msg model =
         CanvasTapped ->
             ( model, Cmd.none, Stay )
 
+        DockPartFetched name result ->
+            stay (requestDockParts { model | dockParts = Resolve.updateCache name result Parser.parseFile model.dockParts })
+
 
 {-| Run a studio step, unless the hull is locked and the step would split it:
 then the step is dropped (its model, commands and events) and the player is
@@ -836,8 +883,17 @@ view model =
                         \camera aspect ->
                             -- The hull spans render y 0 (deck) to -24 (keel).
                             -- The dock water (dock y 12) lands at -4 - 12 = -16,
-                            -- 8 units above the keel.
-                            DockFloor.entities (negate 4.0) camera aspect
+                            -- 8 units above the keel; the plate deck (dock y 3)
+                            -- at -7.
+                            DockFloor.entities
+                                { baselineY = negate 4.0
+                                , dock = model.dockScene
+                                , style = model.studio.viewport.renderStyle
+                                , width = model.width
+                                , height = canvasHeight model
+                                }
+                                camera
+                                aspect
                     }
                     model.studio
                 )

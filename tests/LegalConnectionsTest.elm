@@ -17,6 +17,7 @@ import LDraw.Document as Document exposing (Document)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Boats as Boats
+import Sails.BuilderDock as BuilderDock
 import Sails.Scenery as Scenery
 import Sails.StarterBases as StarterBases exposing (Starter)
 import Sails.Types exposing (Boat)
@@ -34,6 +35,11 @@ suite =
             (List.map checkBoat Boats.all)
         , describe "Scenery pieces"
             (List.map checkScenery Scenery.all)
+        , describe "Builder harbour"
+            [ test "Studio health finds no illegal overlaps or misalignments" <|
+                \_ ->
+                    Expect.equal [] (Health.check EmbeddedParts.cache BuilderDock.document Set.empty)
+            ]
         ]
 
 

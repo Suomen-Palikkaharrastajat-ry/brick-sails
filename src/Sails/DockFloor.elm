@@ -3,17 +3,11 @@ module Sails.DockFloor exposing
     , entities
     )
 
-{-| Dedicated 3D wooden dock harbor environment for the Brick Sails ship builder.
+{-| The harbour around the berth of the Brick Sails ship builder:
 
-Features:
-
-  - Authentic nautical wooden pier running alongside the ship berth with
-    weathered timber planks (warm teak, aged oak, cedar, pine) and dark plank seams.
-  - Heavy bumper timber edge beam (rub-rail) with dark iron strapping facing
-    the vessel berth.
-  - Stern boardwalk cross-quay enclosing the mooring slip.
-  - Vertical wooden mooring pilings / bollard posts standing proud of the pier deck,
-    capped with dark cast iron collars.
+  - The brick dock of `Sails.BuilderDock` (studded plates: a side pier, a
+    stern quay, kerb rails and mooring bollards), fixed scenery that is never
+    part of the ship.
   - Translucent marine sea water surface plane beneath the ship's waterline.
   - Multi-ring soft contact shadow / water hull reflection directly beneath the ship.
 
@@ -23,6 +17,8 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 as Vec4 exposing (Vec4, vec4)
 import Render.Camera as Camera exposing (Camera)
+import Render.Scene as Scene exposing (Scene)
+import Render.Style exposing (Style)
 import WebGL exposing (Entity, Mesh, Shader)
 import WebGL.Settings.Blend as Blend
 import WebGL.Settings.DepthTest as DepthTest
@@ -104,96 +100,8 @@ horizontalQuad y x1 x2 z1 z2 col =
     quad v1 v2 v3 v4
 
 
-verticalQuadX : Float -> Float -> Float -> Float -> Float -> Vec4 -> List ( Vertex, Vertex, Vertex )
-verticalQuadX x y1 y2 z1 z2 col =
-    let
-        v1 =
-            { position = vec3 x y1 z1, color = col }
 
-        v2 =
-            { position = vec3 x y1 z2, color = col }
-
-        v3 =
-            { position = vec3 x y2 z2, color = col }
-
-        v4 =
-            { position = vec3 x y2 z1, color = col }
-    in
-    quad v1 v2 v3 v4
-
-
-verticalQuadZ : Float -> Float -> Float -> Float -> Float -> Vec4 -> List ( Vertex, Vertex, Vertex )
-verticalQuadZ z x1 x2 y1 y2 col =
-    let
-        v1 =
-            { position = vec3 x1 y1 z, color = col }
-
-        v2 =
-            { position = vec3 x2 y1 z, color = col }
-
-        v3 =
-            { position = vec3 x2 y2 z, color = col }
-
-        v4 =
-            { position = vec3 x1 y2 z, color = col }
-    in
-    quad v1 v2 v3 v4
-
-
-box : Float -> Float -> Float -> Float -> Float -> Float -> Vec4 -> List ( Vertex, Vertex, Vertex )
-box x1 x2 y1 y2 z1 z2 col =
-    List.concat
-        [ horizontalQuad y1 x1 x2 z1 z2 col
-        , horizontalQuad y2 x1 x2 z1 z2 col
-        , verticalQuadX x1 y1 y2 z1 z2 col
-        , verticalQuadX x2 y1 y2 z1 z2 col
-        , verticalQuadZ z1 x1 x2 y1 y2 col
-        , verticalQuadZ z2 x1 x2 y1 y2 col
-        ]
-
-
-
--- ── Nautical Dock Palette ────────────────────────────────────────────────────
-
-
-plankTeak : Vec4
-plankTeak =
-    vec4 0.52 0.38 0.24 1.0
-
-
-plankOak : Vec4
-plankOak =
-    vec4 0.46 0.33 0.2 1.0
-
-
-plankCedar : Vec4
-plankCedar =
-    vec4 0.4 0.28 0.18 1.0
-
-
-plankPine : Vec4
-plankPine =
-    vec4 0.56 0.41 0.26 1.0
-
-
-plankSeam : Vec4
-plankSeam =
-    vec4 0.14 0.1 0.06 1.0
-
-
-timberBumper : Vec4
-timberBumper =
-    vec4 0.28 0.18 0.1 1.0
-
-
-ironFitting : Vec4
-ironFitting =
-    vec4 0.14 0.16 0.18 1.0
-
-
-pilingTimber : Vec4
-pilingTimber =
-    vec4 0.36 0.25 0.16 1.0
+-- ── Water Palette ────────────────────────────────────────────────────────────
 
 
 waterColor : Vec4
@@ -206,215 +114,9 @@ waterShallowColor =
     vec4 0.1 0.46 0.58 0.85
 
 
-
--- ── Pier & Mooring Geometry ──────────────────────────────────────────────────
-
-
-pierDeckY : Float
-pierDeckY =
-    waterLevelY - 0.2
-
-
 waterLevelY : Float
 waterLevelY =
     12.0
-
-
-underwaterSkirtY : Float
-underwaterSkirtY =
-    24.0
-
-
-buildPierPlanks : List ( Vertex, Vertex, Vertex )
-buildPierPlanks =
-    let
-        plankWidth =
-            12.0
-
-        gap =
-            2.0
-
-        stepZ =
-            plankWidth + gap
-
-        colorForIndex idx =
-            case modBy 4 idx of
-                0 ->
-                    plankTeak
-
-                1 ->
-                    plankOak
-
-                2 ->
-                    plankCedar
-
-                _ ->
-                    plankPine
-
-        buildSidePlank idx =
-            let
-                zStart =
-                    -180.0 + toFloat idx * stepZ
-
-                zEnd =
-                    zStart + plankWidth
-
-                plankCol =
-                    colorForIndex idx
-            in
-            List.concat
-                [ -- Wooden plank top
-                  horizontalQuad pierDeckY 46.0 180.0 zStart zEnd plankCol
-                , -- Dark seam gap between planks
-                  horizontalQuad (pierDeckY + 0.1) 46.0 180.0 zEnd (zEnd + gap) plankSeam
-                ]
-
-        sidePlanksCount =
-            25
-
-        sidePlanks =
-            List.concatMap buildSidePlank (List.range 0 (sidePlanksCount - 1))
-
-        buildSternPlank idx =
-            let
-                xStart =
-                    -140.0 + toFloat idx * (plankWidth + gap)
-
-                xEnd =
-                    xStart + plankWidth
-
-                plankCol =
-                    colorForIndex (idx + 1)
-            in
-            List.concat
-                [ -- Wooden plank top on stern quay
-                  horizontalQuad pierDeckY xStart xEnd 126.0 180.0 plankCol
-                , -- Dark seam gap
-                  horizontalQuad (pierDeckY + 0.1) xEnd (xEnd + gap) 126.0 180.0 plankSeam
-                ]
-
-        sternPlanksCount =
-            13
-
-        sternPlanks =
-            List.concatMap buildSternPlank (List.range 0 (sternPlanksCount - 1))
-    in
-    List.concat [ sidePlanks, sternPlanks ]
-
-
-buildDockStructure : List ( Vertex, Vertex, Vertex )
-buildDockStructure =
-    let
-        -- Heavy edge timber bumper beam (rub-rail) along starboard berth (X = 42..46, Z = -180..180)
-        sideBumper =
-            List.concat
-                [ -- Top face of bumper
-                  horizontalQuad pierDeckY 42.0 46.0 -180.0 180.0 timberBumper
-                , -- Vertical face facing the ship berth extending down into the water
-                  verticalQuadX 42.0 pierDeckY underwaterSkirtY -180.0 180.0 timberBumper
-                , -- Outer vertical side of pier foundation (X = 180.0)
-                  verticalQuadX 180.0 pierDeckY underwaterSkirtY -180.0 180.0 timberBumper
-                , -- Pier front endcap (Z = -180.0)
-                  verticalQuadZ -180.0 42.0 180.0 pierDeckY underwaterSkirtY timberBumper
-                ]
-
-        -- Heavy timber rub-rail along stern cross-quay (Z = 122..126, X = -140..42)
-        sternBumper =
-            List.concat
-                [ -- Top face of stern bumper
-                  horizontalQuad pierDeckY -140.0 42.0 122.0 126.0 timberBumper
-                , -- Vertical face facing water
-                  verticalQuadZ 122.0 -140.0 42.0 pierDeckY underwaterSkirtY timberBumper
-                , -- West endcap of stern quay (X = -140.0)
-                  verticalQuadX -140.0 pierDeckY underwaterSkirtY 122.0 180.0 timberBumper
-                , -- South perimeter of stern quay (Z = 180.0)
-                  verticalQuadZ 180.0 -140.0 180.0 pierDeckY underwaterSkirtY timberBumper
-                ]
-
-        -- Iron strapping brackets along bumper rail at intervals
-        ironBandsZ =
-            [ -150.0, -90.0, -30.0, 30.0, 90.0, 150.0 ]
-
-        ironBandZ zPos =
-            List.concat
-                [ horizontalQuad (pierDeckY - 0.1) 41.8 46.2 (zPos - 1.5) (zPos + 1.5) ironFitting
-                , verticalQuadX 41.8 (pierDeckY - 0.1) (pierDeckY + 10.0) (zPos - 1.5) (zPos + 1.5) ironFitting
-                ]
-
-        sideBands =
-            List.concatMap ironBandZ ironBandsZ
-    in
-    List.concat
-        [ sideBumper
-        , sternBumper
-        , sideBands
-        ]
-
-
-buildMooringPilings : List ( Vertex, Vertex, Vertex )
-buildMooringPilings =
-    let
-        -- 8x8 LDU wooden mooring post
-        pilingHalfSize =
-            4.0
-
-        pilingTopY =
-            pierDeckY - 14.0
-
-        pilingBottomY =
-            26.0
-
-        collarHeight =
-            3.5
-
-        buildOnePiling ( posX, posZ ) =
-            let
-                x1 =
-                    posX - pilingHalfSize
-
-                x2 =
-                    posX + pilingHalfSize
-
-                z1 =
-                    posZ - pilingHalfSize
-
-                z2 =
-                    posZ + pilingHalfSize
-
-                -- Wooden post body
-                post =
-                    box x1 x2 pilingTopY pilingBottomY z1 z2 pilingTimber
-
-                -- Dark cast-iron collar ring around post head
-                collar =
-                    box (x1 - 0.4) (x2 + 0.4) pilingTopY (pilingTopY + collarHeight) (z1 - 0.4) (z2 + 0.4) ironFitting
-            in
-            List.concat [ post, collar ]
-
-        pilingPositions =
-            [ ( 49.0, -140.0 )
-            , ( 49.0, -60.0 )
-            , ( 49.0, 20.0 )
-            , ( 49.0, 100.0 )
-            , ( -35.0, 128.0 )
-            , ( -95.0, 128.0 )
-            ]
-    in
-    List.concatMap buildOnePiling pilingPositions
-
-
-buildDockTriangles : List ( Vertex, Vertex, Vertex )
-buildDockTriangles =
-    List.concat
-        [ buildPierPlanks
-        , buildDockStructure
-        , buildMooringPilings
-        ]
-
-
-dockMesh : Mesh Vertex
-dockMesh =
-    WebGL.triangles buildDockTriangles
 
 
 
@@ -428,9 +130,9 @@ buildWaterTriangles =
         mainWater =
             horizontalQuad waterLevelY -380.0 380.0 -380.0 380.0 waterColor
 
-        -- Calmer shallow slipway water near the wooden berth
+        -- Calmer shallow slipway water in the open berth
         slipWater =
-            horizontalQuad (waterLevelY - 0.05) -150.0 42.0 -185.0 122.0 waterShallowColor
+            horizontalQuad (waterLevelY - 0.05) -150.0 60.0 -185.0 140.0 waterShallowColor
     in
     List.concat [ mainWater, slipWater ]
 
@@ -528,25 +230,41 @@ waterMesh =
 -- ── Entities API ─────────────────────────────────────────────────────────────
 
 
-{-| WebGL entities for the 3D dock harbor environment:
+{-| WebGL entities for the harbour around the berth:
 
-  - Wooden pier, weathered planks, bumper rail, and mooring pilings.
+  - The brick dock (`dock`, the mesh of `Sails.BuilderDock`), once its parts
+    are in; drawn with the studio's `style` on a `width` x `height` canvas.
   - Translucent harbor sea water surface plane.
   - Soft aquatic hull shadow directly under the ship.
 
 -}
-entities : Float -> Camera -> Float -> List Entity
-entities baselineY camera aspect =
+entities :
+    { baselineY : Float
+    , dock : Maybe Scene
+    , style : Style
+    , width : Int
+    , height : Int
+    }
+    -> Camera
+    -> Float
+    -> List Entity
+entities config camera aspect =
     let
-        -- The dock is modelled Y down (larger y = lower, as in LDraw), but
+        -- The water is modelled Y down (larger y = lower, as in LDraw), but
         -- extra entities are drawn in render space, Y up. Flip Y only (Z
         -- keeps the stern quay where it is), then lift by `baselineY`, so a
         -- dock y lands at render y = baselineY - y. No face culling is set,
         -- so the reversed winding is harmless.
         modelMatrix =
             Mat4.mul
-                (Mat4.makeTranslate (vec3 0.0 baselineY 0.0))
+                (Mat4.makeTranslate (vec3 0.0 config.baselineY 0.0))
                 (Mat4.makeScale3 1.0 -1.0 1.0)
+
+        -- The brick dock is already Y-up: `Sails.ShipMesh.buildScenery`
+        -- negates LDraw y and z (and `Sails.BuilderDock` stores -z), so it
+        -- only needs the same lift to land where the water does.
+        dockMatrix =
+            Mat4.makeTranslate (vec3 0.0 config.baselineY 0.0)
 
         uniforms =
             { viewMatrix = Camera.viewMatrix camera
@@ -554,21 +272,20 @@ entities baselineY camera aspect =
             , modelMatrix = modelMatrix
             }
 
-        opaqueSettings =
-            [ DepthTest.lessOrEqual { write = True, near = 0, far = 1 }
-            ]
-
         translucentSettings =
             [ DepthTest.lessOrEqual { write = False, near = 0, far = 1 }
             , Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha
             ]
 
-        dockEntity =
-            WebGL.entityWith opaqueSettings vertexShader fragmentShader dockMesh uniforms
+        dockEntities =
+            case config.dock of
+                Just scene ->
+                    Scene.renderSceneWithTransform dockMatrix scene camera config.style config.width config.height
+
+                Nothing ->
+                    []
 
         waterEntity =
             WebGL.entityWith translucentSettings vertexShader fragmentShader waterMesh uniforms
     in
-    [ dockEntity
-    , waterEntity
-    ]
+    dockEntities ++ [ waterEntity ]
