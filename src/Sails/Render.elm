@@ -771,10 +771,10 @@ harbourEntities ctx width height scenery draw time nextIndex course wp =
                                     )
                                 |> Maybe.withDefault "pirateFlag"
                     in
-                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) bearing
+                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 6 / isl.radius) |> Vec3.setY -1.2) bearing
                         ++ draw.fitted flagProp
                             (BrickProps.fitHeight 3.2)
-                            (Mat4.makeTranslate3 edge.x (Physics.beachHeight isl) edge.z |> rotY (degrees bearing))
+                            (Mat4.makeTranslate3 edge.x (max 0.48 (Physics.beachHeight isl)) edge.z |> rotY (degrees bearing))
                             plain
 
                 Nothing ->
@@ -1254,7 +1254,7 @@ townEntities ctx width height scenery draw standards towns =
                             []
             in
             sceneryEntities ctx width height scenery Scenery.houses (Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)) town.bearing
-                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY (Physics.beachHeight isl)) town.bearing
+                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 6 / isl.radius) |> Vec3.setY -1.2) town.bearing
                 ++ standardEntities
         )
         towns

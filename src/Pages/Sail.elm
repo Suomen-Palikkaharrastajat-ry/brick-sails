@@ -533,8 +533,18 @@ buildHudGoals model =
         shipRec =
             Vec3.toRecord shipPos
 
-        camYaw =
-            model.follow.yaw
+        camView =
+            CameraRig.followView model.follow
+
+        camEye =
+            Vec3.toRecord camView.eye
+
+        camTarget =
+            Vec3.toRecord camView.target
+
+        -- True camera line-of-sight bearing in world horizontal space (accounts for camera lead, broadside bias, and yaw lag)
+        camBearing =
+            atan2 (camTarget.x - camEye.x) (camTarget.z - camEye.z) * 180.0 / pi
 
         calcGoal kind targetPos =
             let
@@ -553,8 +563,11 @@ buildHudGoals model =
                 worldBearing =
                     atan2 dx dz * 180.0 / pi
 
+                rawDiff =
+                    worldBearing - camBearing
+
                 relAngle =
-                    worldBearing - camYaw - 360.0 * toFloat (round ((worldBearing - camYaw) / 360.0))
+                    rawDiff - 360.0 * toFloat (floor ((rawDiff + 180.0) / 360.0))
             in
             { kind = kind
             , angleDeg = relAngle
