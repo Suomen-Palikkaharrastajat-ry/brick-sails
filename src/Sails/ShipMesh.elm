@@ -27,8 +27,9 @@ geometry otherwise) so `Sails.Render` can paint them in a player colour.
 
 import Array exposing (Array)
 import Dict
+import Game.BrickProps as BrickProps
 import Game.PartLoading as PartLoading
-import LDraw.Document as Document exposing (Document, Placement)
+import LDraw.Document as Document exposing (Document, Entry(..), Placement)
 import LDraw.Geometry as Geometry
 import LDraw.Resolve exposing (PartCache, PartStatus(..))
 import LDraw.Types exposing (LDrawLine(..))
@@ -225,8 +226,11 @@ build isSail doc rawCache =
 
                 box =
                     boundsOf tris
+
+                partBfc =
+                    docIsBfcSafe doc && BrickProps.arePartsBfcCertified cache [ p.part ]
             in
-            { scene = Scene.buildScene { triangles = tris, lines = geom.lines, conditionalLines = [] } False
+            { scene = Scene.buildScene { triangles = tris, lines = geom.lines, conditionalLines = [] } partBfc
             , pivot = Vec3.scale 0.5 (Vec3.add box.min box.max)
             }
 
@@ -234,6 +238,9 @@ build isSail doc rawCache =
             placements
                 |> List.map onePart
                 |> Array.fromList
+
+        docSafe =
+            docIsBfcSafe doc
     in
     { scene =
         Scene.buildScene
@@ -241,14 +248,14 @@ build isSail doc rawCache =
             , lines = bodyGeom.lines
             , conditionalLines = []
             }
-            False
+            (docSafe && BrickProps.arePartsBfcCertified cache (List.map .part body))
     , sails =
         Scene.buildScene
             { triangles = sailTriangles
             , lines = sailGeom.lines
             , conditionalLines = []
             }
-            False
+            (docSafe && BrickProps.arePartsBfcCertified cache (List.map .part sails))
     , sailFoot = Vec3.getY (boundsOf sailTriangles).min
     , toBoat = toBoat
     , triangleCount = List.length triangles
@@ -269,14 +276,20 @@ buildScenery metersPerLdu doc rawCache =
         cache =
             List.foldl (\( name, lines ) acc -> Dict.insert name (Loaded lines) acc) rawCache (Document.subfiles doc)
 
+        placements =
+            Document.flattenedPlacements doc
+
         geom =
-            Geometry.flattenWith Geometry.worldOptions (List.map toRef (Document.flattenedPlacements doc)) cache 15 Mat4.identity
+            Geometry.flattenWith Geometry.worldOptions (List.map toRef placements) cache 15 Mat4.identity
 
         size =
             boundsOf geom.triangles |> (\b -> Vec3.sub b.max b.min) |> Vec3.toRecord
 
         empty =
             Scene.buildScene { triangles = [], lines = [], conditionalLines = [] } False
+
+        bfcCertified =
+            docIsBfcSafe doc && BrickProps.arePartsBfcCertified cache (List.map .part placements)
     in
     { scene =
         Scene.buildScene
@@ -284,7 +297,7 @@ buildScenery metersPerLdu doc rawCache =
             , lines = geom.lines
             , conditionalLines = []
             }
-            False
+            bfcCertified
     , sails = empty
     , sailFoot = 0
     , toBoat = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
@@ -294,6 +307,25 @@ buildScenery metersPerLdu doc rawCache =
     , linear = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , parts = Array.empty
     }
+
+
+docIsBfcSafe : Document -> Bool
+docIsBfcSafe doc =
+    let
+        entrySafe entry =
+            case entry of
+                PlacementEntry _ ->
+                    True
+
+                Raw text ->
+                    not
+                        (String.contains "BFC CERTIFY CW" text
+                            || String.contains "BFC NOCERTIFY" text
+                            || String.contains "BFC NOCLIP" text
+                            || String.contains "BFC INVERTNEXT" text
+                        )
+    in
+    List.all (\sub -> List.all entrySafe sub.entries) doc.submodels
 
 
 toRef : Placement -> LDrawLine

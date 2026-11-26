@@ -6,6 +6,7 @@ module Sails.World exposing
     , SeaPalette
     , Tree(..)
     , dressing
+    , islandModel
     , islandModels
     , islandPalette
     , islandScale
@@ -330,6 +331,7 @@ islandModel p =
         ([ "0 FILE " ++ p.key ++ ".ldr"
          , "0 Name: Brick Sails 1:1 Modular Island"
          , "0 Author: Brick Sails"
+         , "0 BFC CERTIFY CCW"
          , "0 // Beach Tier"
          ]
             ++ beachTier

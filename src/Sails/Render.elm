@@ -48,6 +48,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Math.Vector4 as Vec4 exposing (Vec4, vec4)
 import Render.EdgeShader as EdgeShader
+import Render.Instanced as Instanced
 import Render.Mesh exposing (Vertex)
 import Render.Scene exposing (Scene)
 import Render.Shader as Shader
@@ -92,11 +93,16 @@ type alias Props =
     Dict String PropModel
 
 
-{-| Every prop model the course uses, by name: load them with
-`Game.BrickProps.refresh`.
+{-| Every prop model the course uses for the given map, by name: load them with
+`Game.BrickProps.refresh`. Only the active map's island palette model is
+registered so unused island meshes are not built or uploaded.
 -}
-propSources : List ( String, String )
-propSources =
+propSources : MapParams -> List ( String, String )
+propSources map =
+    let
+        palette =
+            World.islandPalette map
+    in
     [ ( "buoy", BrickModels.buoy )
     , ( "beacon", BrickModels.beacon )
     , ( "floatingTarget", BrickModels.floatingTarget )
@@ -122,8 +128,61 @@ propSources =
     , ( "plate1x1", BrickModels.singlePart "3024.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
+    , ( "finishArch", finishArchModel )
+    , ( palette.key, World.islandModel palette )
     ]
-        ++ World.islandModels
+
+
+finishArchUnit : Float
+finishArchUnit =
+    0.02
+
+
+{-| The finish harbour arch baked into a single BFC-certified LDraw model so
+its 55 bricks render in one draw call.
+-}
+finishArchModel : String
+finishArchModel =
+    let
+        cleanZero v =
+            if v == 0 then
+                0
+
+            else
+                v
+
+        toLine brick =
+            let
+                pos =
+                    Vec3.toRecord (Mat4.transform brick.transform (vec3 0 0 0))
+            in
+            String.join " "
+                [ "1"
+                , String.fromInt brick.color
+                , String.fromFloat (cleanZero (pos.x / finishArchUnit))
+                , String.fromFloat (cleanZero -(pos.y / finishArchUnit))
+                , String.fromFloat (cleanZero -(pos.z / finishArchUnit))
+                , "1 0 0 0 1 0 0 0 1"
+                , brick.part
+                ]
+
+        bricks =
+            BrickModels.archBricks
+                { halfWidth = Physics.harbourRadius
+                , postHeight = 6.5
+                , unit = finishArchUnit
+                , postColor = 15
+                , bannerColors = [ 0, 15 ]
+                }
+    in
+    String.join "\n"
+        ([ "0 FILE finish-arch.ldr"
+         , "0 Name: Brick Sails finish arch"
+         , "0 Author: Brick Sails"
+         , "0 BFC CERTIFY CCW"
+         ]
+            ++ List.map toLine bricks
+        )
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
@@ -183,6 +242,18 @@ renderWorld cam scene width height =
         pv =
             Ocean.propView ctx width height
 
+        frustum =
+            Instanced.frustumFromMatrix (Mat4.mul ctx.perspective ctx.view)
+
+        maxViewDist =
+            Ocean.visibility ctx
+
+        inView center radius =
+            Vec3.distance ctx.eye center
+                <= maxViewDist
+                + radius
+                && Instanced.sphereInFrustum frustum center radius
+
         drawProp name model tint =
             case Dict.get name scene.props of
                 Just prop ->
@@ -191,17 +262,19 @@ renderWorld cam scene width height =
                 Nothing ->
                     []
 
-        withFit name fit at tint =
+        withFitWidth edgeWidth name fit at tint =
             case Dict.get name scene.props of
                 Just prop ->
-                    let
-                        model =
-                            Mat4.mul at (fit prop)
-                    in
-                    BrickProps.draw pv model tint (edgeWidthAt ctx (Mat4.transform at (vec3 0 0 0))) prop
+                    BrickProps.draw pv (Mat4.mul at (fit prop)) tint edgeWidth prop
 
                 Nothing ->
                     []
+
+        withFit name fit at tint =
+            withFitWidth (edgeWidthAt ctx (Mat4.transform at (vec3 0 0 0))) name fit at tint
+
+        drawNoEdges =
+            withFitWidth 0
 
         draw =
             { prop = drawProp, fitted = withFit }
@@ -210,14 +283,14 @@ renderWorld cam scene width height =
             [ Ocean.skyEntity ctx
             , Ocean.oceanEntity ctx
             ]
-                ++ islandEntities draw scene.course
-                ++ decorEntities ctx width height scene.scenery draw scene.course
-                ++ seabirdFlockEntities draw scene.time scene.course
+                ++ islandEntities inView drawNoEdges draw scene.course
+                ++ decorEntities inView ctx width height scene.scenery draw scene.course
+                ++ seabirdFlockEntities inView draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
-                ++ townEntities ctx width height scene.scenery draw scene.standards scene.course.towns
-                ++ treasureEntities ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
-                ++ List.concatMap (harbourEntities ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
-                ++ List.concatMap (targetEntities draw scene.time) scene.targets
+                ++ townEntities inView ctx width height scene.scenery draw scene.standards scene.course.towns
+                ++ treasureEntities inView ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
+                ++ List.concatMap (harbourEntities inView ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
+                ++ List.concatMap (targetEntities inView draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height draw) scene.boats
                 ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
@@ -573,7 +646,7 @@ brickPasses : Ctx -> Int -> Int -> Float -> Vec4 -> Mat4 -> Scene -> List WebGL.
 brickPasses ctx width height distance tint model scene =
     let
         surface =
-            WebGL.entityWith [ DepthTest.default ]
+            WebGL.entityWith (BrickProps.surfaceSettings scene.bfcCertified model)
                 brickVertexShader
                 Shader.fragmentShader
                 scene.triangleMesh
@@ -694,140 +767,174 @@ spinning beacon over the next harbour to dock at and a grey ring round the
 ones already visited. The final harbour also has the pirate arch across the
 approach. The piers are decoration: nothing bumps into them.
 -}
-harbourEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Float -> Int -> Course -> Waypoint -> List WebGL.Entity
-harbourEntities ctx width height scenery draw time nextIndex course wp =
+harbourEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Float -> Int -> Course -> Waypoint -> List WebGL.Entity
+harbourEntities inView ctx width height scenery draw time nextIndex course wp =
     let
         p =
             Vec3.toRecord wp.position
+    in
+    if not (inView (vec3 p.x 4 p.z) (wp.radius + 25)) then
+        []
 
-        isNext =
-            wp.index == nextIndex
+    else
+        let
+            isNext =
+                wp.index == nextIndex
 
-        passed =
-            wp.index < nextIndex
+            passed =
+                wp.index < nextIndex
 
-        bob =
-            0.2 * sin (time * 2 + toFloat wp.index) + Physics.seaElevation ctx.sea p.x p.z time
+            bob =
+                0.2 * sin (time * 2 + toFloat wp.index) + Physics.seaElevation ctx.sea p.x p.z time
 
-        pulse =
-            1 + 0.06 * sin (time * 5)
+            pulse =
+                1 + 0.06 * sin (time * 5)
 
-        ring =
-            if isNext then
-                ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 (wp.radius * pulse) 1 (wp.radius * pulse)) (vec3 1 0.92 0.3) ringMesh
-                    :: draw.fitted "beacon" (BrickProps.fitHeight 5.9) (Mat4.makeTranslate3 p.x (bob + 2.6) p.z |> rotY (time * 1.5)) plain
+            ring =
+                if (isNext || passed) && inView (vec3 p.x 2.0 p.z) (wp.radius * 1.1 + 4.0) then
+                    if isNext then
+                        ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 (wp.radius * pulse) 1 (wp.radius * pulse)) (vec3 1 0.92 0.3) ringMesh
+                            :: draw.fitted "beacon" (BrickProps.fitHeight 5.9) (Mat4.makeTranslate3 p.x (bob + 2.6) p.z |> rotY (time * 1.5)) plain
 
-            else if passed then
-                [ ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 wp.radius 1 wp.radius) (vec3 0.55 0.58 0.62) ringMesh ]
+                    else
+                        [ ocean ctx (Mat4.makeTranslate3 p.x 0.35 p.z |> Mat4.scale3 wp.radius 1 wp.radius) (vec3 0.55 0.58 0.62) ringMesh ]
 
-            else
-                []
-
-        -- Direction the boat sails in from: the harbour before, or the start.
-        approach =
-            let
-                from =
-                    course.waypoints
-                        |> List.filter (\w -> w.index == wp.index - 1)
-                        |> List.head
-                        |> Maybe.map .position
-                        |> Maybe.withDefault course.startPosition
-                        |> Vec3.toRecord
-            in
-            atan2 (p.x - from.x) (p.z - from.z)
-
-        ( dx, dz ) =
-            ( sin approach, cos approach )
-
-        -- The pier runs from the beach of the island the harbour docks on
-        -- (the one with the nearest shore) out towards the harbour, like a
-        -- town's pier, with a pirate flag where it leaves the beach.
-        pier =
-            case dockIsland course.islands p of
-                Just isl ->
-                    let
-                        bearing =
-                            180 / pi * atan2 (p.x - isl.x) (p.z - isl.z)
-
-                        edge =
-                            Vec3.toRecord (Physics.shorePoint isl bearing 1)
-
-                        flagProp =
-                            course.towns
-                                |> List.filter (\t -> t.island == isl)
-                                |> List.filterMap .faction
-                                |> List.head
-                                |> Maybe.map
-                                    (\faction ->
-                                        case faction of
-                                            Pirates ->
-                                                "pirateStandard"
-
-                                            BlueCoats ->
-                                                "blueCoatStandard"
-
-                                            RedCoats ->
-                                                "redCoatStandard"
-                                    )
-                                |> Maybe.withDefault "pirateFlag"
-                    in
-                    sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl bearing (1 - 5 / isl.radius) |> Vec3.setY -1.4) bearing
-                        ++ draw.fitted flagProp
-                            (BrickProps.fitHeight 3.2)
-                            (Mat4.makeTranslate3 edge.x (max 0.48 (Physics.beachHeight isl)) edge.z |> rotY (degrees bearing))
-                            plain
-
-                Nothing ->
+                else
                     []
 
-        -- The channel beacons stand 12 m out along the approach, 6 m to
-        -- either side of it, in the open water off the shore.
-        portX =
-            p.x - 12 * dx + 6 * dz
+            -- Direction the boat sails in from: the harbour before, or the start.
+            approach =
+                let
+                    from =
+                        course.waypoints
+                            |> List.filter (\w -> w.index == wp.index - 1)
+                            |> List.head
+                            |> Maybe.map .position
+                            |> Maybe.withDefault course.startPosition
+                            |> Vec3.toRecord
+                in
+                atan2 (p.x - from.x) (p.z - from.z)
 
-        portZ =
-            p.z - 12 * dz - 6 * dx
+            ( dx, dz ) =
+                ( sin approach, cos approach )
 
-        starboardX =
-            p.x - 12 * dx - 6 * dz
+            -- The pier runs from the beach of the island the harbour docks on
+            -- (the one with the nearest shore) out towards the harbour, like a
+            -- town's pier, with a pirate flag where it leaves the beach.
+            pier =
+                case dockIsland course.islands p of
+                    Just isl ->
+                        let
+                            bearing =
+                                180 / pi * atan2 (p.x - isl.x) (p.z - isl.z)
 
-        starboardZ =
-            p.z - 12 * dz + 6 * dx
+                            edge =
+                                Vec3.toRecord (Physics.shorePoint isl bearing 1)
 
-        channelBeacons =
-            [ ocean ctx (Mat4.makeTranslate3 portX 0.35 portZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.95 0.15 0.15) ringMesh
-            , ocean ctx (Mat4.makeTranslate3 starboardX 0.35 starboardZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.15 0.9 0.2) ringMesh
-            ]
-    in
-    case wp.kind of
-        FinalHarbour ->
-            let
-                frame =
-                    Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
+                            flagPos =
+                                vec3 edge.x (max 0.48 (Physics.beachHeight isl)) edge.z
 
-                -- A pirate flag on top of each post of the arch (whose beam
-                -- tops out 7.68 m up in arch space).
-                flag x =
-                    draw.fitted "pirateFlag" (BrickProps.fitHeight 3.2) (Mat4.mul frame (Mat4.makeTranslate3 x 7.68 0)) plain
-            in
-            List.concatMap
-                (\b -> draw.prop b.part (Mat4.mul frame b.transform) (tint3 (BrickLook.colour b.color)))
-                (BrickModels.archBricks
-                    { halfWidth = wp.radius
-                    , postHeight = 6.5
-                    , unit = 0.02
-                    , postColor = 15
-                    , bannerColors = [ 0, 15 ]
-                    }
+                            flagProp =
+                                course.towns
+                                    |> List.filter (\t -> t.island == isl)
+                                    |> List.filterMap .faction
+                                    |> List.head
+                                    |> Maybe.map
+                                        (\faction ->
+                                            case faction of
+                                                Pirates ->
+                                                    "pirateStandard"
+
+                                                BlueCoats ->
+                                                    "blueCoatStandard"
+
+                                                RedCoats ->
+                                                    "redCoatStandard"
+                                        )
+                                    |> Maybe.withDefault "pirateFlag"
+
+                            flagEntities =
+                                if inView (Vec3.add flagPos (vec3 0 1.6 0)) 2.5 then
+                                    draw.fitted flagProp
+                                        (BrickProps.fitHeight 3.2)
+                                        (Mat4.makeTranslate flagPos |> rotY (degrees bearing))
+                                        plain
+
+                                else
+                                    []
+                        in
+                        pierInView inView ctx width height scenery isl bearing ++ flagEntities
+
+                    Nothing ->
+                        []
+
+            -- The channel beacons stand 12 m out along the approach, 6 m to
+            -- either side of it, in the open water off the shore.
+            portX =
+                p.x - 12 * dx + 6 * dz
+
+            portZ =
+                p.z - 12 * dz - 6 * dx
+
+            starboardX =
+                p.x - 12 * dx - 6 * dz
+
+            starboardZ =
+                p.z - 12 * dz + 6 * dx
+
+            channelBeacons =
+                (if inView (vec3 portX 0.35 portZ) 1.5 then
+                    [ ocean ctx (Mat4.makeTranslate3 portX 0.35 portZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.95 0.15 0.15) ringMesh ]
+
+                 else
+                    []
                 )
-                ++ flag (negate wp.radius)
-                ++ flag wp.radius
-                ++ pier
-                ++ ring
-                ++ channelBeacons
+                    ++ (if inView (vec3 starboardX 0.35 starboardZ) 1.5 then
+                            [ ocean ctx (Mat4.makeTranslate3 starboardX 0.35 starboardZ |> Mat4.scale3 0.8 1 0.8) (vec3 0.15 0.9 0.2) ringMesh ]
 
-        Harbour ->
-            pier ++ ring ++ channelBeacons
+                        else
+                            []
+                       )
+        in
+        case wp.kind of
+            FinalHarbour ->
+                let
+                    archEntities =
+                        if inView (vec3 p.x 4.5 p.z) (wp.radius + 5.0) then
+                            let
+                                frame =
+                                    Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
+
+                                -- A pirate flag on top of each post of the arch (whose beam
+                                -- tops out 7.68 m up in arch space).
+                                flag x =
+                                    draw.fitted "pirateFlag" (BrickProps.fitHeight 3.2) (Mat4.mul frame (Mat4.makeTranslate3 x 7.68 0)) plain
+
+                                arch =
+                                    if wp.radius == Physics.harbourRadius then
+                                        draw.prop "finishArch" (Mat4.mul frame (Mat4.makeScale3 finishArchUnit finishArchUnit finishArchUnit)) plain
+
+                                    else
+                                        List.concatMap
+                                            (\b -> draw.prop b.part (Mat4.mul frame b.transform) (tint3 (BrickLook.colour b.color)))
+                                            (BrickModels.archBricks
+                                                { halfWidth = wp.radius
+                                                , postHeight = 6.5
+                                                , unit = finishArchUnit
+                                                , postColor = 15
+                                                , bannerColors = [ 0, 15 ]
+                                                }
+                                            )
+                            in
+                            arch ++ flag (negate wp.radius) ++ flag wp.radius
+
+                        else
+                            []
+                in
+                archEntities ++ pier ++ ring ++ channelBeacons
+
+            Harbour ->
+                pier ++ ring ++ channelBeacons
 
 
 {-| The island a harbour at `p` docks at: the one whose shore is nearest.
@@ -839,8 +946,8 @@ dockIsland islands p =
         |> List.head
 
 
-targetEntities : Draw -> Float -> Target -> List WebGL.Entity
-targetEntities draw time t =
+targetEntities : (Vec3 -> Float -> Bool) -> Draw -> Float -> Target -> List WebGL.Entity
+targetEntities inView draw time t =
     if t.sunk && t.sinkAge > 1.6 then
         []
 
@@ -848,22 +955,27 @@ targetEntities draw time t =
         let
             p =
                 Vec3.toRecord t.position
-
-            sink =
-                if t.sunk then
-                    t.sinkAge * 1.6
-
-                else
-                    0
         in
-        draw.fitted "floatingTarget"
-            (BrickProps.fitWidth 1.6)
-            (Mat4.makeTranslate3 p.x (p.y - sink) p.z
-                |> rotY (time * 0.4 + toFloat t.id)
-                |> rotZ (sink * 0.5)
-                |> Mat4.translate3 0 -0.4 0
-            )
-            plain
+        if not (inView (vec3 p.x (p.y + 0.5) p.z) 2.5) then
+            []
+
+        else
+            let
+                sink =
+                    if t.sunk then
+                        t.sinkAge * 1.6
+
+                    else
+                        0
+            in
+            draw.fitted "floatingTarget"
+                (BrickProps.fitWidth 1.6)
+                (Mat4.makeTranslate3 p.x (p.y - sink) p.z
+                    |> rotY (time * 0.4 + toFloat t.id)
+                    |> rotZ (sink * 0.5)
+                    |> Mat4.translate3 0 -0.4 0
+                )
+                plain
 
 
 {-| Islands of round bricks in the map's colours (`Sails.World.islandPalette`)
@@ -875,8 +987,13 @@ are bare rock.
 The beach and the grass are at `Physics.beachHeight` and
 `Physics.grassHeight`, where the towns and the chest stand.
 -}
-islandEntities : Draw -> Course -> List WebGL.Entity
-islandEntities draw course =
+islandEntities :
+    (Vec3 -> Float -> Bool)
+    -> (String -> (PropModel -> Mat4) -> Mat4 -> Vec4 -> List WebGL.Entity)
+    -> Draw
+    -> Course
+    -> List WebGL.Entity
+islandEntities inView drawNoEdges draw course =
     let
         look =
             World.dressing course.map
@@ -900,134 +1017,204 @@ islandEntities draw course =
     in
     List.indexedMap
         (\i isl ->
-            let
-                grassY =
-                    -0.6 + 0.58 * isl.height
+            if not (inView (vec3 isl.x 6 isl.z) (max 28 (isl.radius + 14))) then
+                []
 
-                treeCount =
-                    case isl.role of
-                        Skerry ->
-                            0
+            else
+                let
+                    grassY =
+                        -0.6 + 0.58 * isl.height
 
-                        TreasureIsle ->
-                            2
+                    treeCount =
+                        case isl.role of
+                            Skerry ->
+                                0
 
-                        _ ->
-                            if look.landmark == Cairn then
-                                1 + modBy 2 i
+                            TreasureIsle ->
+                                2
 
-                            else
-                                3 + modBy 2 i
+                            _ ->
+                                if look.landmark == Cairn then
+                                    1 + modBy 2 i
 
-                -- Compass bearings from the island's centre of its town's
-                -- houses and pier, of the piers of harbours docking at it and
-                -- of buried treasure, kept clear of trees.
-                occupied =
-                    List.filterMap
-                        (\town ->
-                            if town.island == isl then
-                                Just town.bearing
+                                else
+                                    3 + modBy 2 i
 
-                            else
-                                Nothing
-                        )
-                        course.towns
-                        ++ List.filterMap
-                            (\t ->
-                                let
-                                    tp =
-                                        Vec3.toRecord t.position
-                                in
-                                if (tp.x - isl.x) ^ 2 + (tp.z - isl.z) ^ 2 < isl.radius ^ 2 then
-                                    Just (180 / pi * atan2 (tp.x - isl.x) (tp.z - isl.z))
+                    -- Compass bearings from the island's centre of its town's
+                    -- houses and pier, of the piers of harbours docking at it and
+                    -- of buried treasure, kept clear of trees.
+                    occupied =
+                        List.filterMap
+                            (\town ->
+                                if town.island == isl then
+                                    Just town.bearing
 
                                 else
                                     Nothing
                             )
-                            course.treasures
-                        ++ List.filterMap
-                            (\wp ->
-                                let
-                                    wpp =
-                                        Vec3.toRecord wp.position
-                                in
-                                if dockIsland course.islands wpp == Just isl then
-                                    Just (180 / pi * atan2 (wpp.x - isl.x) (wpp.z - isl.z))
+                            course.towns
+                            ++ List.filterMap
+                                (\t ->
+                                    let
+                                        tp =
+                                            Vec3.toRecord t.position
+                                    in
+                                    if (tp.x - isl.x) ^ 2 + (tp.z - isl.z) ^ 2 < isl.radius ^ 2 then
+                                        Just (180 / pi * atan2 (tp.x - isl.x) (tp.z - isl.z))
 
-                                else
-                                    Nothing
-                            )
-                            course.waypoints
-
-                -- The angle `a` of slot k (as used below), as a compass bearing.
-                slotAngle k =
-                    120 + 40 * toFloat k + 17 * toFloat i
-
-                clear k =
-                    let
-                        bearing =
-                            90 - slotAngle k
-
-                        apart b =
-                            abs (toFloat (modBy 360 (round (bearing - b) + 540)) - 180)
-                    in
-                    List.all (\b -> apart b > 48) occupied
-
-                onGrass k share =
-                    let
-                        a =
-                            degrees (slotAngle k)
-                    in
-                    Mat4.makeTranslate3 (isl.x + share * isl.radius * cos a) grassY (isl.z + share * isl.radius * sin a)
-                        |> rotY (a + toFloat k)
-
-                tree prop k =
-                    let
-                        tall =
-                            modBy 2 (k + i) == 0
-                    in
-                    draw.fitted prop
-                        (BrickProps.fitHeight
-                            (min 9
-                                (if tall then
-                                    0.9 * isl.height
-
-                                 else
-                                    0.75 * isl.height
+                                    else
+                                        Nothing
                                 )
-                            )
-                        )
-                        (onGrass k 0.7)
-                        plain
+                                course.treasures
+                            ++ List.filterMap
+                                (\wp ->
+                                    let
+                                        wpp =
+                                            Vec3.toRecord wp.position
+                                    in
+                                    if dockIsland course.islands wpp == Just isl then
+                                        Just (180 / pi * atan2 (wpp.x - isl.x) (wpp.z - isl.z))
 
-                trees =
-                    case treeProp of
-                        Just prop ->
-                            List.concatMap (tree prop) (List.filter clear (List.range 0 (treeCount - 1)))
+                                    else
+                                        Nothing
+                                )
+                                course.waypoints
 
-                        Nothing ->
+                    -- The angle `a` of slot k (as used below), as a compass bearing.
+                    slotAngle k =
+                        120 + 40 * toFloat k + 17 * toFloat i
+
+                    clear k =
+                        let
+                            bearing =
+                                90 - slotAngle k
+
+                            apart b =
+                                abs (toFloat (modBy 360 (round (bearing - b) + 540)) - 180)
+                        in
+                        List.all (\b -> apart b > 48) occupied
+
+                    grassPoint k share =
+                        let
+                            a =
+                                degrees (slotAngle k)
+                        in
+                        vec3 (isl.x + share * isl.radius * cos a) grassY (isl.z + share * isl.radius * sin a)
+
+                    onGrass k share =
+                        let
+                            a =
+                                degrees (slotAngle k)
+                        in
+                        Mat4.makeTranslate (grassPoint k share)
+                            |> rotY (a + toFloat k)
+
+                    tree prop k =
+                        let
+                            tall =
+                                modBy 2 (k + i) == 0
+
+                            height =
+                                min 9
+                                    (if tall then
+                                        0.9 * isl.height
+
+                                     else
+                                        0.75 * isl.height
+                                    )
+                        in
+                        if inView (Vec3.add (grassPoint k 0.7) (vec3 0 (0.5 * height) 0)) 6.5 then
+                            draw.fitted prop
+                                (BrickProps.fitHeight height)
+                                (onGrass k 0.7)
+                                plain
+
+                        else
                             []
 
-                -- Slots 5 and 6 (past the trees) for rocks and farm buildings.
-                extras =
-                    case isl.role of
-                        HarbourIsle ->
-                            (if look.rocks && clear 5 then
-                                draw.fitted "rock" (BrickProps.fitHeight 2.4) (onGrass 5 0.55) plain
+                    trees =
+                        case treeProp of
+                            Just prop ->
+                                List.concatMap (tree prop) (List.filter clear (List.range 0 (treeCount - 1)))
 
-                             else
+                            Nothing ->
                                 []
-                            )
-                                ++ (if look.farm && clear 6 then
-                                        draw.fitted "barn" (BrickProps.fitHeight 4.5) (onGrass 6 0.45) plain
-                                            ++ draw.fitted "hayBale" (BrickProps.fitHeight 1.2) (onGrass 6 0.75) plain
+
+                    -- Slots 5 and 6 (past the trees) for rocks and farm buildings.
+                    extras =
+                        case isl.role of
+                            HarbourIsle ->
+                                (if look.rocks && clear 5 && inView (Vec3.add (grassPoint 5 0.55) (vec3 0 1.2 0)) 3.5 then
+                                    draw.fitted "rock" (BrickProps.fitHeight 2.4) (onGrass 5 0.55) plain
+
+                                 else
+                                    []
+                                )
+                                    ++ (if look.farm && clear 6 then
+                                            (if inView (Vec3.add (grassPoint 6 0.45) (vec3 0 2.25 0)) 5.5 then
+                                                draw.fitted "barn" (BrickProps.fitHeight 4.5) (onGrass 6 0.45) plain
+
+                                             else
+                                                []
+                                            )
+                                                ++ (if inView (Vec3.add (grassPoint 6 0.75) (vec3 0 0.6 0)) 2.5 then
+                                                        draw.fitted "hayBale" (BrickProps.fitHeight 1.2) (onGrass 6 0.75) plain
+
+                                                    else
+                                                        []
+                                                   )
+
+                                        else
+                                            []
+                                       )
+
+                            _ ->
+                                []
+
+                    landmark =
+                        if isl.role == Hub then
+                            let
+                                pos =
+                                    landmarkPos isl
+
+                                at =
+                                    Mat4.makeTranslate pos
+                            in
+                            case look.landmark of
+                                Fort ->
+                                    if inView (Vec3.add pos (vec3 0 5.3 0)) 8.0 then
+                                        draw.fitted "fort" (BrickProps.fitHeight 10.6) at plain
 
                                     else
                                         []
-                                   )
 
-                        Skerry ->
-                            draw.fitted palette.key
+                                Lighthouse ->
+                                    if inView (Vec3.add pos (vec3 0 5.3 0)) 8.0 then
+                                        draw.fitted "lighthouse" (BrickProps.fitHeight 10.6) at plain
+
+                                    else
+                                        []
+
+                                Cairn ->
+                                    if inView (Vec3.add pos (vec3 0 3.0 0)) 5.0 then
+                                        List.concatMap
+                                            (\k ->
+                                                draw.fitted "rock"
+                                                    (BrickProps.fitHeight (2.4 - 0.5 * toFloat k))
+                                                    (Mat4.mul at (Mat4.makeTranslate3 0 (1.9 * toFloat k) 0) |> rotY (toFloat k))
+                                                    plain
+                                            )
+                                            [ 0, 1, 2 ]
+
+                                    else
+                                        []
+
+                        else
+                            []
+
+                    islandBase =
+                        if inView (vec3 isl.x 1.5 isl.z) 27 then
+                            drawNoEdges palette.key
                                 (\prop ->
                                     let
                                         h =
@@ -1035,51 +1222,16 @@ islandEntities draw course =
                                     in
                                     BrickProps.fitHeight (0.035 * h) prop
                                 )
-                                (Mat4.makeTranslate3 isl.x -0.84 isl.z |> rotY (toFloat i))
+                                (Mat4.makeTranslate3 isl.x -0.84 isl.z)
                                 plain
 
-                        _ ->
+                        else
                             []
-
-                landmark =
-                    if isl.role == Hub then
-                        let
-                            at =
-                                landmarkPoint isl
-                        in
-                        case look.landmark of
-                            Fort ->
-                                draw.fitted "fort" (BrickProps.fitHeight 10.6) at plain
-
-                            Lighthouse ->
-                                draw.fitted "lighthouse" (BrickProps.fitHeight 10.6) at plain
-
-                            Cairn ->
-                                List.concatMap
-                                    (\k ->
-                                        draw.fitted "rock"
-                                            (BrickProps.fitHeight (2.4 - 0.5 * toFloat k))
-                                            (Mat4.mul at (Mat4.makeTranslate3 0 (1.9 * toFloat k) 0) |> rotY (toFloat k))
-                                            plain
-                                    )
-                                    [ 0, 1, 2 ]
-
-                    else
-                        []
-            in
-            draw.fitted palette.key
-                (\prop ->
-                    let
-                        h =
-                            max 0.001 (Vec3.getY (BrickProps.size prop))
-                    in
-                    BrickProps.fitHeight (0.035 * h) prop
-                )
-                (Mat4.makeTranslate3 isl.x -0.84 isl.z)
-                plain
-                ++ trees
-                ++ extras
-                ++ landmark
+                in
+                islandBase
+                    ++ trees
+                    ++ extras
+                    ++ landmark
         )
         course.islands
         |> List.concat
@@ -1097,9 +1249,9 @@ hubOf course =
 
 {-| Where the hub's landmark stands, on its hill.
 -}
-landmarkPoint : Island -> Mat4
-landmarkPoint isl =
-    Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius)
+landmarkPos : Island -> Vec3
+landmarkPos isl =
+    vec3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height) (isl.z + 0.1 * isl.radius)
 
 
 {-| The sweeping light from the fort's watchtower or the lighthouse on the
@@ -1129,27 +1281,39 @@ Only the reefs are in the physics (deep keels ground on them, see
 `Physics.checkReefGrounding`); the boats sail through the rest as if they
 were not there.
 -}
-decorEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Course -> List WebGL.Entity
-decorEntities ctx width height scenery draw course =
+decorEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Course -> List WebGL.Entity
+decorEntities inView ctx width height scenery draw course =
     List.concatMap
         (\d ->
             case d.kind of
                 Reef ->
-                    draw.fitted "reef" (BrickProps.fitHeight 1.8) (Mat4.makeTranslate3 d.x -0.9 d.z |> rotY d.yaw) plain
+                    if inView (vec3 d.x 0.0 d.z) 3.5 then
+                        draw.fitted "reef" (BrickProps.fitHeight 1.8) (Mat4.makeTranslate3 d.x -0.9 d.z |> rotY d.yaw) plain
+
+                    else
+                        []
 
                 Wreck ->
-                    draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 d.x -1.1 d.z |> rotY d.yaw) plain
+                    if inView (vec3 d.x 1.2 d.z) 5.0 then
+                        draw.fitted "wreck" (BrickProps.fitHeight 4.5) (Mat4.makeTranslate3 d.x -1.1 d.z |> rotY d.yaw) plain
+
+                    else
+                        []
 
                 SeaArch ->
-                    sceneryEntities ctx width height scenery Scenery.seaArch (vec3 d.x -1.0 d.z) (d.yaw * 180 / pi)
+                    if inView (vec3 d.x 2.1 d.z) 6.0 then
+                        sceneryEntities ctx width height scenery Scenery.seaArch (vec3 d.x -1.0 d.z) (d.yaw * 180 / pi)
+
+                    else
+                        []
         )
         course.decor
 
 
 {-| A flock of tiny brick gulls wheeling on thermal updrafts high above the hub island.
 -}
-seabirdFlockEntities : Draw -> Float -> Course -> List WebGL.Entity
-seabirdFlockEntities draw time course =
+seabirdFlockEntities : (Vec3 -> Float -> Bool) -> Draw -> Float -> Course -> List WebGL.Entity
+seabirdFlockEntities inView draw time course =
     case hubOf course of
         Just isl ->
             let
@@ -1161,40 +1325,49 @@ seabirdFlockEntities draw time course =
 
                 baseY =
                     isl.height + 14.0
-
-                bird i =
-                    let
-                        phase =
-                            toFloat i * (2.0 * pi / 5.0)
-
-                        orbitRadius =
-                            18.0 + 3.0 * sin (toFloat i * 1.7)
-
-                        ang =
-                            time * 0.45 + phase
-
-                        x =
-                            centerX + orbitRadius * cos ang
-
-                        z =
-                            centerZ + orbitRadius * sin ang
-
-                        y =
-                            baseY + 2.0 * sin (time * 1.2 + toFloat i)
-
-                        yaw =
-                            -ang + (pi / 2.0)
-
-                        model =
-                            Mat4.makeTranslate3 x y z
-                                |> rotY yaw
-                    in
-                    draw.fitted "seabird"
-                        (BrickProps.fitBox { width = 1.2, height = 0.4, depth = 0.8 })
-                        model
-                        plain
             in
-            List.concatMap bird (List.range 0 4)
+            if not (inView (vec3 centerX baseY centerZ) 24.0) then
+                []
+
+            else
+                let
+                    bird i =
+                        let
+                            phase =
+                                toFloat i * (2.0 * pi / 5.0)
+
+                            orbitRadius =
+                                18.0 + 3.0 * sin (toFloat i * 1.7)
+
+                            ang =
+                                time * 0.45 + phase
+
+                            x =
+                                centerX + orbitRadius * cos ang
+
+                            z =
+                                centerZ + orbitRadius * sin ang
+
+                            y =
+                                baseY + 2.0 * sin (time * 1.2 + toFloat i)
+
+                            yaw =
+                                -ang + (pi / 2.0)
+
+                            model =
+                                Mat4.makeTranslate3 x y z
+                                    |> rotY yaw
+                        in
+                        if inView (vec3 x y z) 1.5 then
+                            draw.fitted "seabird"
+                                (BrickProps.fitBox { width = 1.2, height = 0.4, depth = 0.8 })
+                                model
+                                plain
+
+                        else
+                            []
+                in
+                List.concatMap bird (List.range 0 4)
 
         Nothing ->
             []
@@ -1222,12 +1395,34 @@ sceneryEntities ctx width height scenery piece at bearing =
             []
 
 
+{-| Render a shore pier if its bounding sphere is inside the view frustum and
+visibility range. Shared by `townEntities` and `harbourEntities`.
+-}
+pierInView : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Island -> Float -> List WebGL.Entity
+pierInView inView ctx width height scenery isl bearing =
+    let
+        pierPos =
+            Physics.shorePoint isl bearing (1 - 5 / isl.radius) |> Vec3.setY -1.4
+
+        rad =
+            degrees bearing
+
+        center =
+            Vec3.add pierPos (vec3 (5 * sin rad) 0.3 (5 * cos rad))
+    in
+    if inView center 8.0 then
+        sceneryEntities ctx width height scenery Scenery.pier pierPos bearing
+
+    else
+        []
+
+
 {-| Each town: its houses on the grass, its pier from the beach out to
 the water's edge, and the faction standard at the end of the pier on the
 island shore (drawn only if still safe at the citadel).
 -}
-townEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Town -> List WebGL.Entity
-townEntities ctx width height scenery draw standards towns =
+townEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Town -> List WebGL.Entity
+townEntities inView ctx width height scenery draw standards towns =
     List.concatMap
         (\town ->
             let
@@ -1236,6 +1431,16 @@ townEntities ctx width height scenery draw standards towns =
 
                 edge =
                     Vec3.toRecord (Physics.shorePoint isl town.bearing 1)
+
+                housesPos =
+                    Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)
+
+                housesEntities =
+                    if inView (Vec3.add housesPos (vec3 0 3.5 0)) 9.5 then
+                        sceneryEntities ctx width height scenery Scenery.houses housesPos town.bearing
+
+                    else
+                        []
 
                 standardProp =
                     case town.faction of
@@ -1260,16 +1465,24 @@ townEntities ctx width height scenery draw standards towns =
                 standardEntities =
                     case standardProp of
                         Just prop ->
-                            draw.fitted prop
-                                (BrickProps.fitHeight 3.2)
-                                (Mat4.makeTranslate3 edge.x (Physics.beachHeight isl) edge.z |> rotY (degrees town.bearing))
-                                plain
+                            let
+                                stdY =
+                                    Physics.beachHeight isl
+                            in
+                            if inView (vec3 edge.x (stdY + 1.6) edge.z) 2.5 then
+                                draw.fitted prop
+                                    (BrickProps.fitHeight 3.2)
+                                    (Mat4.makeTranslate3 edge.x stdY edge.z |> rotY (degrees town.bearing))
+                                    plain
+
+                            else
+                                []
 
                         Nothing ->
                             []
             in
-            sceneryEntities ctx width height scenery Scenery.houses (Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)) town.bearing
-                ++ sceneryEntities ctx width height scenery Scenery.pier (Physics.shorePoint isl town.bearing (1 - 5 / isl.radius) |> Vec3.setY -1.4) town.bearing
+            housesEntities
+                ++ pierInView inView ctx width height scenery isl town.bearing
                 ++ standardEntities
         )
         towns
@@ -1320,21 +1533,25 @@ standardAtSeaEntities ctx draw time std =
 {-| Treasure still to find: the chest, and a gold ring on the water showing
 how close to sail to take it aboard.
 -}
-treasureEntities : Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Float -> List Int -> List Treasure -> List WebGL.Entity
-treasureEntities ctx width height scenery time found treasures =
+treasureEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Float -> List Int -> List Treasure -> List WebGL.Entity
+treasureEntities inView ctx width height scenery time found treasures =
     treasures
         |> List.filter (\t -> not (List.member t.id found))
         |> List.concatMap
             (\t ->
-                let
-                    p =
-                        Vec3.toRecord t.position
+                if inView (Vec3.add t.position (vec3 0 1.5 0)) (Physics.treasureReach + 2.0) then
+                    let
+                        p =
+                            Vec3.toRecord t.position
 
-                    r =
-                        Physics.treasureReach * (1 + 0.05 * sin (time * 4))
-                in
-                ocean ctx (Mat4.makeTranslate3 p.x 0.4 p.z |> Mat4.scale3 r 1 r) (vec3 1 0.82 0.2) ringMesh
-                    :: sceneryEntities ctx width height scenery Scenery.chest t.position t.bearing
+                        r =
+                            Physics.treasureReach * (1 + 0.05 * sin (time * 4))
+                    in
+                    ocean ctx (Mat4.makeTranslate3 p.x 0.4 p.z |> Mat4.scale3 r 1 r) (vec3 1 0.82 0.2) ringMesh
+                        :: sceneryEntities ctx width height scenery Scenery.chest t.position t.bearing
+
+                else
+                    []
             )
 
 

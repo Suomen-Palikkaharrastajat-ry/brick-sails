@@ -7,6 +7,8 @@ camera.
 
 import Dict
 import Expect
+import Game.BrickModels as BrickModels
+import Game.BrickProps as BrickProps
 import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
 import LDraw.Document as Document
 import LDraw.Parser as Parser
@@ -23,6 +25,7 @@ import Sails.Ingest as Ingest
 import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
 import Sails.Render as Render
+import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (Boat, CourseProgress, IslandRole(..), SailingState)
 import Sails.World as World
@@ -846,6 +849,111 @@ suite =
                         [ \_ -> Expect.equal 0 (List.length (Render.sprayEntities (makeCtx 1.0) mockDraw 0 calmBoat))
                         , \_ -> Expect.equal 2 (List.length (Render.sprayEntities (makeCtx 1.8) mockDraw 0 roughBoat))
                         , \_ -> Expect.equal 2 (List.length (Render.sprayEntities (makeCtx 1.4) mockDraw 0 calmBoat))
+                        ]
+                        ()
+            ]
+        , describe "Phase 1 rendering optimizations"
+            [ test "propSources includes only the active course's island palette" <|
+                \_ ->
+                    let
+                        maps =
+                            [ { biome = Desert, season = Summer, weather = Clear, seed = 1 }
+                            , { biome = Boreal, season = Winter, weather = Snow, seed = 2 }
+                            , { biome = Farmland, season = Autumn, weather = Rain, seed = 3 }
+                            , { biome = Fell, season = Spring, weather = Fog, seed = 4 }
+                            ]
+
+                        islandKeys map =
+                            Render.propSources map
+                                |> List.map Tuple.first
+                                |> List.filter (String.startsWith "island-")
+                    in
+                    Expect.all
+                        (List.map
+                            (\m -> \_ -> Expect.equal [ (World.islandPalette m).key ] (islandKeys m))
+                            maps
+                        )
+                        ()
+            , test "finishArch batches all bricks of the final harbour arch into one certified prop" <|
+                \_ ->
+                    let
+                        certifiedBox =
+                            Parser.parseFile "0 BFC CERTIFY CCW\n4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"
+
+                        cache =
+                            [ "3001.dat", "3003.dat" ]
+                                |> List.map (\n -> ( n, Loaded certifiedBox ))
+                                |> Dict.fromList
+
+                        archSource =
+                            Render.propSources Archipelago.defaultMap
+                                |> List.filter (\( k, _ ) -> k == "finishArch")
+                                |> List.head
+                                |> Maybe.map Tuple.second
+                                |> Maybe.withDefault ""
+
+                        builtArch =
+                            BrickProps.build archSource cache
+
+                        expectedCount =
+                            List.length
+                                (BrickModels.archBricks
+                                    { halfWidth = Physics.harbourRadius
+                                    , postHeight = 6.5
+                                    , unit = 0.02
+                                    , postColor = 15
+                                    , bannerColors = [ 0, 15 ]
+                                    }
+                                )
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True builtArch.scene.bfcCertified
+                        , \_ -> Expect.equal (expectedCount * 2) builtArch.triangleCount
+                        ]
+                        ()
+            , test "ShipMesh and active island models set bfcCertified cleanly from parts" <|
+                \_ ->
+                    let
+                        certifiedBox =
+                            Parser.parseFile "0 BFC CERTIFY CCW\n4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"
+
+                        certifiedCache =
+                            knownParts
+                                |> List.map (\n -> ( n, Loaded certifiedBox ))
+                                |> Dict.fromList
+
+                        uncertifiedCache =
+                            knownParts
+                                |> List.map (\n -> ( n, Loaded boxPart ))
+                                |> Dict.fromList
+
+                        doc =
+                            Document.parse Boats.default.ldraw
+
+                        certifiedShip =
+                            ShipMesh.build (ShipMesh.sailByColour 15) doc certifiedCache
+
+                        uncertifiedShip =
+                            ShipMesh.build (ShipMesh.sailByColour 15) doc uncertifiedCache
+
+                        sceneryCache =
+                            [ "3001.dat", "3003.dat", "3020.dat", "3034.dat", "3037.dat", "3062b.dat", "6141.dat", "3867.dat", "3039.dat" ]
+                                |> List.map (\n -> ( n, Loaded certifiedBox ))
+                                |> Dict.fromList
+
+                        certifiedHouses =
+                            ShipMesh.buildScenery Scenery.metersPerLdu (Document.parse Scenery.houses.ldraw) sceneryCache
+
+                        certifiedIsland =
+                            BrickProps.build (World.islandModel (World.islandPalette Archipelago.defaultMap)) sceneryCache
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True certifiedShip.scene.bfcCertified
+                        , \_ -> Expect.equal True certifiedShip.sails.bfcCertified
+                        , \_ -> Expect.equal False uncertifiedShip.scene.bfcCertified
+                        , \_ -> Expect.equal False uncertifiedShip.sails.bfcCertified
+                        , \_ -> Expect.equal True certifiedHouses.scene.bfcCertified
+                        , \_ -> Expect.equal True certifiedIsland.scene.bfcCertified
                         ]
                         ()
             ]

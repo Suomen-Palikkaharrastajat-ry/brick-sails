@@ -72,6 +72,7 @@ import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
+import Sails.World as World
 import Task
 
 
@@ -298,8 +299,23 @@ applySelection change model =
     let
         next =
             withSelection (change model.selection) model
+
+        ( refreshed, partsCmd ) =
+            syncCourseProps model.course.map next
     in
-    ( next, GamePorts.setUrlHash (mapLink next) )
+    ( refreshed, Cmd.batch [ partsCmd, GamePorts.setUrlHash (mapLink refreshed) ] )
+
+
+{-| Rebuild prop sources when the active map changes so only the active
+island palette is loaded and stale palettes are evicted.
+-}
+syncCourseProps : MapParams -> Model -> ( Model, Cmd Msg )
+syncCourseProps prevMap model =
+    if model.course.map /= prevMap then
+        requestParts model
+
+    else
+        ( model, Cmd.none )
 
 
 {-| The page link of the shipyard: the map, and "Your ship" when selected.
@@ -396,12 +412,19 @@ update msg model =
 
                             Nothing ->
                                 model
+
+                    ( synced, mapCmd ) =
+                        syncCourseProps model.course.map mapped
                 in
                 if Ingest.hasShipPayload hash then
-                    loadShip Nothing hash mapped
+                    let
+                        ( loaded, loadCmd ) =
+                            loadShip Nothing hash synced
+                    in
+                    ( loaded, Cmd.batch [ mapCmd, loadCmd ] )
 
                 else
-                    ( mapped, Cmd.none )
+                    ( synced, mapCmd )
 
             else
                 ( model, Cmd.none )
@@ -523,7 +546,7 @@ update msg model =
                                     switched =
                                         withSelection (exactSelection m) model
                                 in
-                                ( { switched | sailModel = Just (newSail (Just room) switched) }, Cmd.none )
+                                requestParts { switched | sailModel = Just (newSail (Just room) switched) }
 
                             else
                                 let
@@ -548,10 +571,15 @@ update msg model =
 
                                         Nothing ->
                                             model
+
+                                ( refreshed, partsCmd ) =
+                                    syncCourseProps model.course.map
+                                        { joined | viewMode = ViewSailing, sailModel = Just (newSail (Just room) joined) }
                             in
-                            ( { joined | viewMode = ViewSailing, sailModel = Just (newSail (Just room) joined) }
+                            ( refreshed
                             , Cmd.batch
-                                [ GamePorts.setUrlHash ("#room=" ++ room.roomId)
+                                [ partsCmd
+                                , GamePorts.setUrlHash ("#room=" ++ room.roomId)
                                 , GamePorts.calibrateTilt ()
 
                                 -- Joined from a room link: share the selected ship.
@@ -698,9 +726,12 @@ update msg model =
 
                 ( next, _ ) =
                     update ReturnToShipyard (withSelection { sel | seed = nextRandomSeed sel.seed } model)
+
+                ( refreshed, partsCmd ) =
+                    syncCourseProps model.course.map next
             in
-            ( next
-            , Cmd.batch [ GamePorts.leaveMultiplayerRoom (), silenceAudio, GamePorts.setUrlHash (mapLink next) ]
+            ( refreshed
+            , Cmd.batch [ partsCmd, GamePorts.leaveMultiplayerRoom (), silenceAudio, GamePorts.setUrlHash (mapLink refreshed) ]
             )
 
         SailMessage Sail.RestartCourse ->
@@ -918,8 +949,14 @@ requestParts model =
                 model.meshes
                 progress
 
+        activeIslandKey =
+            (World.islandPalette model.course.map).key
+
+        activeProps =
+            Dict.filter (\k _ -> not (String.startsWith "island-" k) || k == activeIslandKey) model.props
+
         scenery =
-            BrickProps.refresh Render.propSources (Resolve.markLoading needed model.partCache) model.props
+            BrickProps.refresh (Render.propSources model.course.map) (Resolve.markLoading needed model.partCache) activeProps
     in
     ( { model
         | partCache = scenery.cache
