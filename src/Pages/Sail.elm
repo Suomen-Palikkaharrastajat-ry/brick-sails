@@ -613,9 +613,9 @@ update msg model =
 
                 worldDir =
                     vec3
-                        (0 - (dxNorm * cos camYawRad + depth * sin camYawRad))
+                        (0 - (dxNorm * cos camYawRad) + depth * sin camYawRad)
                         0
-                        (dxNorm * sin camYawRad - depth * cos camYawRad)
+                        (dxNorm * sin camYawRad + depth * cos camYawRad)
             in
             fireInAimDirection worldDir { model | touchShoot = tap.pointerType == "touch" }
 
