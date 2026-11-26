@@ -221,7 +221,6 @@ renderWorld cam scene width height =
                 ++ List.concatMap (boatEntities ctx width height draw) scene.boats
                 ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
-                ++ goalArrowEntities ctx draw scene.time scene.boats scene.guide scene.standards scene.targets
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
                 ++ List.concatMap (sprayEntities ctx draw scene.time) (List.take 1 scene.boats)

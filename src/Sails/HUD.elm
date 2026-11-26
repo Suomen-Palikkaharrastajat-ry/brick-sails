@@ -1,5 +1,7 @@
 module Sails.HUD exposing
-    ( HudActions
+    ( GoalKind(..)
+    , HudActions
+    , HudGoal
     , PointOfSail(..)
     , Side(..)
     , formatCounter
@@ -47,6 +49,24 @@ type Side
     | Right
 
 
+{-| The kind of game objective an arrow badge points towards.
+-}
+type GoalKind
+    = HarbourGoal
+    | StandardGoal
+    | PirateGoal
+    | TargetGoal
+
+
+{-| A navigation goal indicating direction and distance to an objective.
+-}
+type alias HudGoal =
+    { kind : GoalKind
+    , angleDeg : Float
+    , distanceM : Float
+    }
+
+
 type alias HudActions msg =
     { onSteer : Side -> Bool -> msg
     , onRaiseSail : msg
@@ -83,6 +103,7 @@ viewHud :
     , canAnchor : Bool
     , isAnchored : Bool
     , showHelp : Bool
+    , goals : List HudGoal
     , actions : HudActions msg
     }
     -> Html msg
@@ -122,8 +143,86 @@ viewHud cfg =
                 ]
                 [ anchorButton cfg
                 ]
+            , viewHudGoals cfg.goals
             , viewHelpModal cfg.showHelp cfg.actions.onToggleHelp
             ]
+        ]
+
+
+{-| Floating navigation goal badges orbiting near the player's ship.
+Each badge indicates an objective with an outward-pointing arrow, an icon describing its meaning,
+and the distance in meters.
+-}
+viewHudGoals : List HudGoal -> Html msg
+viewHudGoals goals =
+    if List.isEmpty goals then
+        text ""
+
+    else
+        div
+            [ Attr.class "absolute inset-0 pointer-events-none overflow-hidden select-none"
+            , Attr.attribute "data-testid" "hud-goals"
+            ]
+            (List.indexedMap viewHudGoal goals)
+
+
+viewHudGoal : Int -> HudGoal -> Html msg
+viewHudGoal index goal =
+    let
+        -- Orbit radius around the ship (anchored around 50% 56% screen coordinates).
+        -- Stagger slightly by index to prevent overlap if two goals share a similar bearing.
+        orbitRadius =
+            85.0 + toFloat index * 20.0
+
+        rad =
+            degrees goal.angleDeg
+
+        offsetX =
+            orbitRadius * sin rad
+
+        offsetY =
+            -orbitRadius * cos rad
+
+        ( colorClasses, icon ) =
+            case goal.kind of
+                HarbourGoal ->
+                    ( "bg-emerald-950/85 border-emerald-400/80 text-emerald-300 shadow-emerald-950/60"
+                    , FeatherIcons.anchor
+                    )
+
+                StandardGoal ->
+                    ( "bg-amber-950/85 border-amber-400/80 text-amber-300 shadow-amber-950/60"
+                    , FeatherIcons.flag
+                    )
+
+                PirateGoal ->
+                    ( "bg-rose-950/85 border-rose-400/80 text-rose-300 shadow-rose-950/60"
+                    , FeatherIcons.crosshair
+                    )
+
+                TargetGoal ->
+                    ( "bg-sky-950/85 border-sky-400/80 text-sky-300 shadow-sky-950/60"
+                    , FeatherIcons.target
+                    )
+    in
+    div
+        [ Attr.class "absolute flex items-center gap-1.5 px-2 py-0.5 rounded-full border shadow-lg backdrop-blur-sm text-xs font-bold pointer-events-none select-none transition-all duration-75"
+        , Attr.class colorClasses
+        , Attr.style "left" ("calc(50% + " ++ String.fromFloat offsetX ++ "px)")
+        , Attr.style "top" ("calc(56% + " ++ String.fromFloat offsetY ++ "px)")
+        , Attr.style "transform" "translate(-50%, -50%)"
+        ]
+        [ span
+            [ Attr.class "inline-flex items-center justify-center shrink-0"
+            , Attr.style "transform" ("rotate(" ++ String.fromFloat goal.angleDeg ++ "deg)")
+            ]
+            [ FeatherIcons.arrowUp |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [] ]
+        , span
+            [ Attr.class "inline-flex items-center justify-center shrink-0" ]
+            [ icon |> FeatherIcons.withSize 13 |> FeatherIcons.toHtml [] ]
+        , span
+            [ Attr.class "font-mono font-black text-[11px] tabular-nums leading-none" ]
+            [ text (String.fromInt (round goal.distanceM) ++ "m") ]
         ]
 
 

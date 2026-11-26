@@ -521,6 +521,90 @@ horizontal a b =
     sqrt ((pa.x - pb.x) ^ 2 + (pa.z - pb.z) ^ 2)
 
 
+{-| Floating goal indicators around the boat showing bearings to harbour,
+flags at sea, pirates, and targets.
+-}
+buildHudGoals : SailModel -> List HUD.HudGoal
+buildHudGoals model =
+    let
+        shipPos =
+            model.state.position
+
+        shipRec =
+            Vec3.toRecord shipPos
+
+        camYaw =
+            model.follow.yaw
+
+        calcGoal kind targetPos =
+            let
+                tRec =
+                    Vec3.toRecord targetPos
+
+                dx =
+                    tRec.x - shipRec.x
+
+                dz =
+                    tRec.z - shipRec.z
+
+                dist =
+                    sqrt (dx * dx + dz * dz)
+
+                worldBearing =
+                    atan2 dx dz * 180.0 / pi
+
+                relAngle =
+                    worldBearing - camYaw - 360.0 * toFloat (round ((worldBearing - camYaw) / 360.0))
+            in
+            { kind = kind
+            , angleDeg = relAngle
+            , distanceM = dist
+            }
+
+        -- 1. Next harbour waypoint
+        harbourGoal =
+            nextHarbour model
+                |> Maybe.map (calcGoal HUD.HarbourGoal)
+
+        -- 2. Nearest lost standard at sea (within 350m)
+        standardGoal =
+            model.standards
+                |> List.filterMap
+                    (\s ->
+                        case s of
+                            AtSea _ spos _ ->
+                                Just ( Physics.horizontalDistance shipPos spos, spos )
+
+                            _ ->
+                                Nothing
+                    )
+                |> List.filter (\( d, _ ) -> d < 350)
+                |> List.sortBy Tuple.first
+                |> List.head
+                |> Maybe.map (\( _, spos ) -> calcGoal HUD.StandardGoal spos)
+
+        -- 3. Nearest pirate ship afloat (within 250m)
+        pirateGoal =
+            afloatPirates model
+                |> List.map (\( _, pstate ) -> ( Physics.horizontalDistance shipPos pstate.position, pstate.position ))
+                |> List.filter (\( d, _ ) -> d < 250 && d > 6)
+                |> List.sortBy Tuple.first
+                |> List.head
+                |> Maybe.map (\( _, ppos ) -> calcGoal HUD.PirateGoal ppos)
+
+        -- 4. Nearest target (within 180m)
+        targetGoal =
+            model.targets
+                |> List.filter (not << .sunk)
+                |> List.map (\t -> ( Physics.horizontalDistance shipPos t.position, t.position ))
+                |> List.filter (\( d, _ ) -> d < 180 && d > 4)
+                |> List.sortBy Tuple.first
+                |> List.head
+                |> Maybe.map (\( _, tpos ) -> calcGoal HUD.TargetGoal tpos)
+    in
+    List.filterMap identity [ harbourGoal, standardGoal, pirateGoal, targetGoal ]
+
+
 update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
 update msg model =
     case msg of
@@ -1958,6 +2042,7 @@ viewRace model callbacks maybeRoom =
                 , canAnchor = Physics.canDropAnchor model.course.waypoints model.progress model.state
                 , isAnchored = model.anchored
                 , showHelp = model.showHelp
+                , goals = buildHudGoals model
                 , actions =
                     { onSteer = Steer
                     , onRaiseSail = RaiseSail
