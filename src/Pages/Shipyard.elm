@@ -119,8 +119,13 @@ viewShipyard cfg =
 
                     Nothing ->
                         text ""
-                , viewTrackSection cfg
-                , viewCrew cfg.language cfg.roomCode cfg.actions
+                , div
+                    [ Attr.attribute "data-testid" "options-row"
+                    , Attr.class "w-full grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch"
+                    ]
+                    [ viewTrackSection cfg
+                    , viewCrew cfg.language cfg.roomCode cfg.actions
+                    ]
                 ]
             ]
         ]
@@ -296,7 +301,7 @@ viewTrackSection cfg =
         codeText =
             MapParams.toCode world
     in
-    div [ Attr.class "flex flex-col gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10", Attr.attribute "data-testid" "track-section" ]
+    div [ Attr.class "flex flex-col justify-between gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full", Attr.attribute "data-testid" "track-section" ]
         [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3", Attr.attribute "data-testid" "track-axes-row" ]
             [ button
                 [ Attr.type_ "button"
@@ -456,24 +461,26 @@ viewCrew language roomCode actions =
     section
         [ Attr.attribute "aria-label" (T.crewHeading language)
         , Attr.attribute "data-testid" "crew-section"
-        , Attr.class "flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-900/65 border border-white/10"
+        , Attr.class "flex flex-col justify-between gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10 w-full h-full"
         ]
-        [ hostButton language actions TwoPlayers FeatherIcons.users
-        , hostButton language actions GridSession FeatherIcons.tv
-        , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
-        , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]", Attr.attribute "data-testid" "crew-join-row" ]
-            [ input
-                [ Attr.type_ "text"
-                , Attr.value roomCode
-                , onInput actions.onRoomCodeChanged
-                , Attr.placeholder (T.roomCodePlaceholder language)
-                , Attr.attribute "aria-label" (T.roomCodeLabel language)
-                , Attr.attribute "autocomplete" "off"
-                , Attr.attribute "data-testid" "crew-room-input"
-                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
+        [ div [ Attr.class "flex flex-wrap items-center gap-2", Attr.attribute "data-testid" "crew-controls-row" ]
+            [ hostButton language actions TwoPlayers FeatherIcons.users
+            , hostButton language actions GridSession FeatherIcons.tv
+            , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
+            , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]", Attr.attribute "data-testid" "crew-join-row" ]
+                [ input
+                    [ Attr.type_ "text"
+                    , Attr.value roomCode
+                    , onInput actions.onRoomCodeChanged
+                    , Attr.placeholder (T.roomCodePlaceholder language)
+                    , Attr.attribute "aria-label" (T.roomCodeLabel language)
+                    , Attr.attribute "autocomplete" "off"
+                    , Attr.attribute "data-testid" "crew-room-input"
+                    , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
+                    ]
+                    []
+                , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
                 ]
-                []
-            , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
             ]
         ]
 
