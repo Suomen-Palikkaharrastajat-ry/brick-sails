@@ -834,7 +834,9 @@ view model =
                     , height = canvasHeight model
                     , extraEntities =
                         \camera aspect ->
-                            DockFloor.entities 0.0 camera aspect
+                            -- Render space is Y up: drop the harbour 28 so the
+                            -- waterline sits about 8 units above the keel.
+                            DockFloor.entities (negate 28.0) camera aspect
                     }
                     model.studio
                 )
