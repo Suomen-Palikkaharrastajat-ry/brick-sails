@@ -39,6 +39,7 @@ only solo runs go to the local leaderboard.
 -}
 
 import Browser
+import Browser.Dom as Dom
 import Browser.Events
 import Dict exposing (Dict)
 import Game.BrickProps as BrickProps
@@ -71,6 +72,7 @@ import Sails.Room as SailsRoom
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, BoatKind(..), Course, ViewMode(..))
+import Task
 
 
 type alias Flags =
@@ -105,6 +107,8 @@ type alias Model =
     , boat : Boat
     , selection : Selection
     , seedText : String
+    , seedEditing : Bool
+    , menuTab : Shipyard.MenuTab
     , lastMap : Maybe MapParams
     , course : Course
     , viewMode : ViewMode
@@ -146,9 +150,14 @@ type Msg
     | PickBiome (Pick Biome)
     | PickSeason (Pick Season)
     | PickWeather (Pick WeatherKind)
-    | ChangeSeed String
-    | RandomSeed
+    | SelectMenuTab Shipyard.MenuTab
+    | EditSeed
+    | SeedTyped String
+    | CommitSeed
+    | CopyMapLink
+    | RollWorld
     | UsePreviousMap
+    | NoOp
 
 
 main : Program Flags Model Msg
@@ -198,6 +207,8 @@ init flags =
             , boat = Boats.default
             , selection = selection
             , seedText = String.fromInt selection.seed
+            , seedEditing = False
+            , menuTab = Shipyard.WorldTab
             , lastMap = previous
             , course = courseOf selection
             , viewMode = ViewShipyard
@@ -223,7 +234,26 @@ init flags =
         loadShip flags.predecodedInitialBytes flags.initialHash base
 
     else
-        requestParts base
+        useFirstShip base
+
+
+{-| Start a new player on `Editor.firstShip` (a rigged starter hull) as "Your
+ship", so the builder button opens it; the built-in default boat stays when
+it cannot be made.
+-}
+useFirstShip : Model -> ( Model, Cmd Msg )
+useFirstShip model =
+    case Editor.firstShip of
+        Just ( base, doc ) ->
+            case Ingest.validateShip doc of
+                Ok spec ->
+                    useShip (Ok ( { document = doc, title = hullName model.language base }, spec )) model
+
+                Err _ ->
+                    requestParts model
+
+        Nothing ->
+            requestParts model
 
 
 {-| The first seat's course of the map a selection resolves to.
@@ -283,6 +313,29 @@ mapLink model =
          else
             Nothing
         )
+
+
+{-| Close the seed field and use what was typed in it: a map code (as in a
+shared link) sets the whole map, a number sets the seed, anything else is
+dropped.
+-}
+commitSeed : Model -> ( Model, Cmd Msg )
+commitSeed model =
+    let
+        closed =
+            { model | seedEditing = False, seedText = String.fromInt model.selection.seed }
+    in
+    case MapParams.fromCode (String.trim model.seedText) of
+        Just pasted ->
+            applySelection (\_ -> exactSelection pasted) closed
+
+        Nothing ->
+            case String.toInt (String.trim model.seedText) of
+                Just n ->
+                    applySelection (\sel -> { sel | seed = clamp 1 999999 n }) closed
+
+                Nothing ->
+                    ( closed, Cmd.none )
 
 
 {-| The next seed from the dice button, 1 to 999999 (as Brick Racer's).
@@ -351,25 +404,46 @@ update msg model =
         PickWeather pick ->
             applySelection (\sel -> { sel | weather = pick }) model
 
-        ChangeSeed raw ->
-            case MapParams.fromCode raw of
-                Just pasted ->
-                    applySelection (\_ -> exactSelection pasted) model
+        SelectMenuTab tab ->
+            ( { model | menuTab = tab }, Cmd.none )
 
-                Nothing ->
-                    case String.toInt (String.trim raw) of
-                        Just n ->
-                            let
-                                ( next, cmd ) =
-                                    applySelection (\sel -> { sel | seed = clamp 1 999999 n }) model
-                            in
-                            ( { next | seedText = raw }, cmd )
+        EditSeed ->
+            ( { model | seedEditing = True, seedText = String.fromInt model.selection.seed }
+            , Task.attempt (\_ -> NoOp) (Dom.focus Shipyard.seedInputId)
+            )
 
-                        Nothing ->
-                            ( { model | seedText = raw }, Cmd.none )
+        SeedTyped raw ->
+            ( { model | seedText = raw }, Cmd.none )
 
-        RandomSeed ->
-            applySelection (\sel -> { sel | seed = nextRandomSeed sel.seed }) model
+        CommitSeed ->
+            if model.seedEditing then
+                commitSeed model
+
+            else
+                ( model, Cmd.none )
+
+        CopyMapLink ->
+            let
+                ( next, cmd ) =
+                    if model.seedEditing then
+                        commitSeed model
+
+                    else
+                        ( model, Cmd.none )
+            in
+            ( next, Cmd.batch [ cmd, GamePorts.copyShareUrl (mapLink next) ] )
+
+        RollWorld ->
+            -- A new seed with every pick left to chance, so the dice shows
+            -- every kind of world.
+            let
+                chance =
+                    MapParams.anySelection
+            in
+            applySelection (\sel -> { chance | seed = nextRandomSeed sel.seed }) model
+
+        NoOp ->
+            ( model, Cmd.none )
 
         UsePreviousMap ->
             case model.lastMap of
@@ -977,7 +1051,6 @@ view model =
                 , personalBest = personalBest model
                 , time = model.shipyardTime
                 , audioMuted = model.audioMuted
-                , tilt = model.tilt
                 , viewportWidth = model.viewportWidth
                 , viewportHeight = model.viewportHeight
                 , roomCode = model.roomCodeInput
@@ -986,6 +1059,8 @@ view model =
                 , canEditShip = editableShip model /= Nothing
                 , selection = model.selection
                 , seedText = model.seedText
+                , seedEditing = model.seedEditing
+                , menuTab = model.menuTab
                 , actions =
                     { onStartSailing = StartSailing
                     , onStartHostMultiplayer = StartHostMultiplayer
@@ -997,8 +1072,13 @@ view model =
                     , onPickBiome = PickBiome
                     , onPickSeason = PickSeason
                     , onPickWeather = PickWeather
-                    , onChangeSeed = ChangeSeed
-                    , onRandomSeed = RandomSeed
+                    , onSelectTab = SelectMenuTab
+                    , onEditSeed = EditSeed
+                    , onSeedInput = SeedTyped
+                    , onCommitSeed = CommitSeed
+                    , onCopyMapLink = CopyMapLink
+                    , onKeepFocus = NoOp
+                    , onRollWorld = RollWorld
                     , onUsePreviousMap =
                         if model.lastMap /= Nothing && model.lastMap /= Just model.course.map then
                             Just UsePreviousMap

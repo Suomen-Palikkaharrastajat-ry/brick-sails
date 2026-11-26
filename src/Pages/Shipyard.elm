@@ -1,33 +1,45 @@
 module Pages.Shipyard exposing
-    ( ShipyardActions
+    ( MenuTab(..)
+    , ShipyardActions
+    , seedInputId
     , viewShipyard
     )
 
-{-| Start screen, with the options of Brick Racer's setup screen in the same
-order: the shared app header (title and mute), a framed preview of the boat
-bobbing on the water with its name, loading state, description and stats,
-the two main buttons (open the ship editor, set sail), the map with its
-best time and the map picker (`Game.MapPicker`: biome, season, weather and
-seed, each left to chance or chosen, and the previous map), and online play (host a room of two or eight, or join one).
-Every player sails on their own screen.
+{-| Start screen: the shared app header (title and mute), a framed preview of
+the boat bobbing on the water with its name and loading state, the two main
+buttons (build or edit your own ship, set sail), a two-way switch between the
+course (its name, best time and the previous map) and the world (a dice that
+rolls a new one; biome, season and weather buttons that each step through
+their values or leave it to chance; the wind they make; and the small seed
+number, which opens a field for a seed or a map code, with a copy-link
+button), and online play as icon buttons (host a room of two or eight, or
+join one by code). Every player sails on their own screen.
 -}
 
 import Component.Navbar as Navbar
 import DesignTokens.Colors as Brand
 import FeatherIcons
 import Game.Leaderboard as Leaderboard
-import Game.MapParams exposing (Biome, Pick, Season, Selection, WeatherKind)
-import Game.MapPicker as MapPicker
+import Game.MapParams as MapParams exposing (Biome, Pick(..), Season, Selection, WeatherKind)
 import Game.Multiplayer as Multiplayer exposing (SessionMode(..))
-import Html exposing (Html, button, div, h2, input, p, span, text)
+import Html exposing (Html, button, div, input, p, section, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onBlur, onClick, onInput)
 import I18n exposing (Language)
+import Json.Decode as Decode
 import Sails.I18n as T
+import Sails.MenuIcons as MenuIcons
 import Sails.Physics as Physics
 import Sails.Render as Render
 import Sails.ShipMesh exposing (ShipMesh)
 import Sails.Types exposing (Boat, Course, LeaderboardEntry)
+
+
+{-| The two panels of the menu card: the course, or the world it is on.
+-}
+type MenuTab
+    = CourseTab
+    | WorldTab
 
 
 type alias ShipyardActions msg =
@@ -41,10 +53,22 @@ type alias ShipyardActions msg =
     , onPickBiome : Pick Biome -> msg
     , onPickSeason : Pick Season -> msg
     , onPickWeather : Pick WeatherKind -> msg
-    , onChangeSeed : String -> msg
-    , onRandomSeed : msg
+    , onSelectTab : MenuTab -> msg
+    , onEditSeed : msg
+    , onSeedInput : String -> msg
+    , onCommitSeed : msg
+    , onCopyMapLink : msg
+    , onKeepFocus : msg
+    , onRollWorld : msg
     , onUsePreviousMap : Maybe msg
     }
+
+
+{-| Id of the seed field, focused when it opens.
+-}
+seedInputId : String
+seedInputId =
+    "sails-seed-input"
 
 
 {-| Loading state of the selected boat's bricks.
@@ -62,7 +86,6 @@ viewShipyard :
     , personalBest : Maybe LeaderboardEntry
     , time : Float
     , audioMuted : Bool
-    , tilt : { available : Bool, enabled : Bool }
     , viewportWidth : Int
     , viewportHeight : Int
     , roomCode : String
@@ -71,6 +94,8 @@ viewShipyard :
     , canEditShip : Bool
     , selection : Selection
     , seedText : String
+    , seedEditing : Bool
+    , menuTab : MenuTab
     , actions : ShipyardActions msg
     }
     -> Html msg
@@ -90,14 +115,13 @@ viewShipyard cfg =
             [ div [ Attr.class "w-full max-w-5xl flex flex-col gap-5" ]
                 [ viewHero cfg
                 , viewActionButtons cfg
-                , p [ Attr.class "-mt-2 text-[11px] text-slate-400 text-center" ] [ text (T.controlsHint cfg.language cfg.tilt.enabled) ]
                 , case cfg.loadError of
                     Just err ->
                         p [ Attr.attribute "role" "alert", Attr.class "-mt-2 text-[11px] text-rose-300 font-bold text-center" ] [ text (T.shipLoadError cfg.language err) ]
 
                     Nothing ->
                         text ""
-                , viewCourse cfg
+                , viewMenu cfg
                 , viewCrew cfg.language cfg.roomCode cfg.actions
                 ]
             ]
@@ -152,8 +176,8 @@ viewHeader { audioMuted, language, actions } =
 
 
 {-| The framed preview of the selected boat on the water of the map's sea,
-with its name and loading state at the top left, its stats at the bottom
-left and its description at the bottom right.
+with its name and loading state at the top left and its speed and turning
+bars at the bottom left.
 -}
 viewHero :
     { a
@@ -192,11 +216,9 @@ viewHero { boat, mesh, loading, course, time, viewportWidth, viewportHeight, lan
                     text ""
             ]
         , div [ Attr.class "absolute bottom-2 left-2 flex items-center gap-3 px-2.5 py-1.5 rounded-lg bg-brand/70 text-[11px] pointer-events-none" ]
-            [ statBar (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
-            , statBar (T.turnLabel language) ((boat.turnRate - 50) / 80)
+            [ statBar FeatherIcons.fastForward (T.speedLabel language) ((boat.topSpeed - 7) / 3.2)
+            , statBar FeatherIcons.rotateCw (T.turnLabel language) ((boat.turnRate - 50) / 80)
             ]
-        , span [ Attr.class "absolute bottom-2 right-2 max-w-[50%] px-2.5 py-1 rounded-lg bg-brand/70 text-xs text-slate-300 text-right pointer-events-none" ]
-            [ text (T.boatDescription language boat.description) ]
         ]
 
 
@@ -247,145 +269,364 @@ viewActionButtons { language, hulls, canEditShip, actions } =
         ]
 
 
-{-| The course card: the map's name and the best time on it with its stars,
-or the three-star goal while there is no best time yet, then the map
-picker.
+{-| The menu card: a two-way switch, then the course panel or the world
+panel.
 -}
-viewCourse :
+viewMenu :
     { a
         | course : Course
         , personalBest : Maybe LeaderboardEntry
         , language : Language
         , selection : Selection
         , seedText : String
+        , seedEditing : Bool
+        , menuTab : MenuTab
         , actions : ShipyardActions msg
     }
     -> Html msg
-viewCourse { course, personalBest, language, selection, seedText, actions } =
-    div [ Attr.class "flex flex-col gap-3 p-3.5 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
-        [ div [ Attr.class "flex flex-wrap items-center justify-between gap-2" ] (courseLine course personalBest language)
-        , div [ Attr.class "sails-map-picker" ]
-            [ MapPicker.view
-                { labels = T.mapPickerLabels language
-                , selection = selection
-                , seedText = seedText
-                , onBiome = actions.onPickBiome
-                , onSeason = actions.onPickSeason
-                , onWeather = actions.onPickWeather
-                , onSeedInput = actions.onChangeSeed
-                , onRandomSeed = actions.onRandomSeed
-                , onPrevious = actions.onUsePreviousMap
-                }
+viewMenu cfg =
+    div [ Attr.class "flex flex-col gap-3 p-3 rounded-xl bg-[#0d2235]/95 border-2 border-brand-yellow" ]
+        [ div [ Attr.attribute "role" "group", Attr.class "flex p-1 rounded-lg bg-slate-900/80 border border-white/10" ]
+            [ tabButton cfg.actions cfg.menuTab CourseTab (T.courseTab cfg.language)
+            , tabButton cfg.actions cfg.menuTab WorldTab (T.worldTab cfg.language)
             ]
+        , case cfg.menuTab of
+            CourseTab ->
+                viewCoursePanel cfg
+
+            WorldTab ->
+                viewWorldPanel cfg
         ]
 
 
-{-| The map's name and the best time on it.
--}
-courseLine : Course -> Maybe LeaderboardEntry -> Language -> List (Html msg)
-courseLine course personalBest language =
+tabButton : ShipyardActions msg -> MenuTab -> MenuTab -> String -> Html msg
+tabButton actions current tab label =
     let
-        ( bestLine, hasBest ) =
-            case personalBest of
-                Just pb ->
-                    ( T.personalBestLine language (Leaderboard.formatRaceTime pb.timeSeconds) (Physics.starRating course.targetSeconds pb.timeSeconds), True )
-
-                Nothing ->
-                    ( T.bestLine language (Leaderboard.formatRaceTime course.targetSeconds), False )
+        selected =
+            current == tab
     in
-    [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
-        [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-        , text (T.mapTitle language course.map)
-        ]
-    , span
-        [ Attr.class
-            ("text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 "
-                ++ (if hasBest then
-                        "text-brand-yellow"
+    button
+        [ Attr.type_ "button"
+        , onClick (actions.onSelectTab tab)
+        , Attr.attribute "aria-pressed"
+            (if selected then
+                "true"
+
+             else
+                "false"
+            )
+        , Attr.class
+            ("flex-1 min-h-[40px] rounded-md text-sm font-bold cursor-pointer transition-all "
+                ++ (if selected then
+                        "bg-brand-yellow text-brand"
 
                     else
-                        "text-slate-400"
+                        "text-slate-300"
                    )
             )
         ]
-        [ text ("⏱ " ++ bestLine) ]
-    ]
+        [ text label ]
 
 
-{-| Online play, as in Brick Racer: a card for each room size with its own
-host button, and a card to join a room by its code or link.
+{-| The course: the map's name, the best time on it with its stars (nothing
+while there is none), and the previous map's button.
+-}
+viewCoursePanel :
+    { a
+        | course : Course
+        , personalBest : Maybe LeaderboardEntry
+        , language : Language
+        , actions : ShipyardActions msg
+    }
+    -> Html msg
+viewCoursePanel { course, personalBest, language, actions } =
+    let
+        labels =
+            T.mapPickerLabels language
+    in
+    div [ Attr.class "flex flex-wrap items-center justify-between gap-2 min-h-[44px]" ]
+        [ span [ Attr.class "flex items-center gap-2 text-sm font-bold text-brand-yellow" ]
+            [ FeatherIcons.map |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
+            , text (T.mapTitle language course.map)
+            ]
+        , div [ Attr.class "flex items-center gap-2" ]
+            [ case personalBest of
+                Just pb ->
+                    span [ Attr.class "text-xs px-1.5 py-0.5 rounded font-mono bg-white/10 text-brand-yellow" ]
+                        [ text ("⏱ " ++ T.personalBestLine language (Leaderboard.formatRaceTime pb.timeSeconds) (Physics.starRating course.targetSeconds pb.timeSeconds)) ]
+
+                Nothing ->
+                    text ""
+            , case actions.onUsePreviousMap of
+                Just msg ->
+                    iconButton msg labels.previous FeatherIcons.rotateCcw
+
+                Nothing ->
+                    text ""
+            ]
+        ]
+
+
+{-| The world: the dice, the biome, season and weather buttons and the wind,
+then the seed number (or its field) with the copy-link button at the right.
+-}
+viewWorldPanel :
+    { a
+        | course : Course
+        , language : Language
+        , selection : Selection
+        , seedText : String
+        , seedEditing : Bool
+        , actions : ShipyardActions msg
+    }
+    -> Html msg
+viewWorldPanel { course, language, selection, seedText, seedEditing, actions } =
+    let
+        labels =
+            T.mapPickerLabels language
+
+        world =
+            MapParams.resolve selection
+    in
+    div [ Attr.class "flex flex-col gap-1.5" ]
+        [ div [ Attr.class "flex flex-wrap items-center gap-2" ]
+            [ button
+                [ Attr.type_ "button"
+                , onClick actions.onRollWorld
+                , Attr.title (T.rollWorld language)
+                , Attr.attribute "aria-label" (T.rollWorld language)
+                , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110"
+                ]
+                [ MenuIcons.dice |> FeatherIcons.withSize 26 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+            , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
+            , worldButton language
+                { label = labels.biome
+                , valueName = labels.biomeName world.biome
+                , pick = selection.biome
+                , icon = MenuIcons.biome world.biome
+                , onPick = actions.onPickBiome (cycle MapParams.allBiomes selection.biome world.biome)
+                }
+            , worldButton language
+                { label = labels.season
+                , valueName = labels.seasonName world.season
+                , pick = selection.season
+                , icon = MenuIcons.season world.season
+                , onPick = actions.onPickSeason (cycle MapParams.allSeasons selection.season world.season)
+                }
+            , worldButton language
+                { label = labels.weather
+                , valueName = labels.weatherName world.weather
+                , pick = selection.weather
+                , icon = MenuIcons.weather world.weather
+                , onPick = actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) selection.weather world.weather)
+                }
+            , span
+                [ Attr.attribute "role" "img"
+                , Attr.attribute "aria-label" (T.windLabel language course.wind.speed)
+                , Attr.title (T.windLabel language course.wind.speed)
+                , Attr.class "w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl bg-white/5 border border-white/10 text-sky-200"
+                ]
+                [ FeatherIcons.wind |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
+                , span [ Attr.class "text-[10px] leading-none font-mono", Attr.attribute "aria-hidden" "true" ]
+                    [ text (String.fromInt (round course.wind.speed)) ]
+                ]
+            ]
+        , div [ Attr.class "flex items-center justify-end gap-1" ]
+            [ if seedEditing then
+                input
+                    [ Attr.type_ "text"
+                    , Attr.id seedInputId
+                    , Attr.value seedText
+                    , onInput actions.onSeedInput
+                    , onBlur actions.onCommitSeed
+                    , Html.Events.on "keydown" (enterKey actions.onCommitSeed)
+                    , Attr.attribute "aria-label" labels.seed
+                    , Attr.attribute "autocomplete" "off"
+                    , Attr.attribute "inputmode" "text"
+                    , Attr.class "w-40 min-h-[32px] px-2 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white"
+                    ]
+                    []
+
+              else
+                button
+                    [ Attr.type_ "button"
+                    , onClick actions.onEditSeed
+                    , Attr.title (T.editSeed language)
+                    , Attr.attribute "aria-label" (labels.seed ++ " " ++ String.fromInt selection.seed ++ ". " ++ T.editSeed language)
+                    , Attr.class "min-h-[32px] px-2 rounded-md text-[10px] font-mono text-slate-400 cursor-pointer hover:text-white"
+                    ]
+                    [ text ("#" ++ String.fromInt selection.seed) ]
+            , button
+                [ Attr.type_ "button"
+                , onClick actions.onCopyMapLink
+
+                -- Keep the seed field's focus, so a click copies instead of
+                -- first closing the field under the pointer.
+                , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( actions.onKeepFocus, True ))
+                , Attr.title (T.copyLink language)
+                , Attr.attribute "aria-label" (T.copyLink language)
+                , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white"
+                ]
+                [ FeatherIcons.copy |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+            ]
+        ]
+
+
+{-| A world setting's button: the icon of the value the map has, marked when
+it is chosen rather than left to chance. A press steps to the next value.
+-}
+worldButton :
+    Language
+    ->
+        { label : String
+        , valueName : String
+        , pick : Pick a
+        , icon : FeatherIcons.Icon
+        , onPick : msg
+        }
+    -> Html msg
+worldButton language { label, valueName, pick, icon, onPick } =
+    let
+        ( description, look ) =
+            case pick of
+                Any ->
+                    ( label ++ ": " ++ valueName ++ ", " ++ T.byChance language
+                    , "bg-white/5 border-white/15 border-dashed text-white"
+                    )
+
+                Exactly _ ->
+                    ( label ++ ": " ++ valueName
+                    , "bg-brand-yellow/20 border-brand-yellow/60 text-brand-yellow"
+                    )
+    in
+    button
+        [ Attr.type_ "button"
+        , onClick onPick
+        , Attr.title description
+        , Attr.attribute "aria-label" description
+        , Attr.class ("w-12 h-12 flex items-center justify-center rounded-xl border cursor-pointer transition-all " ++ look)
+        ]
+        [ icon |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+
+
+{-| The next pick of a world setting: from chance to the first value, from a
+value (the one the map has) to the next, and from the last back to chance.
+-}
+cycle : List a -> Pick a -> a -> Pick a
+cycle values current shown =
+    case current of
+        Any ->
+            List.head values |> Maybe.map Exactly |> Maybe.withDefault Any
+
+        Exactly _ ->
+            case dropUntil shown values of
+                _ :: next :: _ ->
+                    Exactly next
+
+                _ ->
+                    Any
+
+
+dropUntil : a -> List a -> List a
+dropUntil value values =
+    case values of
+        [] ->
+            []
+
+        first :: rest ->
+            if first == value then
+                values
+
+            else
+                dropUntil value rest
+
+
+enterKey : msg -> Decode.Decoder msg
+enterKey msg =
+    Decode.field "key" Decode.string
+        |> Decode.andThen
+            (\key ->
+                if key == "Enter" then
+                    Decode.succeed msg
+
+                else
+                    Decode.fail "not Enter"
+            )
+
+
+{-| Online play as icon buttons: host a room of two or of eight, or type a
+room code (or paste a link) and join it.
 -}
 viewCrew : Language -> String -> ShipyardActions msg -> Html msg
 viewCrew language roomCode actions =
-    div [ Attr.class "flex flex-col gap-3" ]
-        [ sectionHeading (T.crewHeading language)
-        , div [ Attr.class "grid grid-cols-1 sm:grid-cols-2 gap-3" ]
-            [ hostCard language actions TwoPlayers FeatherIcons.users (T.twoPlayerHost language) (T.twoPlayerHostDesc language)
-            , hostCard language actions GridSession FeatherIcons.tv (T.gridHost language) (T.gridHostDesc language)
-            ]
-        , div [ Attr.class "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
-            [ div [ Attr.class "flex flex-col gap-0.5 min-w-0" ]
-                [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
-                    [ FeatherIcons.logIn |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-                    , text (T.joinRaceTitle language)
-                    ]
-                , p [ Attr.class "text-xs text-slate-400" ] [ text (T.joinRaceDesc language) ]
+    section
+        [ Attr.attribute "aria-label" (T.crewHeading language)
+        , Attr.class "flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-900/65 border border-white/10"
+        ]
+        [ hostButton language actions TwoPlayers FeatherIcons.users
+        , hostButton language actions GridSession FeatherIcons.tv
+        , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
+        , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]" ]
+            [ input
+                [ Attr.type_ "text"
+                , Attr.value roomCode
+                , onInput actions.onRoomCodeChanged
+                , Attr.placeholder (T.roomCodePlaceholder language)
+                , Attr.attribute "aria-label" (T.roomCodeLabel language)
+                , Attr.attribute "autocomplete" "off"
+                , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
                 ]
-            , div [ Attr.class "flex items-center gap-2 w-full sm:w-auto" ]
-                [ input
-                    [ Attr.type_ "text"
-                    , Attr.value roomCode
-                    , onInput actions.onRoomCodeChanged
-                    , Attr.placeholder (T.roomCodePlaceholder language)
-                    , Attr.attribute "aria-label" (T.roomCodeLabel language)
-                    , Attr.attribute "autocomplete" "off"
-                    , Attr.class "flex-1 min-w-0 sm:min-w-[160px] min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
-                    ]
-                    []
-                , button
-                    [ Attr.type_ "button"
-                    , onClick (actions.onJoinMultiplayer roomCode)
-                    , Attr.title (T.joinRaceTitle language)
-                    , Attr.class "min-h-[44px] px-4 rounded-lg bg-brand-yellow active:brightness-110 text-brand font-bold text-xs whitespace-nowrap cursor-pointer"
-                    ]
-                    [ text (T.joinRace language) ]
-                ]
+                []
+            , iconButton (actions.onJoinMultiplayer roomCode) (T.joinRace language) FeatherIcons.logIn
             ]
         ]
 
 
-sectionHeading : String -> Html msg
-sectionHeading label =
-    h2 [ Attr.class "text-sm font-bold uppercase tracking-wider text-brand-yellow" ] [ text label ]
-
-
-statBar : String -> Float -> Html msg
-statBar label v =
-    div [ Attr.class "flex flex-col gap-0.5 w-14 shrink-0" ]
-        [ span [ Attr.class "text-slate-400 font-bold uppercase text-[10px]" ] [ text label ]
-        , div [ Attr.class "h-1.5 rounded-full bg-slate-700 overflow-hidden" ]
-            [ div [ Attr.class "h-full bg-sky-400 rounded-full", Attr.style "width" (String.fromInt (round (clamp 0 1 v * 100)) ++ "%") ] [] ]
-        ]
-
-
-{-| A host card for one session mode (a 2-player room or a grid session):
-its title, what it is, and its host button.
+{-| A host button for one session mode (a 2-player room or a grid session).
 -}
-hostCard : Language -> ShipyardActions msg -> SessionMode -> FeatherIcons.Icon -> String -> String -> Html msg
-hostCard language actions mode icon label description =
-    div [ Attr.class "flex flex-col justify-between gap-3 p-3.5 rounded-xl bg-slate-900/65 border border-white/10" ]
-        [ div [ Attr.class "flex flex-col gap-1.5" ]
-            [ div [ Attr.class "flex items-center gap-2 font-bold text-sm text-white" ]
-                [ icon |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
-                , text label
-                ]
-            , p [ Attr.class "text-xs text-slate-400" ] [ text description ]
-            ]
-        , button
-            [ Attr.type_ "button"
-            , onClick (actions.onStartHostMultiplayer mode)
-            , Attr.title (T.hostTitle language (Multiplayer.sessionCapacity mode))
-            , Attr.class "w-full min-h-[44px] px-3 rounded-lg bg-brand-yellow/20 border border-brand-yellow/40 text-brand-yellow font-extrabold text-xs cursor-pointer transition-all active:bg-brand-yellow/30"
-            ]
-            [ text label ]
+hostButton : Language -> ShipyardActions msg -> SessionMode -> FeatherIcons.Icon -> Html msg
+hostButton language actions mode icon =
+    let
+        label =
+            T.hostTitle language (Multiplayer.sessionCapacity mode)
+    in
+    button
+        [ Attr.type_ "button"
+        , onClick (actions.onStartHostMultiplayer mode)
+        , Attr.title label
+        , Attr.attribute "aria-label" label
+        , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow/20 border border-brand-yellow/40 text-brand-yellow cursor-pointer transition-all active:bg-brand-yellow/30"
+        ]
+        [ icon |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+
+
+{-| A 44 px yellow icon-only button with its label for screen readers and as
+its tooltip.
+-}
+iconButton : msg -> String -> FeatherIcons.Icon -> Html msg
+iconButton msg label icon =
+    button
+        [ Attr.type_ "button"
+        , onClick msg
+        , Attr.title label
+        , Attr.attribute "aria-label" label
+        , Attr.class "w-11 h-11 shrink-0 flex items-center justify-center rounded-lg bg-brand-yellow text-brand cursor-pointer active:brightness-110"
+        ]
+        [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
+
+
+{-| A small bar of a boat's stat, with its icon; the stat's name is its
+tooltip.
+-}
+statBar : FeatherIcons.Icon -> String -> Float -> Html msg
+statBar icon label v =
+    div
+        [ Attr.attribute "role" "img"
+        , Attr.attribute "aria-label" label
+        , Attr.title label
+        , Attr.class "flex items-center gap-1 w-16 shrink-0 text-slate-300"
+        ]
+        [ icon |> FeatherIcons.withSize 12 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ]
+        , div [ Attr.class "flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden" ]
+            [ div [ Attr.class "h-full bg-sky-400 rounded-full", Attr.style "width" (String.fromInt (round (clamp 0 1 v * 100)) ++ "%") ] [] ]
         ]

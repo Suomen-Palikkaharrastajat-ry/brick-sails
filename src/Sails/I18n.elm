@@ -11,17 +11,20 @@ module Sails.I18n exposing
     , boatDescription
     , boatName
     , buildOwnShip
+    , byChance
     , citadelName
     , controlsHint
     , copyLink
     , copyRoomLink
     , countdownHint
+    , courseTab
     , crewHeading
     , crewHeadline
     , crewTimeLabel
     , crewWaiting
     , dropAnchor
     , dropAnchorHint
+    , editSeed
     , editShipButton
     , exitRace
     , factionBoardingToast
@@ -82,6 +85,7 @@ module Sails.I18n exposing
     , reefScrapeToast
     , reefWarning
     , restartRace
+    , rollWorld
     , roomCodeLabel
     , roomCodePlaceholder
     , roomLabel
@@ -121,6 +125,8 @@ module Sails.I18n exposing
     , weatherName
     , weighAnchor
     , windDirection
+    , windLabel
+    , worldTab
     , you
     )
 
@@ -1461,6 +1467,12 @@ allPhrases =
     , ( "twoPlayerHostDesc", twoPlayerHostDesc )
     , ( "gridHostDesc", gridHostDesc )
     , ( "joinRaceDesc", joinRaceDesc )
+    , ( "courseTab", courseTab )
+    , ( "worldTab", worldTab )
+    , ( "rollWorld", rollWorld )
+    , ( "byChance", byChance )
+    , ( "windLabel", \l -> windLabel l 5.4 )
+    , ( "editSeed", editSeed )
     ]
 
 
@@ -1498,3 +1510,43 @@ gridHostDesc lang =
 joinRaceDesc : Language -> String
 joinRaceDesc lang =
     pick lang "Syötä kaverin huoneen koodi tai liitä hänen linkkinsä." "Enter a friend's room code or paste their link."
+
+
+{-| The shipyard menu's two panels: the course, and the world it is on.
+-}
+courseTab : Language -> String
+courseTab lang =
+    pick lang "Rata" "Course"
+
+
+worldTab : Language -> String
+worldTab lang =
+    pick lang "Maailma" "World"
+
+
+{-| The dice button: a new seed with every pick left to chance.
+-}
+rollWorld : Language -> String
+rollWorld lang =
+    pick lang "Arvo uusi maailma" "Roll a new world"
+
+
+{-| Said of a world setting that is left to chance (decided by the seed).
+-}
+byChance : Language -> String
+byChance lang =
+    pick lang "sattuman mukaan" "by chance"
+
+
+{-| The world's wind, which follows from the biome, season and weather.
+-}
+windLabel : Language -> Float -> String
+windLabel lang speed =
+    pick lang "Tuuli " "Wind " ++ String.fromInt (round speed) ++ " m/s"
+
+
+{-| Tooltip of the seed number, which opens the seed field.
+-}
+editSeed : Language -> String
+editSeed lang =
+    pick lang "Muuta siementä tai liitä karttakoodi" "Change the seed or paste a map code"
