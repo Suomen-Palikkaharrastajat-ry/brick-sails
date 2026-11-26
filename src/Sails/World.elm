@@ -198,42 +198,110 @@ islandModels =
     List.foldl add [] all
 
 
-{-| An island like `Game.BrickModels.island` in the palette's colours: two
-beach tiers of 2 x 2 round bricks, a narrower grass tier and a small hill.
+{-| An island built from real catalog bricks: a sloped beach foundation,
+a stepped shore tier, a lush grassy plateau and an inland hill peak.
 -}
 islandModel : IslandPalette -> String
 islandModel p =
     let
-        tier colour y scale =
+        sMat =
+            "1 0 0 0 1 0 0 0 1"
+
+        qMat =
+            "0 0 1 0 1 0 -1 0 0"
+
+        hMat =
+            "-1 0 0 0 1 0 0 0 -1"
+
+        tMat =
+            "0 0 -1 0 1 0 1 0 0"
+
+        part colour x y z mat file =
             String.join " "
                 [ "1"
                 , String.fromInt colour
-                , if scale == 0.5 then
-                    "4"
-
-                  else
-                    "0"
+                , String.fromFloat x
                 , String.fromFloat y
-                , if scale == 0.5 then
-                    "-2"
-
-                  else
-                    "0"
-                , String.fromFloat scale
-                , "0 0 0 1 0 0 0"
-                , String.fromFloat scale
-                , "3941.dat"
+                , String.fromFloat z
+                , mat
+                , file
                 ]
+
+        b =
+            p.beach
+
+        s =
+            p.shore
+
+        g =
+            p.grass
+
+        h =
+            p.hill
+
+        beachTier =
+            [ part b 0 -24 -20 sMat "3001.dat"
+            , part b 0 -24 20 sMat "3001.dat"
+            , part b -60 -24 0 qMat "3001.dat"
+            , part b 60 -24 0 qMat "3001.dat"
+            , part b -20 -24 -60 hMat "3039.dat"
+            , part b 20 -24 -60 hMat "3039.dat"
+            , part b -20 -24 60 sMat "3039.dat"
+            , part b 20 -24 60 sMat "3039.dat"
+            , part b -80 -24 -20 qMat "3039.dat"
+            , part b -80 -24 20 qMat "3039.dat"
+            , part b 80 -24 -20 tMat "3039.dat"
+            , part b 80 -24 20 tMat "3039.dat"
+            , part b -60 -24 -60 sMat "3941.dat"
+            , part b 60 -24 -60 sMat "3941.dat"
+            , part b -60 -24 60 sMat "3941.dat"
+            , part b 60 -24 60 sMat "3941.dat"
+            ]
+
+        shoreTier =
+            [ part s 0 -48 0 sMat "3001.dat"
+            , part s 0 -48 -40 sMat "3003.dat"
+            , part s 0 -48 40 sMat "3003.dat"
+            , part s -40 -48 -40 hMat "3039.dat"
+            , part s 40 -48 -40 hMat "3039.dat"
+            , part s -40 -48 40 sMat "3039.dat"
+            , part s 40 -48 40 sMat "3039.dat"
+            , part s -60 -48 0 qMat "3039.dat"
+            , part s 60 -48 0 tMat "3039.dat"
+            ]
+
+        grassPlateau =
+            [ part g 0 -72 0 sMat "3001.dat"
+            , part g -20 -72 -40 hMat "3039.dat"
+            , part g 20 -72 -40 hMat "3039.dat"
+            , part g -20 -72 40 sMat "3039.dat"
+            , part g 20 -72 40 sMat "3039.dat"
+            , part g -40 -72 0 qMat "3039.dat"
+            , part g 40 -72 0 tMat "3039.dat"
+            ]
+
+        hillPeak =
+            [ part h 10 -96 -10 sMat "3003.dat"
+            , part h 10 -96 10 sMat "3039.dat"
+            , part h 10 -96 -30 hMat "3039.dat"
+            , part h -10 -96 -10 qMat "3039.dat"
+            , part h 30 -96 -10 tMat "3039.dat"
+            ]
     in
     String.join "\n"
-        [ "0 FILE " ++ p.key ++ ".ldr"
-        , "0 Name: Brick Sails island"
-        , "0 Author: Brick Sails"
-        , tier p.beach -24 1
-        , tier p.shore -48 1
-        , tier p.grass -72 0.8
-        , tier p.hill -96 0.5
-        ]
+        ([ "0 FILE " ++ p.key ++ ".ldr"
+         , "0 Name: Brick Sails Island"
+         , "0 Author: Brick Sails"
+         , "0 // Beach Tier"
+         ]
+            ++ beachTier
+            ++ [ "0 // Shore Tier" ]
+            ++ shoreTier
+            ++ [ "0 // Grass Plateau" ]
+            ++ grassPlateau
+            ++ [ "0 // Hill Peak" ]
+            ++ hillPeak
+        )
 
 
 {-| Names of the five towns of a map: the hub's first, then one for each

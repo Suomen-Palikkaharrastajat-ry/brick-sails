@@ -33,6 +33,7 @@ module Sails.Physics exposing
     , fireBroadside
     , fireCannons
     , fireDirectional
+    , fireTowards
     , grassHeight
     , harbourRadius
     , harbourThrottle
@@ -1403,6 +1404,114 @@ fireDirectional slot state sideSign aimPoints startId =
                     vec3 (sideSign * cos rad * 18) 5 (sideSign * -(sin rad) * 18)
             in
             ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias )
+
+
+{-| Fire towards a specific world-space aim direction (from tap or click on the sea).
+Determines whether port or starboard broadside is closer to the tapped direction,
+computes the optimal heading for the ship to align its broadside with the shot,
+shoots in that exact direction (or directly at a target near that line of fire),
+and returns the fired balls, the camera focus bias, and the target ship heading.
+-}
+fireTowards : Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
+fireTowards slot state aimVec aimPoints startId =
+    let
+        origin =
+            Vec3.add state.position (vec3 0 1.0 0)
+
+        o =
+            Vec3.toRecord origin
+
+        av =
+            Vec3.toRecord aimVec
+
+        dirX =
+            av.x
+
+        dirZ =
+            av.z
+
+        dirLen =
+            sqrt (dirX * dirX + dirZ * dirZ)
+
+        ( unitX, unitZ ) =
+            if dirLen > 0.001 then
+                ( dirX / dirLen, dirZ / dirLen )
+
+            else
+                ( sin (degrees state.heading), cos (degrees state.heading) )
+
+        tapAngleDeg =
+            atan2 unitX unitZ * 180.0 / pi
+
+        -- Angle of tap relative to ship heading: [-180, 180)
+        rawRel =
+            tapAngleDeg - state.heading
+
+        relAngle =
+            rawRel - 360.0 * toFloat (floor ((rawRel + 180.0) / 360.0))
+
+        sideSign =
+            if relAngle >= 0 then
+                1.0
+
+            else
+                -1.0
+
+        -- Side cannons face heading + 90 (starboard) or heading - 90 (port).
+        -- To face tapAngleDeg with that broadside, ship heading should be:
+        targetHeading =
+            if sideSign > 0 then
+                tapAngleDeg - 90.0
+
+            else
+                tapAngleDeg + 90.0
+
+        -- Camera focus bias: smoothly pivot camera to look along the broadside firing direction
+        camBias =
+            sideSign * clamp 40.0 65.0 (abs relAngle)
+
+        -- Check if there is an existing target (buoy, pirate, target) near the tapped direction
+        isNearAim p =
+            let
+                pr =
+                    Vec3.toRecord p
+
+                dx =
+                    pr.x - o.x
+
+                dz =
+                    pr.z - o.z
+
+                d =
+                    sqrt (dx * dx + dz * dz)
+            in
+            if d > 1.5 && d <= cannonRange then
+                let
+                    dot =
+                        (dx * unitX + dz * unitZ) / d
+                in
+                dot > 0.65
+
+            else
+                False
+
+        targetInDirection =
+            aimPoints
+                |> List.filter isNearAim
+                |> List.map (\p -> ( horizontalDistance origin p, p ))
+                |> List.sortBy Tuple.first
+                |> List.head
+    in
+    case targetInDirection of
+        Just ( _, aim ) ->
+            ( [ fireBroadside slot state aim startId ], camBias, targetHeading )
+
+        Nothing ->
+            let
+                vel =
+                    vec3 (unitX * 22.0) 5.5 (unitZ * 22.0)
+            in
+            ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias, targetHeading )
 
 
 {-| Move cannonballs; the ones that reach the water become splashes.

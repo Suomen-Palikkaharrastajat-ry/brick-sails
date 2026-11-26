@@ -121,6 +121,7 @@ type alias SailModel =
     , ghostShip : GhostShip
     , anchored : Bool
     , showHelp : Bool
+    , combatTurnTarget : Maybe Float
     }
 
 
@@ -244,6 +245,7 @@ initSail language boat baseCourse audioMuted pb maybeMulti tilt width height =
     , ghostShip = GhostShip.init course
     , anchored = False
     , showHelp = False
+    , combatTurnTarget = Nothing
     }
 
 
@@ -292,7 +294,7 @@ weatherSeed course room run =
 
 releaseControls : SailModel -> SailModel
 releaseControls model =
-    { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False }
+    { model | keyLeft = False, keyRight = False, touchLeft = False, touchRight = False, combatTurnTarget = Nothing }
 
 
 silenceAudio : Cmd msg
@@ -371,11 +373,28 @@ steerInput model =
     else if keys /= 0 then
         keys
 
-    else if model.tilt.enabled then
-        clamp -1 1 model.tiltSteer
-
     else
-        0
+        case model.combatTurnTarget of
+            Just targetH ->
+                let
+                    rawErr =
+                        targetH - model.state.heading
+
+                    err =
+                        rawErr - 360.0 * toFloat (floor ((rawErr + 180.0) / 360.0))
+                in
+                if abs err < 3.0 then
+                    0
+
+                else
+                    clamp -1.0 1.0 (err * 0.05)
+
+            Nothing ->
+                if model.tilt.enabled then
+                    clamp -1 1 model.tiltSteer
+
+                else
+                    0
 
 
 nextHarbour : SailModel -> Maybe Vec3
@@ -557,26 +576,48 @@ update msg model =
 
         FireCannons ->
             let
-                sideSign =
+                aimTarget =
                     case Physics.findBroadsideTarget model.state (aimPoints model) of
-                        Just ( _, _, side ) ->
-                            side
+                        Just ( _, aim, _ ) ->
+                            let
+                                p =
+                                    Vec3.toRecord aim
+
+                                s =
+                                    Vec3.toRecord model.state.position
+                            in
+                            vec3 (p.x - s.x) 0 (p.z - s.z)
 
                         Nothing ->
-                            1.0
+                            let
+                                rad =
+                                    degrees model.state.heading
+                            in
+                            vec3 (cos rad) 0 (0 - sin rad)
             in
-            fireInDirection sideSign model
+            fireInAimDirection aimTarget model
 
         PointerFire tap ->
             let
-                sideSign =
-                    if tap.x < toFloat model.viewportWidth * 0.5 then
-                        -1.0
+                dxNorm =
+                    (tap.x - toFloat model.viewportWidth * 0.5) / max 1.0 (toFloat model.viewportWidth * 0.5)
 
-                    else
-                        1.0
+                dyNorm =
+                    (tap.y - toFloat model.viewportHeight * 0.5) / max 1.0 (toFloat model.viewportHeight * 0.5)
+
+                camYawRad =
+                    degrees (model.follow.yaw + model.follow.broadsideBias)
+
+                depth =
+                    0 - (dyNorm * 1.6)
+
+                worldDir =
+                    vec3
+                        (dxNorm * cos camYawRad + depth * sin camYawRad)
+                        0
+                        (0 - (dxNorm * sin camYawRad) + depth * cos camYawRad)
             in
-            fireInDirection sideSign { model | touchShoot = tap.pointerType == "touch" }
+            fireInAimDirection worldDir { model | touchShoot = tap.pointerType == "touch" }
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -825,19 +866,48 @@ update msg model =
 
 fireInDirection : Float -> SailModel -> ( SailModel, Cmd SailMsg )
 fireInDirection sideSign m =
+    let
+        rad =
+            degrees m.state.heading
+
+        aimDir =
+            vec3 (sideSign * cos rad) 0 (sideSign * (0 - sin rad))
+    in
+    fireInAimDirection aimDir m
+
+
+fireInAimDirection : Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
+fireInAimDirection aimDir m =
     if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) then
         let
-            ( balls, camBias ) =
-                Physics.fireDirectional (mySlot m) m.state sideSign (aimPoints m) m.nextCannonId
+            ( balls, camBias, targetHeading ) =
+                Physics.fireTowards (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
 
             newFollow =
-                CameraRig.setBroadsideBias camBias m.follow
+                CameraRig.setShootFocus camBias 1.8 m.follow
+
+            rawErr =
+                targetHeading - m.state.heading
+
+            headingErr =
+                rawErr - 360.0 * toFloat (floor ((rawErr + 180.0) / 360.0))
+
+            turnImpulse =
+                clamp -25.0 25.0 (headingErr * 0.7)
+
+            curState =
+                m.state
+
+            newState =
+                { curState | turnRate = clamp -45.0 45.0 (curState.turnRate + turnImpulse) }
         in
         ( { m
-            | cannonballs = m.cannonballs ++ balls
+            | state = newState
+            , cannonballs = m.cannonballs ++ balls
             , cannonCooldown = cannonReload
             , nextCannonId = m.nextCannonId + List.length balls
             , follow = newFollow
+            , combatTurnTarget = Just targetHeading
           }
         , sfx (GameAudio.Impact 0.8)
         )
@@ -1605,6 +1675,24 @@ tick dt model =
         , moorings = moorings
         , crewTime = crewTime
         , ghostShip = updatedGhostShip
+        , combatTurnTarget =
+            case model.combatTurnTarget of
+                Just targetH ->
+                    let
+                        rawErr =
+                            targetH - state.heading
+
+                        err =
+                            rawErr - 360.0 * toFloat (floor ((rawErr + 180.0) / 360.0))
+                    in
+                    if abs err < 3.0 || model.touchLeft || model.touchRight || model.keyLeft || model.keyRight then
+                        Nothing
+
+                    else
+                        Just targetH
+
+                Nothing ->
+                    Nothing
       }
     , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )

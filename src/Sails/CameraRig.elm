@@ -8,6 +8,7 @@ module Sails.CameraRig exposing
     , knockShake
     , lookAt
     , setBroadsideBias
+    , setShootFocus
     , stepFollow
     )
 
@@ -80,6 +81,8 @@ type alias Follow =
     , shake : Float
     , clock : Float
     , broadsideBias : Float
+    , shootFocusTimer : Float
+    , targetBroadsideBias : Float
     }
 
 
@@ -117,6 +120,8 @@ initFollow boat heading =
     , shake = 0
     , clock = 0
     , broadsideBias = 0
+    , shootFocusTimer = 0
+    , targetBroadsideBias = 0
     }
 
 
@@ -198,7 +203,22 @@ knockShake speed =
 -}
 setBroadsideBias : Float -> Follow -> Follow
 setBroadsideBias bias follow =
-    { follow | broadsideBias = clamp -38.0 38.0 bias }
+    setShootFocus bias 1.8 follow
+
+
+{-| Smoothly pivot camera towards cannon shot direction and hold focus while shooting is active.
+When the timer expires, the camera starts returning to its usual position.
+-}
+setShootFocus : Float -> Float -> Follow -> Follow
+setShootFocus bias duration follow =
+    let
+        clampedBias =
+            clamp -70.0 70.0 bias
+    in
+    { follow
+        | targetBroadsideBias = clampedBias
+        , shootFocusTimer = max 0 duration
+    }
 
 
 {-| Add a shake (0 to 1) to the camera; shakes add up to at most 1.
@@ -310,11 +330,22 @@ stepFollow dt aspect boat heading speed next follow =
             follow.shake * max 0 (1 - shakeDecay * dt)
     , clock = follow.clock + dt
     , broadsideBias =
-        if abs follow.broadsideBias < 0.1 then
+        if follow.shootFocusTimer > 0 then
+            follow.broadsideBias + (follow.targetBroadsideBias - follow.broadsideBias) * min 1 (6.0 * dt)
+
+        else if abs follow.broadsideBias < 0.1 then
             0
 
         else
-            follow.broadsideBias * max 0 (1 - 1.6 * dt)
+            follow.broadsideBias * max 0 (1 - 2.5 * dt)
+    , shootFocusTimer =
+        max 0 (follow.shootFocusTimer - dt)
+    , targetBroadsideBias =
+        if follow.shootFocusTimer > 0 then
+            follow.targetBroadsideBias
+
+        else
+            0
     }
 
 
