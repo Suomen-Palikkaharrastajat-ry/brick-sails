@@ -286,7 +286,7 @@ suite =
                                 }
                             )
                         |> Expect.equal (List.repeat 4 { parts = True, known = True, sails = True, floats = True })
-            , test "boat geometry is scaled to the course and sits on the waterline" <|
+            , test "boat geometry is scaled to the course and its hull is lifted one brick above the waterline" <|
                 \_ ->
                     let
                         doc =
@@ -310,7 +310,7 @@ suite =
                         [ \_ -> Expect.atMost 10.0 mesh.lengthMeters
                         , \_ -> Expect.atLeast 7.0 mesh.lengthMeters
                         , \_ -> Expect.atMost 16.0 mesh.heightMeters
-                        , \_ -> Expect.all [ Expect.lessThan -0.05, Expect.greaterThan -0.7 ] (List.minimum ys |> Maybe.withDefault 0)
+                        , \_ -> Expect.all [ Expect.lessThan 0.6, Expect.greaterThan 0.2 ] (List.minimum ys |> Maybe.withDefault 0)
                         , \_ -> Expect.greaterThan 3 (List.maximum ys |> Maybe.withDefault 0)
                         , \_ -> Expect.greaterThan 0 sailVertices
                         , \_ -> Expect.equal [] (ShipMesh.partProgress doc cache).needed
