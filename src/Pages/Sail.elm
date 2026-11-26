@@ -899,7 +899,7 @@ fireInAimDirection aimDir m =
                 m.state
 
             newState =
-                { curState | turnRate = clamp -45.0 45.0 (curState.turnRate + turnImpulse) }
+                { curState | steer = clamp -1 1 (curState.steer + turnImpulse / 25) }
         in
         ( { m
             | state = newState
