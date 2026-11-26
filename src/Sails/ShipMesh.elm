@@ -209,7 +209,7 @@ build isSail doc rawCache =
 
         toBoat =
             linear
-                |> Mat4.translate3 -centre.x -(Vec3.getY bounds.min + draftLdu - 24) -centre.z
+                |> Mat4.translate3 -centre.x -(Vec3.getY bounds.min + draftLdu) -centre.z
 
         onePart p =
             let
