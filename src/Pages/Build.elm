@@ -774,6 +774,7 @@ view : Model -> Html Msg
 view model =
     div
         [ Attr.class "brick-editor"
+        , Attr.attribute "data-testid" "builder-page"
         , Attr.style "position" "fixed"
         , Attr.style "inset" "0"
         , Attr.style "overflow" "hidden"
@@ -784,7 +785,8 @@ view model =
         , Attr.style "-webkit-user-select" "none"
         ]
         [ div
-            [ Attr.style "position" "absolute"
+            [ Attr.attribute "data-testid" "builder-canvas"
+            , Attr.style "position" "absolute"
             , Attr.style "top" "0"
             , Attr.style "left" "0"
             , Attr.style "width" (px model.width)
@@ -867,7 +869,8 @@ topBar model =
                 [ icon |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
     in
     div
-        [ Attr.style "position" "absolute"
+        [ Attr.attribute "data-testid" "builder-topbar"
+        , Attr.style "position" "absolute"
         , Attr.style "top" "0"
         , Attr.style "left" "0"
         , Attr.style "right" "0"
@@ -892,7 +895,8 @@ topBar model =
             )
             [ FeatherIcons.check |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
         , div
-            [ Attr.style "display" "flex"
+            [ Attr.attribute "data-testid" "topbar-tabs"
+            , Attr.style "display" "flex"
             , Attr.style "align-items" "center"
             , Attr.style "justify-content" "center"
             , Attr.style "gap" "4px"
@@ -915,7 +919,8 @@ noticeView model =
     case model.notice of
         Just message ->
             div
-                [ Attr.attribute "role" "status"
+                [ Attr.attribute "data-testid" "builder-notice"
+                , Attr.attribute "role" "status"
                 , Attr.style "position" "absolute"
                 , Attr.style "left" "50%"
                 , Attr.style "transform" "translateX(-50%)"
@@ -1034,7 +1039,8 @@ dock model =
                 dockHeight
     in
     div
-        [ Attr.style "position" "absolute"
+        [ Attr.attribute "data-testid" "builder-dock"
+        , Attr.style "position" "absolute"
         , Attr.style "left" "0"
         , Attr.style "right" "0"
         , Attr.style "bottom" "0"
@@ -1076,7 +1082,8 @@ modellingControls model =
             model.width >= 640
     in
     div
-        [ Attr.attribute "role" "toolbar"
+        [ Attr.attribute "data-testid" "modelling-toolbar"
+        , Attr.attribute "role" "toolbar"
         , Attr.attribute "aria-label" (tr lang "Part modeling tools" "Osan muokkaustyökalut")
         , Attr.style "display" "flex"
         , Attr.style "align-items" "center"
@@ -1188,6 +1195,7 @@ colourRow model =
     div
         [ Attr.attribute "role" "listbox"
         , Attr.attribute "aria-label" (tr model.language "Colour" "Väri")
+        , Attr.attribute "data-testid" "color-palette"
         , Attr.style "display" "grid"
         , Attr.style "grid-template-columns" "repeat(4, 26px)"
         , Attr.style "grid-template-rows" "repeat(2, 26px)"
@@ -1266,7 +1274,8 @@ paletteRow model =
                 |> List.take paletteSize
     in
     div
-        [ Attr.style "display" "flex"
+        [ Attr.attribute "data-testid" "palette-row"
+        , Attr.style "display" "flex"
         , Attr.style "align-items" "center"
         , Attr.style "gap" "8px"
         , Attr.style "width" "100%"
@@ -1639,7 +1648,7 @@ viewBasesDrawer model =
                     ]
                 ]
     in
-    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "" ])
+    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "", Attr.attribute "data-testid" "bases-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
             [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
                 [ text (tr lang "Choose Starter Hull" "Valitse aloitusrunko") ]
@@ -1658,7 +1667,7 @@ viewImportDrawer model =
         lang =
             model.language
     in
-    div (drawerStyle (drawerHeight model 280))
+    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-testid" "import-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "max-width" "680px", Attr.style "margin" "0 auto" ]
             [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
                 [ text (tr lang "Open build" "Avaa malli") ]
@@ -2107,7 +2116,7 @@ viewReviewDrawer model =
                         hints
                     )
     in
-    div (drawerStyle (drawerHeight model 280))
+    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-testid" "review-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "12px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
             [ div [ Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "justify-content" "space-between", Attr.style "gap" "8px" ]
                 [ h3 [ Attr.style "font-size" "14px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "margin" "0" ]

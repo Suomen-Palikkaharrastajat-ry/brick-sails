@@ -89,17 +89,24 @@ viewHud :
 viewHud cfg =
     div
         [ Attr.class "absolute inset-0 z-20 pointer-events-none select-none overflow-hidden text-white"
+        , Attr.attribute "data-testid" "hud-overlay"
         , Attr.style "padding" "max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))"
         ]
         [ viewFlash cfg.flash
         , div [ Attr.class "relative w-full h-full" ]
-            [ div [ Attr.class "absolute top-0 left-0 right-0 z-30 flex justify-between items-start gap-2 pointer-events-none" ]
+            [ div
+                [ Attr.class "absolute top-0 left-0 right-0 z-30 flex justify-between items-start gap-2 pointer-events-none"
+                , Attr.attribute "data-testid" "hud-top-bar"
+                ]
                 [ viewTopLeftButtons cfg
                 , viewTopRightButtons cfg
                 ]
             , viewToast cfg.toast
             , viewCountdown cfg.language cfg.countdown
-            , div [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto" ]
+            , div
+                [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto"
+                , Attr.attribute "data-testid" "hud-steer-controls"
+                ]
                 [ if showSteerButtons cfg.tilt then
                     div [ Attr.class "flex gap-3" ]
                         [ steerButton cfg.language cfg.actions Left
@@ -109,7 +116,10 @@ viewHud cfg =
                   else
                     text ""
                 ]
-            , div [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto" ]
+            , div
+                [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto"
+                , Attr.attribute "data-testid" "hud-anchor-container"
+                ]
                 [ anchorButton cfg
                 ]
             , viewHelpModal cfg.showHelp cfg.actions.onToggleHelp
@@ -366,7 +376,7 @@ viewTopLeftButtons :
     }
     -> Html msg
 viewTopLeftButtons { language, hull, actions } =
-    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0" ]
+    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-left" ]
         [ iconButton
             [ Events.onClick actions.onExit
             , Events.on "pointerdown" (Decode.succeed actions.onExit)
@@ -393,7 +403,7 @@ viewTopRightButtons :
     }
     -> Html msg
 viewTopRightButtons { audioMuted, language, actions } =
-    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0" ]
+    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-right" ]
         [ iconButton
             [ Events.onClick actions.onToggleMute
             , Events.on "pointerdown" (Decode.succeed actions.onToggleMute)

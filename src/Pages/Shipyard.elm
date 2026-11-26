@@ -101,6 +101,7 @@ viewShipyard cfg =
         [ Attr.class "fixed inset-0 overflow-y-auto overflow-x-hidden text-white font-sans select-none"
         , Attr.style "touch-action" "pan-y"
         , Attr.style "background" ("linear-gradient(170deg, " ++ Brand.legoBlack ++ " 0%, #08263a 50%, " ++ Brand.legoBlack ++ " 100%)")
+        , Attr.attribute "data-testid" "shipyard-page"
         ]
         [ viewHeader cfg
         , div
@@ -109,7 +110,7 @@ viewShipyard cfg =
             , Attr.style "padding-right" "max(16px, env(safe-area-inset-right))"
             , Attr.style "padding-bottom" "max(16px, env(safe-area-inset-bottom))"
             ]
-            [ div [ Attr.class "w-full max-w-5xl flex flex-col gap-5" ]
+            [ div [ Attr.class "w-full max-w-5xl flex flex-col gap-5", Attr.attribute "data-testid" "main-content" ]
                 [ viewHero cfg
                 , viewActionButtons cfg
                 , case cfg.loadError of
@@ -132,6 +133,7 @@ viewHeader : { a | audioMuted : Bool, language : Language, actions : ShipyardAct
 viewHeader { audioMuted, language, actions } =
     div
         [ Attr.class "bg-brand"
+        , Attr.attribute "data-testid" "header-navbar"
         , Attr.style "padding-top" "env(safe-area-inset-top)"
         , Attr.style "padding-left" "env(safe-area-inset-left)"
         , Attr.style "padding-right" "env(safe-area-inset-right)"
@@ -199,6 +201,7 @@ viewHero { boat, mesh, loading, course, time, viewportWidth, viewportHeight, lan
     div
         [ Attr.class "relative w-full shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-brand"
         , Attr.style "height" (String.fromInt heroHeight ++ "px")
+        , Attr.attribute "data-testid" "hero-preview"
         ]
         [ Render.renderShipyard course.map mesh time heroWidth heroHeight
         , div [ Attr.class "absolute top-3 left-3 flex items-center gap-2 pointer-events-none" ]
@@ -240,12 +243,13 @@ viewActionButtons { language, hulls, canEditShip, actions } =
             else
                 List.head hulls |> Maybe.map (\hull -> ( actions.onStartBuild hull.id, T.buildOwnShip language ))
     in
-    div [ Attr.class "flex flex-col sm:flex-row gap-3 w-full" ]
+    div [ Attr.class "flex flex-col sm:flex-row gap-3 w-full", Attr.attribute "data-testid" "action-buttons" ]
         [ case builderButton of
             Just ( msg, label ) ->
                 button
                     [ Attr.type_ "button"
                     , onClick msg
+                    , Attr.attribute "data-testid" "build-action-button"
                     , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-white/10 border border-white/25 text-white font-extrabold text-base cursor-pointer transition-all active:bg-white/20"
                     ]
                     [ FeatherIcons.tool |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml []
@@ -258,6 +262,7 @@ viewActionButtons { language, hulls, canEditShip, actions } =
             [ Attr.type_ "button"
             , onClick actions.onStartSailing
             , Attr.attribute "data-tilt-start" ""
+            , Attr.attribute "data-testid" "sail-action-button"
             , Attr.class "flex-1 min-h-[52px] flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl bg-brand-yellow text-brand font-extrabold text-base uppercase tracking-widest cursor-pointer transition-all shadow-lg shadow-brand-yellow/30 active:brightness-110"
             ]
             [ FeatherIcons.play |> FeatherIcons.withSize 22 |> FeatherIcons.toHtml []
@@ -291,13 +296,14 @@ viewTrackSection cfg =
         codeText =
             MapParams.toCode world
     in
-    div [ Attr.class "flex flex-col gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10" ]
-        [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3" ]
+    div [ Attr.class "flex flex-col gap-2 p-3 rounded-2xl bg-[#0d2235]/95 border border-white/10", Attr.attribute "data-testid" "track-section" ]
+        [ div [ Attr.class "flex flex-wrap items-center justify-center sm:justify-start gap-3", Attr.attribute "data-testid" "track-axes-row" ]
             [ button
                 [ Attr.type_ "button"
                 , onClick cfg.actions.onRollWorld
                 , Attr.title (T.rollWorld cfg.language)
                 , Attr.attribute "aria-label" (T.rollWorld cfg.language)
+                , Attr.attribute "data-testid" "track-dice-button"
                 , Attr.class "w-12 h-12 flex items-center justify-center rounded-xl bg-brand-yellow text-brand cursor-pointer active:brightness-110 shadow-md transition-all"
                 ]
                 [ MenuIcons.dice |> FeatherIcons.withSize 26 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
@@ -324,7 +330,7 @@ viewTrackSection cfg =
                 , onPick = cfg.actions.onPickWeather (cycle (MapParams.allowedWeathers world.biome world.season) cfg.selection.weather world.weather)
                 }
             ]
-        , div [ Attr.class "flex items-center justify-end gap-1.5 pt-1" ]
+        , div [ Attr.class "flex items-center justify-end gap-1.5 pt-1", Attr.attribute "data-testid" "track-seed-row" ]
             [ if cfg.seedEditing then
                 input
                     [ Attr.type_ "text"
@@ -336,6 +342,7 @@ viewTrackSection cfg =
                     , Attr.attribute "aria-label" labels.seed
                     , Attr.attribute "autocomplete" "off"
                     , Attr.attribute "inputmode" "text"
+                    , Attr.attribute "data-testid" "track-seed-input"
                     , Attr.class "min-w-[14rem] max-w-full min-h-[32px] px-2.5 rounded-md bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white text-right"
                     ]
                     []
@@ -346,6 +353,7 @@ viewTrackSection cfg =
                     , onClick cfg.actions.onEditSeed
                     , Attr.title (T.editSeed cfg.language)
                     , Attr.attribute "aria-label" (T.editSeed cfg.language)
+                    , Attr.attribute "data-testid" "track-seed-display"
                     , Attr.class "min-h-[32px] px-2 rounded-md text-xs font-mono text-slate-400 cursor-pointer hover:text-white transition-colors"
                     ]
                     [ text codeText ]
@@ -355,6 +363,7 @@ viewTrackSection cfg =
                 , Html.Events.preventDefaultOn "mousedown" (Decode.succeed ( cfg.actions.onKeepFocus, True ))
                 , Attr.title (T.copyLink cfg.language)
                 , Attr.attribute "aria-label" (T.copyLink cfg.language)
+                , Attr.attribute "data-testid" "track-seed-copy"
                 , Attr.class "w-8 h-8 flex items-center justify-center rounded-md text-slate-400 cursor-pointer hover:text-white transition-colors"
                 ]
                 [ FeatherIcons.copy |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [ Attr.attribute "aria-hidden" "true" ] ]
@@ -446,12 +455,13 @@ viewCrew : Language -> String -> ShipyardActions msg -> Html msg
 viewCrew language roomCode actions =
     section
         [ Attr.attribute "aria-label" (T.crewHeading language)
+        , Attr.attribute "data-testid" "crew-section"
         , Attr.class "flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-900/65 border border-white/10"
         ]
         [ hostButton language actions TwoPlayers FeatherIcons.users
         , hostButton language actions GridSession FeatherIcons.tv
         , span [ Attr.class "w-px h-8 bg-white/15 mx-1", Attr.attribute "aria-hidden" "true" ] []
-        , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]" ]
+        , div [ Attr.class "flex flex-1 items-center gap-2 min-w-[180px]", Attr.attribute "data-testid" "crew-join-row" ]
             [ input
                 [ Attr.type_ "text"
                 , Attr.value roomCode
@@ -459,6 +469,7 @@ viewCrew language roomCode actions =
                 , Attr.placeholder (T.roomCodePlaceholder language)
                 , Attr.attribute "aria-label" (T.roomCodeLabel language)
                 , Attr.attribute "autocomplete" "off"
+                , Attr.attribute "data-testid" "crew-room-input"
                 , Attr.class "flex-1 min-w-0 min-h-[44px] px-3 rounded-lg bg-slate-900/80 border border-slate-400/30 text-xs font-mono text-white placeholder:text-slate-500"
                 ]
                 []

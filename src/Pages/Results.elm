@@ -173,6 +173,7 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
         ]
         [ div
             [ Attr.class "w-full max-w-sm landscape:max-w-xl bg-brand border-2 border-brand-yellow/60 rounded-3xl p-4 sm:p-5 shadow-2xl shadow-brand-yellow/20 text-white flex flex-col items-center text-center gap-3"
+            , Attr.attribute "data-testid" "results-card"
             , Attr.style "opacity" (String.fromFloat rise)
             , Attr.style "transform" ("translateY(" ++ String.fromFloat (24 * (1 - rise)) ++ "px)")
             ]
@@ -190,7 +191,7 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
                 div [ Attr.class "flex gap-1", Attr.attribute "aria-label" (T.starsAria language stars) ] (List.map star [ 1, 2, 3 ])
             , p [ Attr.class "text-lg font-extrabold text-white text-balance" ] [ text headline ]
             , p [ Attr.class "text-xs text-slate-400 font-medium" ] [ text (T.mapTitle language course.map ++ " · " ++ T.boatName language boatName) ]
-            , div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center gap-2" ]
+            , div [ Attr.class "w-full py-3 px-4 rounded-2xl bg-brand/60 border border-white/10 flex flex-col items-center gap-2", Attr.attribute "data-testid" "results-stats" ]
                 [ if crew == Nothing then
                     span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
 
@@ -224,7 +225,7 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
                   else
                     span [ Attr.class "text-[11px] text-slate-500" ] [ text nextGoal ]
                 ]
-            , div [ Attr.class "flex gap-2 w-full" ]
+            , div [ Attr.class "flex gap-2 w-full", Attr.attribute "data-testid" "results-actions" ]
                 [ button
                     [ Attr.type_ "button"
                     , onClick actions.onSailAgain

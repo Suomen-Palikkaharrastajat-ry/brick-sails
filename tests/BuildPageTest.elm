@@ -9,14 +9,12 @@ and closes from its button.
 -}
 
 import Expect
-import I18n exposing (Language(..))
 import LDraw.Document as Document exposing (Document)
 import Pages.Build as Build exposing (BuilderTab(..), Msg(..))
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Editor as Editor exposing (Base)
 import Sails.Ingest as Ingest
 import Studio.Core as Core
-import Studio.Shortcuts exposing (TurnDirection(..))
 import Test exposing (Test, describe, test)
 import Viewport
 
