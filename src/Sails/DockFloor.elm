@@ -212,7 +212,7 @@ waterShallowColor =
 
 pierDeckY : Float
 pierDeckY =
-    -4.0
+    waterLevelY - 0.2
 
 
 waterLevelY : Float
@@ -338,7 +338,7 @@ buildDockStructure =
         ironBandZ zPos =
             List.concat
                 [ horizontalQuad (pierDeckY - 0.1) 41.8 46.2 (zPos - 1.5) (zPos + 1.5) ironFitting
-                , verticalQuadX 41.8 (pierDeckY - 0.1) 6.0 (zPos - 1.5) (zPos + 1.5) ironFitting
+                , verticalQuadX 41.8 (pierDeckY - 0.1) (pierDeckY + 10.0) (zPos - 1.5) (zPos + 1.5) ironFitting
                 ]
 
         sideBands =
@@ -359,7 +359,7 @@ buildMooringPilings =
             4.0
 
         pilingTopY =
-            -18.0
+            pierDeckY - 14.0
 
         pilingBottomY =
             26.0
