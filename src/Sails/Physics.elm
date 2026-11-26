@@ -32,6 +32,7 @@ module Sails.Physics exposing
     , findBroadsideTarget
     , fireBroadside
     , fireCannons
+    , fireDirectional
     , grassHeight
     , harbourRadius
     , harbourThrottle
@@ -1337,6 +1338,71 @@ fireCannons slot state aimPoints startId =
             [ { id = startId, sourceSlot = slot, position = origin, velocity = side 1, age = 0 }
             , { id = startId + 1, sourceSlot = slot, position = origin, velocity = side -1, age = 0 }
             ]
+
+
+{-| Fire one single cannonball in a given lateral direction (-1.0 for port, +1.0 for starboard).
+If an aim point on that side is within range, lobs directly at the nearest one;
+otherwise lobs a single cannonball out to that side. Returns the fired cannonball(s)
+and the recommended camera yaw bias to track the shot.
+-}
+fireDirectional : Int -> SailingState -> Float -> List Vec3 -> Int -> ( List Cannonball, Float )
+fireDirectional slot state sideSign aimPoints startId =
+    let
+        origin =
+            Vec3.add state.position (vec3 0 1.0 0)
+
+        o =
+            Vec3.toRecord origin
+
+        headingRad =
+            degrees state.heading
+
+        rightX =
+            cos headingRad
+
+        rightZ =
+            0 - sin headingRad
+
+        onSide aim =
+            let
+                a =
+                    Vec3.toRecord aim
+
+                dx =
+                    a.x - o.x
+
+                dz =
+                    a.z - o.z
+
+                latDist =
+                    dx * rightX + dz * rightZ
+            in
+            latDist * sideSign > 0
+
+        targetOnSide =
+            aimPoints
+                |> List.filter onSide
+                |> List.map (\p -> ( horizontalDistance origin p, p ))
+                |> List.filter (\( d, _ ) -> d <= cannonRange && d > 1.5)
+                |> List.sortBy Tuple.first
+                |> List.head
+
+        camBias =
+            sideSign * 26.0
+    in
+    case targetOnSide of
+        Just ( _, aim ) ->
+            ( [ fireBroadside slot state aim startId ], camBias )
+
+        Nothing ->
+            let
+                rad =
+                    degrees state.heading
+
+                vel =
+                    vec3 (sideSign * cos rad * 18) 5 (sideSign * -(sin rad) * 18)
+            in
+            ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias )
 
 
 {-| Move cannonballs; the ones that reach the water become splashes.

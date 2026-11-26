@@ -13,8 +13,10 @@ The phone reports its pitch (`beta`, in degrees) as it is held. `calibrate`
 takes the pitch at that moment as level: the neutral point at the start of a
 run. Past 14 degrees of tilt either way the zone changes, and it only changes
 back inside 7 degrees, so a hand wobbling near the edge does not flicker
-between zones. Forward tilt is the top of the phone tipping away from the
-player; backward is the top tipping towards them.
+between zones. Forward tilt (tipping top of phone away from user) decreases
+beta below neutral, giving positive degrees (neutral - beta > 0) to raise sails;
+backward tilt (tipping top towards user) increases beta, giving negative degrees
+to lower sails.
 
 The first pitch received sets the neutral point, so the controls work from the
 start of a voyage; the start of each run calibrates again.
@@ -79,7 +81,7 @@ degrees : Pitch -> Float
 degrees pitch =
     case ( pitch.beta, pitch.neutral ) of
         ( Just b, Just n ) ->
-            wrap (b - n)
+            wrap (n - b)
 
         _ ->
             0

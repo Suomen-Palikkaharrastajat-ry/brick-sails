@@ -14,6 +14,7 @@ import Sails.Boats as Boats
 import Sails.HUD as HUD exposing (PointOfSail(..))
 import Sails.Hull as Hull
 import Sails.Physics as Physics
+import Sails.TiltPitch as TiltPitch
 import Sails.Types exposing (IslandRole(..), SailingState)
 import Sails.Wreck as Wreck
 import Test exposing (Test, describe, test)
@@ -348,5 +349,55 @@ suite =
                     in
                     Expect.equal [ InIrons, CloseHauled, Reaching, Running ]
                         (List.map (\off -> HUD.pointOfSail course.wind (from + off)) [ 10, 60, 100, 170 ])
+            ]
+        , describe "Sail Tilt & Directional Cannons"
+            [ test "tilting forward raises sails (Forward zone) and tilting backward lowers sails (Backward zone)" <|
+                \_ ->
+                    let
+                        -- Initial reading calibrates neutral point at 55 degrees
+                        neutral =
+                            TiltPitch.receive 55.0 TiltPitch.init
+
+                        -- Tipping top of phone away from user (face down) lowers beta (e.g. to 35) -> forward tilt
+                        forward =
+                            TiltPitch.receive 35.0 neutral
+
+                        -- Tipping top of phone towards user (face up) raises beta (e.g. to 75) -> backward tilt
+                        backward =
+                            TiltPitch.receive 75.0 neutral
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal TiltPitch.Level neutral.zone
+                        , \_ -> Expect.equal TiltPitch.Forward forward.zone
+                        , \_ -> Expect.equal TiltPitch.Backward backward.zone
+                        ]
+                        ()
+            , test "fireDirectional fires a single cannonball towards tapped side and sets broadside bias" <|
+                \_ ->
+                    let
+                        state =
+                            openWater
+
+                        ( portBalls, portBias ) =
+                            Physics.fireDirectional 0 state -1.0 [] 100
+
+                        ( stbdBalls, stbdBias ) =
+                            Physics.fireDirectional 0 state 1.0 [] 200
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 1 (List.length portBalls)
+                        , \_ -> Expect.equal 1 (List.length stbdBalls)
+                        , \_ -> Expect.lessThan 0 portBias
+                        , \_ -> Expect.greaterThan 0 stbdBias
+                        , \_ ->
+                            case ( List.head portBalls, List.head stbdBalls ) of
+                                ( Just pb, Just sb ) ->
+                                    -- Velocity vectors should have opposite lateral signs
+                                    Expect.notEqual (Vec3.getX pb.velocity) (Vec3.getX sb.velocity)
+
+                                _ ->
+                                    Expect.fail "Expected cannonballs"
+                        ]
+                        ()
             ]
         ]

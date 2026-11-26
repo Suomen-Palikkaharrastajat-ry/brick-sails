@@ -616,6 +616,7 @@ topBar model =
         , Attr.style "top" "0"
         , Attr.style "left" "0"
         , Attr.style "right" "0"
+        , Attr.style "z-index" "30"
         , Attr.style "display" "flex"
         , Attr.style "align-items" "center"
         , Attr.style "gap" "6px"
@@ -625,6 +626,7 @@ topBar model =
         [ button
             (buttonStyle True
                 ++ [ onClick Finish
+                   , Html.Events.on "pointerdown" (Decode.succeed Finish)
                    , Attr.style "background" Brand.legoYellow
                    , Attr.style "color" Brand.legoBlack
                    , Attr.style "border" "none"
@@ -682,6 +684,7 @@ hullsButton model =
     button
         [ Attr.type_ "button"
         , onClick ToggleHulls
+        , Html.Events.on "pointerdown" (Decode.succeed ToggleHulls)
         , Attr.attribute "data-hulls-toggle" ""
         , Attr.attribute "aria-label" label
         , Attr.attribute "aria-pressed"
@@ -838,7 +841,9 @@ toolButton label icon maybeMsg =
          ]
             ++ (case maybeMsg of
                     Just msg ->
-                        [ onClick msg ]
+                        [ onClick msg
+                        , Html.Events.on "pointerdown" (Decode.succeed msg)
+                        ]
 
                     Nothing ->
                         []
@@ -1380,7 +1385,9 @@ iconButton label icon maybeMsg =
                ]
             ++ (case maybeMsg of
                     Just msg ->
-                        [ onClick msg ]
+                        [ onClick msg
+                        , Html.Events.on "pointerdown" (Decode.succeed msg)
+                        ]
 
                     Nothing ->
                         []

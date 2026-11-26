@@ -93,9 +93,9 @@ viewHud cfg =
         ]
         [ viewFlash cfg.flash
         , div [ Attr.class "relative w-full h-full" ]
-            [ div [ Attr.class "absolute top-0 left-0 right-0 flex justify-between items-start gap-2" ]
-                [ viewMinimalHealth cfg.hull
-                , viewTopButtons cfg
+            [ div [ Attr.class "absolute top-0 left-0 right-0 z-30 flex justify-between items-start gap-2 pointer-events-none" ]
+                [ viewTopLeftButtons cfg
+                , viewTopRightButtons cfg
                 ]
             , viewToast cfg.toast
             , viewCountdown cfg.language cfg.countdown
@@ -342,58 +342,75 @@ viewFlash flash =
 iconButton : List (Html.Attribute msg) -> String -> FeatherIcons.Icon -> Html msg
 iconButton attrs label icon =
     button
-        ([ Attr.title label
+        ([ Attr.type_ "button"
+         , Attr.title label
          , Attr.attribute "aria-label" label
-         , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900/80 border border-white/10 backdrop-blur-md active:bg-slate-700 text-white"
+         , Attr.style "touch-action" "manipulation"
+         , Attr.style "-webkit-user-select" "none"
+         , Attr.style "user-select" "none"
+         , Attr.class "w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900/80 border border-white/10 backdrop-blur-md active:bg-slate-700 text-white cursor-pointer pointer-events-auto shadow-md"
          ]
             ++ attrs
         )
         [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
 
 
-{-| Top right: only the icon sound toggle while the boat sails. Once it has
-stopped, an Exit button (back to the boats) and a restart button show
-under it: there is no pause, so stopping is the way out of a race.
+{-| Top left: quick exit back to boats, restart race, and minimal hull health.
+Always visible and touch-ready on mobile.
 -}
-viewTopButtons :
+viewTopLeftButtons :
+    { a
+        | language : Language
+        , hull : Hull
+        , actions : HudActions msg
+    }
+    -> Html msg
+viewTopLeftButtons { language, hull, actions } =
+    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0" ]
+        [ iconButton
+            [ Events.onClick actions.onExit
+            , Events.on "pointerdown" (Decode.succeed actions.onExit)
+            ]
+            (T.backToBoats language)
+            FeatherIcons.arrowLeft
+        , iconButton
+            [ Events.onClick actions.onRestart
+            , Events.on "pointerdown" (Decode.succeed actions.onRestart)
+            ]
+            (T.restartRace language)
+            FeatherIcons.rotateCcw
+        , viewMinimalHealth hull
+        ]
+
+
+{-| Top right: mute toggle and keyboard/touch control help (? / H).
+-}
+viewTopRightButtons :
     { a
         | audioMuted : Bool
-        , stopped : Bool
         , language : Language
         , actions : HudActions msg
     }
     -> Html msg
-viewTopButtons { audioMuted, stopped, language, actions } =
-    div [ Attr.class "flex flex-col items-end gap-1.5 pointer-events-auto shrink-0" ]
-        [ div [ Attr.class "flex items-center gap-1.5" ]
-            [ iconButton [ Events.onClick actions.onToggleMute ]
-                (T.muteLabel language audioMuted)
-                (if audioMuted then
-                    FeatherIcons.volumeX
-
-                 else
-                    FeatherIcons.volume2
-                )
-            , iconButton [ Events.onClick actions.onToggleHelp ]
-                "Controls (? / H)"
-                FeatherIcons.helpCircle
+viewTopRightButtons { audioMuted, language, actions } =
+    div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0" ]
+        [ iconButton
+            [ Events.onClick actions.onToggleMute
+            , Events.on "pointerdown" (Decode.succeed actions.onToggleMute)
             ]
-        , if stopped then
-            div [ Attr.class "flex flex-col items-end gap-1.5 mt-1" ]
-                [ button
-                    [ Events.onClick actions.onExit
-                    , Attr.title (T.backToBoats language)
-                    , Attr.attribute "data-testid" "exit-race"
-                    , Attr.class "h-11 px-3 flex items-center gap-1.5 rounded-xl bg-brand-yellow text-brand font-black text-sm shadow-lg active:scale-95"
-                    ]
-                    [ FeatherIcons.arrowLeft |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml []
-                    , text (T.exitRace language)
-                    ]
-                , iconButton [ Events.onClick actions.onRestart ] (T.restartRace language) FeatherIcons.rotateCcw
-                ]
+            (T.muteLabel language audioMuted)
+            (if audioMuted then
+                FeatherIcons.volumeX
 
-          else
-            text ""
+             else
+                FeatherIcons.volume2
+            )
+        , iconButton
+            [ Events.onClick actions.onToggleHelp
+            , Events.on "pointerdown" (Decode.succeed actions.onToggleHelp)
+            ]
+            "Controls (? / H)"
+            FeatherIcons.helpCircle
         ]
 
 
@@ -656,6 +673,7 @@ anchorButton { canAnchor, isAnchored, actions } =
     button
         [ Attr.type_ "button"
         , Events.onClick actions.onDropAnchor
+        , Events.on "pointerdown" (Decode.succeed actions.onDropAnchor)
         , Attr.attribute "data-testid" "drop-anchor"
         , Attr.style "touch-action" "manipulation"
         , Attr.style "-webkit-user-select" "none"

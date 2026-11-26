@@ -133,7 +133,7 @@ type SailMsg
     | TiltOrientation { available : Bool, gamma : Float, beta : Float }
     | VisibilityChanged Browser.Events.Visibility
     | FireCannons
-    | PointerFire String
+    | PointerFire { x : Float, y : Float, pointerType : String }
     | RaiseSail
     | LowerSail
     | ToggleMute
@@ -556,43 +556,27 @@ update msg model =
             ( releaseControls model, Cmd.none )
 
         FireCannons ->
-            if model.cannonCooldown <= 0 && model.phase == Racing && not (Hull.wrecked model.hull) then
-                let
-                    ( balls, maybeCamBias ) =
-                        case Physics.findBroadsideTarget model.state (aimPoints model) of
-                            Just ( _, aim, sideSign ) ->
-                                ( [ Physics.fireBroadside (mySlot model) model.state aim model.nextCannonId ]
-                                , Just (sideSign * 26.0)
-                                )
+            let
+                sideSign =
+                    case Physics.findBroadsideTarget model.state (aimPoints model) of
+                        Just ( _, _, side ) ->
+                            side
 
-                            Nothing ->
-                                ( Physics.fireCannons (mySlot model) model.state (aimPoints model) model.nextCannonId
-                                , Nothing
-                                )
+                        Nothing ->
+                            1.0
+            in
+            fireInDirection sideSign model
 
-                    newFollow =
-                        case maybeCamBias of
-                            Just bias ->
-                                CameraRig.setBroadsideBias bias model.follow
+        PointerFire tap ->
+            let
+                sideSign =
+                    if tap.x < toFloat model.viewportWidth * 0.5 then
+                        -1.0
 
-                            Nothing ->
-                                model.follow
-                in
-                ( { model
-                    | cannonballs = model.cannonballs ++ balls
-                    , cannonCooldown = cannonReload
-                    , nextCannonId = model.nextCannonId + List.length balls
-                    , follow = newFollow
-                  }
-                , sfx (GameAudio.Impact 0.8)
-                )
-
-            else
-                ( model, Cmd.none )
-
-        PointerFire pointer ->
-            -- A tap or click anywhere on the sea fires; the hint shows which.
-            update FireCannons { model | touchShoot = pointer == "touch" }
+                    else
+                        1.0
+            in
+            fireInDirection sideSign { model | touchShoot = tap.pointerType == "touch" }
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -837,6 +821,29 @@ update msg model =
 
         NewMap ->
             ( model, Cmd.none )
+
+
+fireInDirection : Float -> Model -> ( Model, Cmd Msg )
+fireInDirection sideSign m =
+    if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) then
+        let
+            ( balls, camBias ) =
+                Physics.fireDirectional (mySlot m) m.state sideSign (aimPoints m) m.nextCannonId
+
+            newFollow =
+                CameraRig.setBroadsideBias camBias m.follow
+        in
+        ( { m
+            | cannonballs = m.cannonballs ++ balls
+            , cannonCooldown = cannonReload
+            , nextCannonId = m.nextCannonId + List.length balls
+            , follow = newFollow
+          }
+        , sfx (GameAudio.Impact 0.8)
+        )
+
+    else
+        ( m, Cmd.none )
 
 
 tick : Float -> SailModel -> ( SailModel, Cmd SailMsg )
@@ -1831,7 +1838,12 @@ viewRace model callbacks maybeRoom =
           -- the screen; the other players' boats sail in it.
           div
             [ Attr.class "absolute inset-0 z-0"
-            , on "pointerdown" (Decode.map PointerFire (Decode.at [ "pointerType" ] Decode.string))
+            , on "pointerdown"
+                (Decode.map3 (\x y pt -> PointerFire { x = x, y = y, pointerType = pt })
+                    (Decode.field "clientX" Decode.float)
+                    (Decode.field "clientY" Decode.float)
+                    (Decode.at [ "pointerType" ] Decode.string)
+                )
             ]
             [ Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight ]
         , if model.progress.finished then
