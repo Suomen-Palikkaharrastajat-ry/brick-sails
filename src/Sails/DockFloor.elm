@@ -538,8 +538,15 @@ waterMesh =
 entities : Float -> Camera -> Float -> List Entity
 entities baselineY camera aspect =
     let
+        -- The dock is modelled Y down (larger y = lower, as in LDraw), but
+        -- extra entities are drawn in render space, Y up. Flip Y only (Z
+        -- keeps the stern quay where it is), then lift by `baselineY`, so a
+        -- dock y lands at render y = baselineY - y. No face culling is set,
+        -- so the reversed winding is harmless.
         modelMatrix =
-            Mat4.makeTranslate (vec3 0.0 baselineY 0.0)
+            Mat4.mul
+                (Mat4.makeTranslate (vec3 0.0 baselineY 0.0))
+                (Mat4.makeScale3 1.0 -1.0 1.0)
 
         uniforms =
             { viewMatrix = Camera.viewMatrix camera
