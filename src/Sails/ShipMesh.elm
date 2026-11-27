@@ -5,8 +5,10 @@ module Sails.ShipMesh exposing
     , ShipPart
     , build
     , buildScenery
+    , cannonMuzzles
     , partProgress
     , sailByColour
+    , sailHoist
     , studScale
     , withParts
     )
@@ -47,8 +49,10 @@ import Set exposing (Set)
   - `scene`: triangles and edges of the hull, rig and everything but the
     sails, in Y-up LDraw units, bow towards +Z.
   - `sails`: the sail bricks, in the same units, drawn separately so they
-    can be lowered (squashed down to `sailFoot`, their lowest point) and
-    take a player colour.
+    can be lowered (see `sailHoist`) and take a player colour.
+  - `sailFoot`: where the sails are attached and come down to when lowered,
+    the deck or mast foot under them (see `sailFootOf`); `sailLow` and
+    `sailTop` are the sails' own lowest and highest points. All Y-up LDU.
   - `toBoat`: maps the scene into boat space in metres: centred on the hull,
     bow along +Z, waterline at y = 0.
   - `lengthMeters`, `heightMeters`: size on the water, for cameras.
@@ -62,6 +66,8 @@ type alias ShipMesh =
     { scene : Scene
     , sails : Scene
     , sailFoot : Float
+    , sailLow : Float
+    , sailTop : Float
     , toBoat : Mat4
     , linear : Mat4
     , parts : Array ShipPart
@@ -73,13 +79,16 @@ type alias ShipMesh =
     }
 
 
-{-| A cannon's muzzle in boat space (metres, bow along +Z) and the side it
-fires to: +1 starboard (boat-space x > 0, which `Sails.Render`'s heading turn
-puts at (cos h, -sin h), the game's starboard), -1 port.
+{-| A cannon's muzzle in boat space (metres, bow along +Z), the side it
+stands on: +1 starboard (boat-space x > 0, which `Sails.Render`'s heading
+turn puts at (cos h, -sin h), the game's starboard), -1 port, and the
+`direction` its barrel points (a unit vector in boat space), the way a shot
+from it leaves (see `Sails.Physics.fireFromMuzzle`).
 -}
 type alias Muzzle =
     { position : Vec3
     , side : Float
+    , direction : Vec3
     }
 
 
@@ -243,7 +252,9 @@ build isSail doc rawCache =
             , conditionalLines = []
             }
             (docSafe && BrickProps.arePartsBfcCertified cache (List.map .part sails))
-    , sailFoot = Vec3.getY (boundsOf sailTriangles).min
+    , sailFoot = sailFootOf bodyGeom.triangles sailTriangles
+    , sailLow = Vec3.getY (boundsOf sailTriangles).min
+    , sailTop = Vec3.getY (boundsOf sailTriangles).max
     , toBoat = toBoat
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
@@ -253,6 +264,81 @@ build isSail doc rawCache =
     , linear = linear
     , parts = parts
     }
+
+
+{-| The height (Y-up LDU) the sails are lowered to: where they are attached,
+the top of the hull, deck or mast foot under them. That is the highest point
+of the hull's triangles that lie wholly below the lowest sail point and
+reach under the sails' footprint (x and z). A flag hung at a mast top, or
+square sails hanging from yards, then come down to the deck rather than
+folding up where they hang. With nothing under the sails it is their own
+lowest point.
+-}
+sailFootOf : List ( Vertex, Vertex, Vertex ) -> List ( Vertex, Vertex, Vertex ) -> Float
+sailFootOf body sails =
+    let
+        box =
+            boundsOf sails
+
+        lowest =
+            Vec3.getY box.min
+
+        under tri =
+            let
+                b =
+                    boundsOf [ tri ]
+            in
+            (Vec3.getY b.max <= lowest + 0.5)
+                && (Vec3.getX b.max >= Vec3.getX box.min)
+                && (Vec3.getX b.min <= Vec3.getX box.max)
+                && (Vec3.getZ b.max >= Vec3.getZ box.min)
+                && (Vec3.getZ b.min <= Vec3.getZ box.max)
+    in
+    body
+        |> List.filter under
+        |> List.map (\tri -> Vec3.getY (boundsOf [ tri ]).max)
+        |> List.maximum
+        |> Maybe.map (min lowest)
+        |> Maybe.withDefault lowest
+
+
+{-| How the sails scene is drawn at a sail setting (`SailingState.sail`: 0
+lowered, 1 full; more is drawn as full), in the scene's own units (apply
+before `toBoat`). Lowering brings the sails down to where they are attached,
+`sailFoot`: the lowest sail point comes down to it (all the way when
+lowered) and the top of the sails to 12 % of its height above it, so a flag
+at a mast top or sails hanging from yards come down to the deck, and sails
+standing on the deck fold down onto it. The sails are never stretched.
+-}
+sailHoist : ShipMesh -> Float -> Mat4
+sailHoist mesh sail =
+    let
+        u =
+            clamp 0 1 sail
+
+        foot =
+            mesh.sailFoot
+
+        low =
+            foot + (mesh.sailLow - foot) * u
+
+        top =
+            foot + (mesh.sailTop - foot) * (0.12 + 0.88 * u)
+
+        span =
+            mesh.sailTop - mesh.sailLow
+
+        squash =
+            if span > 0 then
+                clamp 0 1 ((top - low) / span)
+
+            else
+                1
+    in
+    -- y' = low + (y - sailLow) * squash
+    Mat4.makeTranslate3 0 low 0
+        |> Mat4.scale3 1 squash 1
+        |> Mat4.translate3 0 -mesh.sailLow 0
 
 
 markSail : ( Vertex, Vertex, Vertex ) -> ( Vertex, Vertex, Vertex )
@@ -339,6 +425,14 @@ shipyard's cannon) the muzzle is the open end of the bar, at (30, 2, 0) in
 the part's own LDraw units; any other cannon part fires from its origin. The
 point goes through the part's placement, the LDraw-to-scene flip and
 `toBoat`, as the deck studs do (see `deckStudPoints`).
+
+The barrel direction of a 32828 is the bar's axis, the part's own +x: the
+muzzle point minus the point one LDraw unit back along +x, both taken through
+the same placement, flip and `toBoat`, then made a unit vector. So a cannon
+turned to face the bow points along +Z (forward), one facing the stern along
+-Z, and one facing out to port along -x. Any other cannon part (whose barrel
+axis is not known) points square out on its side, (side, 0, 0), as before.
+
 -}
 cannonMuzzles : Mat4 -> List Placement -> List Muzzle
 cannonMuzzles toBoat placements =
@@ -357,20 +451,39 @@ cannonMuzzles toBoat placements =
             else
                 vec3 0 0 0
 
+        toBoatPoint placement local =
+            Mat4.transform placement.matrix local
+                |> Mat4.transform (Mat4.makeScale3 1 -1 -1)
+                |> Mat4.transform toBoat
+
         muzzle placement =
             let
+                local =
+                    localMuzzle placement.part
+
                 boatPoint =
-                    Mat4.transform placement.matrix (localMuzzle placement.part)
-                        |> Mat4.transform (Mat4.makeScale3 1 -1 -1)
-                        |> Mat4.transform toBoat
+                    toBoatPoint placement local
+
+                side =
+                    if Vec3.getX boatPoint >= 0 then
+                        1
+
+                    else
+                        -1
+
+                barrel =
+                    Vec3.sub boatPoint (toBoatPoint placement (Vec3.sub local (vec3 1 0 0)))
+
+                direction =
+                    if String.contains "32828" (String.toLower placement.part) && Vec3.length barrel > 1.0e-9 then
+                        Vec3.normalize barrel
+
+                    else
+                        vec3 side 0 0
             in
             { position = boatPoint
-            , side =
-                if Vec3.getX boatPoint >= 0 then
-                    1
-
-                else
-                    -1
+            , side = side
+            , direction = direction
             }
     in
     placements
@@ -412,6 +525,8 @@ buildScenery metersPerLdu doc rawCache =
             bfcCertified
     , sails = empty
     , sailFoot = 0
+    , sailLow = 0
+    , sailTop = 0
     , toBoat = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , triangleCount = List.length geom.triangles
     , lengthMeters = max size.x size.z * metersPerLdu

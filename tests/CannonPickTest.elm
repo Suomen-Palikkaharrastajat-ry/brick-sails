@@ -2,8 +2,8 @@ module CannonPickTest exposing (suite)
 
 {-| A tap on a drawn cannon picks that cannon (its muzzle projected to the
 screen with the renderer's view and projection), a tap elsewhere picks none,
-and a shot from a picked cannon leaves that muzzle on its side, square to the
-hull.
+and a shot from a picked cannon whose barrel points square out leaves that
+muzzle on its side, square to the hull.
 -}
 
 import Expect
@@ -40,17 +40,17 @@ camFor state =
     }
 
 
-starboardGun : { position : Vec3, side : Float }
+starboardGun : { position : Vec3, side : Float, direction : Vec3 }
 starboardGun =
-    { position = vec3 1.2 1.1 0.4, side = 1 }
+    { position = vec3 1.2 1.1 0.4, side = 1, direction = vec3 1 0 0 }
 
 
-portGun : { position : Vec3, side : Float }
+portGun : { position : Vec3, side : Float, direction : Vec3 }
 portGun =
-    { position = vec3 -1.2 1.1 -0.4, side = -1 }
+    { position = vec3 -1.2 1.1 -0.4, side = -1, direction = vec3 -1 0 0 }
 
 
-guns : List { position : Vec3, side : Float }
+guns : List { position : Vec3, side : Float, direction : Vec3 }
 guns =
     [ starboardGun, portGun ]
 
@@ -65,7 +65,7 @@ height =
     600
 
 
-screenOf : SailingState -> { position : Vec3, side : Float } -> Maybe { x : Float, y : Float }
+screenOf : SailingState -> { position : Vec3, side : Float, direction : Vec3 } -> Maybe { x : Float, y : Float }
 screenOf state gun =
     CannonPick.projectToScreen (camFor state) width height (Physics.muzzleWorld state gun)
 

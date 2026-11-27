@@ -1,5 +1,6 @@
 module Sails.CameraRig exposing
     ( Follow
+    , cannonShotBias
     , chaseDistance
     , dampAngle
     , followView
@@ -7,8 +8,8 @@ module Sails.CameraRig exposing
     , jolt
     , knockShake
     , lookAt
-    , lookYawDegrees
     , setBroadsideBias
+    , setCannonShotFocus
     , setShootFocus
     , stepFollow
     )
@@ -85,6 +86,7 @@ type alias Follow =
     , shootFocusTimer : Float
     , targetBroadsideBias : Float
     , shootBearing : Float
+    , shotAlong : Bool
     , side : Float
     }
 
@@ -126,6 +128,7 @@ initFollow boat heading =
     , shootFocusTimer = 0
     , targetBroadsideBias = 0
     , shootBearing = 0
+    , shotAlong = False
     , side = 1
     }
 
@@ -222,7 +225,54 @@ setShootFocus bearing duration follow =
     { follow
         | shootBearing = bearing
         , shootFocusTimer = max 0 duration
+        , shotAlong = False
     }
+
+
+{-| `setShootFocus` for a shot from one built cannon (`Sails.Physics.fireFromMuzzle`),
+which may fire ahead or astern as well as to a side: while the timer runs the
+bias follows `cannonShotBias` instead of the broadside's 40 to 65 degrees, so
+the view turns to look along the shot's bearing and then swings back to the
+heading as after a broadside.
+-}
+setCannonShotFocus : Float -> Float -> Follow -> Follow
+setCannonShotFocus bearing duration follow =
+    { follow
+        | shootBearing = bearing
+        , shootFocusTimer = max 0 duration
+        , shotAlong = True
+    }
+
+
+{-| Camera bias (degrees) for a cannon shot at `rel` degrees from the camera
+yaw (-180 to 180, positive to starboard). It is continuous and keeps the
+sign of `rel`: up to 40 degrees off the bow the view looks straight along
+the shot (bias = rel, so a bow shot leaves the view looking ahead); from 40
+to 90 it eases from 40 to 65, so a shot square to the hull is framed as a
+broadside is (65); from 90 to 180 it turns on to look along the shot
+(180 for a shot dead astern).
+-}
+cannonShotBias : Float -> Float
+cannonShotBias rel =
+    let
+        a =
+            min 180 (abs rel)
+
+        mag =
+            if a <= 40 then
+                a
+
+            else if a <= 90 then
+                40 + (a - 40) * 0.5
+
+            else
+                65 + (a - 90) * (115 / 90)
+    in
+    if rel >= 0 then
+        mag
+
+    else
+        0 - mag
 
 
 {-| Add a shake (0 to 1) to the camera; shakes add up to at most 1.
@@ -325,14 +375,34 @@ stepFollow dt aspect boat heading speed next follow =
         shotRel =
             follow.shootBearing - newYaw - 360.0 * toFloat (floor ((follow.shootBearing - newYaw + 180.0) / 360.0))
 
-        shotBias =
-            (if shotRel >= 0 then
-                1.0
+        -- A shot nearly dead astern keeps turning the way the bias already
+        -- leans, so it does not flip between +180 and -180 (which would
+        -- swing the view round through the bow).
+        shotRelKept =
+            if abs shotRel > 150 && shotRel * follow.broadsideBias < 0 && abs follow.broadsideBias > 1 then
+                shotRel
+                    + (if follow.broadsideBias > 0 then
+                        360
 
-             else
-                -1.0
-            )
-                * clamp 40.0 65.0 (abs shotRel)
+                       else
+                        -360
+                      )
+
+            else
+                shotRel
+
+        shotBias =
+            if follow.shotAlong then
+                cannonShotBias shotRelKept
+
+            else
+                (if shotRel >= 0 then
+                    1.0
+
+                 else
+                    -1.0
+                )
+                    * clamp 40.0 65.0 (abs shotRel)
     in
     -- Rates as the racer's chase camera (distance 5, target 8.5 per second);
     -- yaw is slower than the racer's 9 so a tack or a buoy rounding swings
@@ -368,6 +438,7 @@ stepFollow dt aspect boat heading speed next follow =
         else
             0
     , shootBearing = follow.shootBearing
+    , shotAlong = follow.shotAlong
     , side =
         -- Eases between the two sides, so a shot to port does not swing the
         -- view 36 degrees in one frame when its bias crosses zero.

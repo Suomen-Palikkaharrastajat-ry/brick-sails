@@ -11,6 +11,7 @@ module Sails.Physics exposing
     , canRepatriateStandard
     , canSeizeStandard
     , cannonRange
+    , cannonVelocity
     , checkBoatHits
     , checkReefGrounding
     , checkShipHits
@@ -60,6 +61,7 @@ module Sails.Physics exposing
     , seaElevation
     , shipVelocity
     , shorePoint
+    , shotBearing
     , steerResponse
     , stepBoat
     , stepImpacts
@@ -1405,7 +1407,7 @@ fireTowards =
 point turned by the heading about the hull centre and moved to the boat's
 position, as `Sails.Render` places the hull (heel and pitch are left out).
 -}
-muzzleWorld : SailingState -> { position : Vec3, side : Float } -> Vec3
+muzzleWorld : SailingState -> { a | position : Vec3 } -> Vec3
 muzzleWorld state muzzle =
     let
         m =
@@ -1425,7 +1427,7 @@ and aft, in world space (see `muzzleWorld`); a targeted lob is aimed from
 that muzzle. With no muzzle on that side (or no cannons at all) it leaves
 from the hull centre, as `fireTowards` does.
 -}
-fireTowardsFrom : List { position : Vec3, side : Float } -> Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
+fireTowardsFrom : List { a | position : Vec3, side : Float } -> Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
 fireTowardsFrom muzzles slot state aimVec aimPoints startId =
     let
         origin =
@@ -1577,31 +1579,78 @@ broadsideVelocity state sideSign =
 
 {-| Fire one ball from a chosen cannon (a tap on the drawn cannon, see
 `Sails.CannonPick`): it leaves that muzzle (in world space, `muzzleWorld`)
-on that cannon's side, square to the hull, with the same velocity as an
-untargeted broadside of `fireTowardsFrom`. Returns the same triple as
-`fireTowardsFrom`: the balls, the camera broadside bias and the heading to
-hold (the current one).
+along the cannon's own barrel (`Sails.ShipMesh.Muzzle`'s `direction`, see
+`cannonVelocity`), so a bow chaser fires ahead, a stern chaser astern and a
+side gun out to its side. Returns the same triple as `fireTowardsFrom`: the
+balls, the camera bias and the heading, which is the current one: a cannon
+shot never turns the ship (`Pages.Sail` sets no turn target for it).
 -}
-fireFromMuzzle : { position : Vec3, side : Float } -> Int -> SailingState -> Int -> ( List Cannonball, Float, Float )
+fireFromMuzzle : { a | position : Vec3, side : Float, direction : Vec3 } -> Int -> SailingState -> Int -> ( List Cannonball, Float, Float )
 fireFromMuzzle muzzle slot state startId =
     let
-        sideSign =
-            if muzzle.side >= 0 then
-                1.0
-
-            else
-                -1.0
+        ball =
+            { id = startId
+            , sourceSlot = slot
+            , position = muzzleWorld state muzzle
+            , velocity = cannonVelocity state muzzle
+            , age = 0
+            }
     in
-    ( [ { id = startId
-        , sourceSlot = slot
-        , position = muzzleWorld state muzzle
-        , velocity = broadsideVelocity state sideSign
-        , age = 0
-        }
-      ]
-    , sideSign * 65.0
+    ( [ ball ]
+    , shotBearing state ball
     , state.heading
     )
+
+
+{-| Velocity of a ball from a built cannon: the barrel `direction` (boat
+space) turned by the heading into the world as `muzzleWorld` turns the
+muzzle, levelled and scaled to the broadside's 22 m/s, with the broadside's
+5.5 m/s upward lob and the ship's own velocity added (so a moving ship does
+not leave its shot behind). A barrel standing (nearly) upright has no useful
+bearing and fires square out on the cannon's side, as the broadside does.
+-}
+cannonVelocity : SailingState -> { a | side : Float, direction : Vec3 } -> Vec3
+cannonVelocity state muzzle =
+    let
+        d =
+            Vec3.toRecord muzzle.direction
+
+        rad =
+            degrees state.heading
+
+        wx =
+            d.x * cos rad + d.z * sin rad
+
+        wz =
+            d.z * cos rad - d.x * sin rad
+
+        len =
+            sqrt (wx * wx + wz * wz)
+    in
+    if len < 0.2 then
+        broadsideVelocity state
+            (if muzzle.side >= 0 then
+                1.0
+
+             else
+                -1.0
+            )
+
+    else
+        Vec3.add (vec3 (wx / len * 22.0) 5.5 (wz / len * 22.0)) (shipVelocity state)
+
+
+{-| The world bearing (degrees, as the heading: 0 along +Z, 90 along +X) a
+ball flies on as seen from the ship: its horizontal velocity with the ship's
+own velocity taken off (the camera rides with the ship).
+-}
+shotBearing : SailingState -> Cannonball -> Float
+shotBearing state ball =
+    let
+        v =
+            Vec3.toRecord (Vec3.sub ball.velocity (shipVelocity state))
+    in
+    atan2 v.x v.z * 180.0 / pi
 
 
 {-| The ship's horizontal velocity (m/s): its speed along its heading, as

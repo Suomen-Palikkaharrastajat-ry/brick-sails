@@ -70,8 +70,8 @@ projectMuzzles :
     -> Int
     -> Int
     -> SailingState
-    -> List { position : Vec3, side : Float }
-    -> List ( { position : Vec3, side : Float }, { x : Float, y : Float } )
+    -> List { a | position : Vec3 }
+    -> List ( { a | position : Vec3 }, { x : Float, y : Float } )
 projectMuzzles cam width height state muzzles =
     List.filterMap
         (\mz ->
@@ -89,9 +89,9 @@ pickCannon :
     -> Int
     -> Int
     -> SailingState
-    -> List { position : Vec3, side : Float }
+    -> List { a | position : Vec3 }
     -> { x : Float, y : Float }
-    -> Maybe { position : Vec3, side : Float }
+    -> Maybe { a | position : Vec3 }
 pickCannon cam width height state muzzles tap =
     projectMuzzles cam width height state muzzles
         |> List.map

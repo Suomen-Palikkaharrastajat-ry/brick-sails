@@ -738,36 +738,18 @@ update msg model =
 
         PointerFire tap ->
             let
-                dxNorm =
-                    (tap.x - toFloat model.viewportWidth * 0.5) / max 1.0 (toFloat model.viewportWidth * 0.5)
-
-                dyNorm =
-                    (tap.y - toFloat model.viewportHeight * 0.5) / max 1.0 (toFloat model.viewportHeight * 0.5)
-
-                camYawRad =
-                    degrees (CameraRig.lookYawDegrees model.follow)
-
-                depth =
-                    0 - (dyNorm * 1.6)
-
-                worldDir =
-                    vec3
-                        (0 - (dxNorm * cos camYawRad) + depth * sin camYawRad)
-                        0
-                        (dxNorm * sin camYawRad + depth * cos camYawRad)
-
                 tapped =
                     { model | touchShoot = tap.pointerType == "touch" }
             in
-            -- A tap on one of the drawn cannons fires that cannon, square to
-            -- the hull on its side; anywhere else fires a broadside towards
-            -- the tap.
+            -- Only a tap on one of the drawn cannons fires, along that
+            -- cannon's own barrel (ahead, astern or out to its side). Taps
+            -- anywhere else do nothing.
             case CannonPick.pickCannon (CameraRig.followView model.follow) model.viewportWidth model.viewportHeight model.state model.cannons { x = tap.x, y = tap.y } of
                 Just muzzle ->
-                    fireShot (\m -> Physics.fireFromMuzzle muzzle (mySlot m) m.state m.nextCannonId) worldDir tapped
+                    fireCannonShot muzzle tapped
 
                 Nothing ->
-                    fireInAimDirection worldDir tapped
+                    ( model, Cmd.none )
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -1051,12 +1033,34 @@ fireInAimDirection aimDir =
     fireShot (\m -> Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId) aimDir
 
 
+{-| Fire one built cannon (a tap on it, see `Sails.CannonPick`) along its own
+barrel (`Physics.fireFromMuzzle`). Unlike a broadside it sets no turn
+target, so a bow or stern chaser never swings the ship sideways, and the
+camera looks along the shot (`CameraRig.setCannonShotFocus`) while the ball
+flies, then swings back to the heading.
+-}
+fireCannonShot : Muzzle -> SailModel -> ( SailModel, Cmd SailMsg )
+fireCannonShot muzzle m =
+    fireShotWith True
+        (\s -> Physics.fireFromMuzzle muzzle (mySlot s) s.state s.nextCannonId)
+        (Vec3.sub (Physics.cannonVelocity m.state muzzle) (Physics.shipVelocity m.state))
+        m
+
+
 {-| Fire the balls `shoot` makes (see `Physics.fireTowardsFrom`) when the
 guns are loaded and the race is on; `aimDir` is the camera's shot bearing
 when nothing is fired.
 -}
 fireShot : (SailModel -> ( List Cannonball, Float, Float )) -> Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
-fireShot shoot aimDir m =
+fireShot =
+    fireShotWith False
+
+
+{-| `fireShot`; with `cannon` True (a single built cannon) the ship is not
+turned and the camera follows the shot along its bearing.
+-}
+fireShotWith : Bool -> (SailModel -> ( List Cannonball, Float, Float )) -> Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
+fireShotWith cannon shoot aimDir m =
     if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) && not m.progress.finished then
         let
             ( balls, _, targetHeading ) =
@@ -1069,24 +1073,34 @@ fireShot shoot aimDir m =
             -- velocity relative to the ship (the ship's own velocity,
             -- which an untargeted ball carries, taken off).
             aimRec =
-                balls
-                    |> List.head
-                    |> Maybe.map (\b -> Vec3.sub b.velocity (Physics.shipVelocity m.state))
-                    |> Maybe.withDefault aimDir
-                    |> Vec3.toRecord
+                Vec3.toRecord aimDir
 
             shotBearing =
-                atan2 aimRec.x aimRec.z * 180.0 / pi
+                balls
+                    |> List.head
+                    |> Maybe.map (Physics.shotBearing m.state)
+                    |> Maybe.withDefault (atan2 aimRec.x aimRec.z * 180.0 / pi)
 
+            -- A single cannon's shot may go ahead or astern: the camera
+            -- turns to look along it, and the ship is not turned.
             newFollow =
-                CameraRig.setShootFocus shotBearing 1.8 m.follow
+                if cannon then
+                    CameraRig.setCannonShotFocus shotBearing 1.8 m.follow
+
+                else
+                    CameraRig.setShootFocus shotBearing 1.8 m.follow
         in
         ( { m
             | cannonballs = m.cannonballs ++ balls
             , cannonCooldown = cannonReload
             , nextCannonId = m.nextCannonId + List.length balls
             , follow = newFollow
-            , combatTurnTarget = Just targetHeading
+            , combatTurnTarget =
+                if cannon then
+                    Nothing
+
+                else
+                    Just targetHeading
             , sinceShot = 0
           }
         , sfx (GameAudio.Impact 0.8)

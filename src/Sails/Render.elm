@@ -617,16 +617,10 @@ boatEntities ctx width height draw rb =
                 distance =
                     Vec3.distance ctx.eye s.position
 
-                -- Lowered sails fold down onto their foot (the boom).
-                hoist =
-                    0.12 + 0.88 * clamp 0 1 s.sail
-
+                -- Lowered sails fold down onto their foot: the deck or mast foot
+                -- they are attached to (`ShipMesh.sailFoot`).
                 sailModel =
-                    Mat4.mul model
-                        (Mat4.makeTranslate3 0 mesh.sailFoot 0
-                            |> Mat4.scale3 1 hoist 1
-                            |> Mat4.translate3 0 -mesh.sailFoot 0
-                        )
+                    Mat4.mul model (Sails.ShipMesh.sailHoist mesh s.sail)
 
                 hoistedBanner =
                     case s.carriedStandard of
