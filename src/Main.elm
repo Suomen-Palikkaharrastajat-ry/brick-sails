@@ -976,25 +976,22 @@ buildMesh name doc model =
         ShipMesh.buildScenery Scenery.metersPerLdu doc model.partCache
 
     else
-        ShipMesh.build (sailRule name model) doc model.partCache
+        ShipMesh.build (sailRule name doc model) doc model.partCache
 
 
-sailRule : String -> Model -> Document.Placement -> Bool
-sailRule name model =
-    if String.startsWith "vehicle:" name then
-        -- Another player's build: sails are found like on "Your ship".
-        ShipMesh.sailByPartName Ingest.isSailPart
-
-    else if NpcShips.isNpcShip name then
-        -- The computer's frigates and sloops: their white bricks are sails.
-        ShipMesh.sailByColour NpcShips.sailColour
+sailRule : String -> Document -> Model -> Document.Placement -> Bool
+sailRule name doc model =
+    if String.startsWith "vehicle:" name || NpcShips.isNpcShip name then
+        -- Another player's build, and the computer's frigates and sloops:
+        -- the same rule as "Your ship" (flags and white bricks above the deck).
+        Ingest.sailRule (Document.flattenedPlacements doc)
 
     else
-        sailRuleForBoat name model
+        sailRuleForBoat name doc model
 
 
-sailRuleForBoat : String -> Model -> Document.Placement -> Bool
-sailRuleForBoat name model =
+sailRuleForBoat : String -> Document -> Model -> Document.Placement -> Bool
+sailRuleForBoat name doc model =
     let
         boat =
             case model.customShip of
@@ -1013,7 +1010,7 @@ sailRuleForBoat name model =
             ShipMesh.sailByColour code
 
         Nothing ->
-            ShipMesh.sailByPartName Ingest.isSailPart
+            Ingest.sailRule (Document.flattenedPlacements doc)
 
 
 {-| Brick loading progress of a boat, while it is not built yet.

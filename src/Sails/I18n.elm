@@ -95,6 +95,7 @@ module Sails.I18n exposing
     , sailAgain
     , sailLevelName
     , sailLevelTitle
+    , sailStatusLabel
     , sailStep
     , sailingStat
     , seasonName
@@ -750,6 +751,13 @@ sailLevelName lang name =
 sailLevelTitle : Language -> String -> String
 sailLevelTitle lang name =
     pick lang "Purje: " "Sail: " ++ sailLevelName lang name
+
+
+{-| Label of the sail badge in the top-left corner of the HUD.
+-}
+sailStatusLabel : Language -> String
+sailStatusLabel lang =
+    pick lang "Purjeet" "Sails"
 
 
 overpoweredTitle : Language -> String
@@ -1415,6 +1423,7 @@ allPhrases =
     , ( "sailLevel Full", \l -> sailLevelName l "Full" )
     , ( "sailLevel Press", \l -> sailLevelName l "Press" )
     , ( "sailLevelTitle", \l -> sailLevelTitle l "Full" )
+    , ( "sailStatusLabel", sailStatusLabel )
     , ( "overpoweredTitle", overpoweredTitle )
     , ( "reefWarning", reefWarning )
     , ( "hullLabel", hullLabel )

@@ -12,6 +12,7 @@ module Sails.Ingest exposing
     , isSailPart
     , mapFromHash
     , maxShipParts
+    , sailRule
     , validateShip
     )
 
@@ -38,7 +39,7 @@ map part is left out before a build is decoded (`hashWithoutMap`).
 import Base64
 import Flate
 import Game.MapParams as MapParams exposing (MapParams)
-import LDraw.Document as Document exposing (Document)
+import LDraw.Document as Document exposing (Document, Placement)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Analyze as Analyze exposing (Seaworthiness(..))
@@ -328,11 +329,85 @@ classifyPart rawName yPos =
 
 
 {-| Whether a part file is a sail (flags, cloth, sails and wedge plates).
-Used to give another player's copy of a loaded build its player colour.
+Part of `sailRule`.
 -}
 isSailPart : String -> Bool
 isSailPart part =
     classifyPart part 0 == Sail
+
+
+{-| The one sail rule of the game, for player builds, other players' copies
+and the computer's frigate and sloop alike: which flattened placements of a
+ship go into `Sails.ShipMesh`'s `sails` scene (drawn apart, lowered and
+raised with the sail level, and painted in a player or faction colour).
+
+A placement is a sail when
+
+  - its part name says so (`isSailPart`: flags, cloth, sails, wedge plates), or
+  - it is a white (colour 15) 1 x N brick (1 x 1 up to 1 x 16) standing above
+    the hull's deck.
+
+"Above the deck" is decided by height alone, in the build's LDraw units
+(Y down): the deck is one plate (8 LDU) above the top of the hull's lowest
+layer, that is above the highest origin y among the parts that are not white
+1 x N bricks (a brick's or plate's origin is its top face). This is the deck
+of a starter hull (one brick and a plate) and lies under every deck of the
+NPC ships. A white brick is a sail when its lowest point is at or above that
+deck: standing on the deck, stacked on other bricks, or hanging from a yard.
+A white brick down in the hull layers stays hull. (A white hull more than one
+brick and a plate tall would have its upper white bricks taken as sails.)
+
+Give it the whole ship's placements once and use the returned test for each
+placement: the deck height is worked out once.
+
+-}
+sailRule : List Placement -> Placement -> Bool
+sailRule placements =
+    let
+        deck =
+            placements
+                |> List.filter (not << isWhiteBrick)
+                |> List.map (\p -> Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0)))
+                |> List.maximum
+                |> Maybe.map (\top -> top - 8)
+    in
+    \p ->
+        isSailPart p.part
+            || (case deck of
+                    Just deckY ->
+                        isWhiteBrick p && lowestPointY p <= deckY + 0.5
+
+                    Nothing ->
+                        False
+               )
+
+
+{-| A white (colour 15) 1 x N brick: the stacked square sails of the ships.
+-}
+isWhiteBrick : Placement -> Bool
+isWhiteBrick p =
+    p.color == 15 && List.member (partId p.part) oneByNBricks
+
+
+oneByNBricks : List String
+oneByNBricks =
+    [ "3005", "3005b", "3004", "3004b", "3622", "3010", "3009", "3008", "6111", "6112", "2465" ]
+
+
+partId : String -> String
+partId name =
+    String.toLower name
+        |> String.replace "parts/" ""
+        |> String.replace ".dat" ""
+
+
+{-| The lowest point of a brick placement in LDraw y (larger is lower): the
+brick's top face is its origin and its bottom is 24 LDU under it.
+-}
+lowestPointY : Placement -> Float
+lowestPointY p =
+    max (Vec3.getY (Mat4.transform p.matrix (vec3 0 0 0)))
+        (Vec3.getY (Mat4.transform p.matrix (vec3 0 24 0)))
 
 
 {-| Ingest an LDraw document into a `ShipSpec`.

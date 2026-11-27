@@ -31,6 +31,7 @@ module Sails.Physics exposing
     , fireBroadside
     , fireCannons
     , fireDirectional
+    , fireFromMuzzle
     , fireTowards
     , fireTowardsFrom
     , grassHeight
@@ -1542,30 +1543,65 @@ fireTowardsFrom muzzles slot state aimVec aimPoints startId =
 
         Nothing ->
             let
-                -- Broadside: 90 degrees to the boat's heading, on the side the
-                -- player tapped (starboard is (cos h, -sin h), as in
-                -- findBroadsideTarget).
-                headingRad =
-                    degrees state.heading
-
-                ( sideX, sideZ ) =
-                    if sideSign > 0 then
-                        ( cos headingRad, 0 - sin headingRad )
-
-                    else
-                        ( 0 - cos headingRad, sin headingRad )
-
-                -- The ball leaves the muzzle square to the hull and keeps
-                -- the ship's way on, so in the ship's frame it still flies
-                -- at 90 degrees and does not drift aft of a fast boat.
                 vel =
-                    Vec3.add (vec3 (sideX * 22.0) 5.5 (sideZ * 22.0)) (shipVelocity state)
+                    broadsideVelocity state sideSign
             in
             -- Keep the current heading: turning the ship towards
             -- `targetHeading` after the ball has left would swing the hull
             -- away from the ball's line, so in flight it would no longer
             -- be at 90 degrees to the boat.
             ( [ { id = startId, sourceSlot = slot, position = muzzleOn sideSign, velocity = vel, age = 0 } ], camBias, state.heading )
+
+
+{-| Velocity of an untargeted broadside ball fired on `sideSign` (1
+starboard, -1 port): 90 degrees to the boat's heading (starboard is
+(cos h, -sin h), as in `findBroadsideTarget`). The ball leaves the muzzle
+square to the hull and keeps the ship's way on, so in the ship's frame it
+still flies at 90 degrees and does not drift aft of a fast boat.
+-}
+broadsideVelocity : SailingState -> Float -> Vec3
+broadsideVelocity state sideSign =
+    let
+        headingRad =
+            degrees state.heading
+
+        ( sideX, sideZ ) =
+            if sideSign > 0 then
+                ( cos headingRad, 0 - sin headingRad )
+
+            else
+                ( 0 - cos headingRad, sin headingRad )
+    in
+    Vec3.add (vec3 (sideX * 22.0) 5.5 (sideZ * 22.0)) (shipVelocity state)
+
+
+{-| Fire one ball from a chosen cannon (a tap on the drawn cannon, see
+`Sails.CannonPick`): it leaves that muzzle (in world space, `muzzleWorld`)
+on that cannon's side, square to the hull, with the same velocity as an
+untargeted broadside of `fireTowardsFrom`. Returns the same triple as
+`fireTowardsFrom`: the balls, the camera broadside bias and the heading to
+hold (the current one).
+-}
+fireFromMuzzle : { position : Vec3, side : Float } -> Int -> SailingState -> Int -> ( List Cannonball, Float, Float )
+fireFromMuzzle muzzle slot state startId =
+    let
+        sideSign =
+            if muzzle.side >= 0 then
+                1.0
+
+            else
+                -1.0
+    in
+    ( [ { id = startId
+        , sourceSlot = slot
+        , position = muzzleWorld state muzzle
+        , velocity = broadsideVelocity state sideSign
+        , age = 0
+        }
+      ]
+    , sideSign * 65.0
+    , state.heading
+    )
 
 
 {-| The ship's horizontal velocity (m/s): its speed along its heading, as

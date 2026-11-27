@@ -43,7 +43,7 @@ step m =
     Tuple.first (Sail.update (Tick (frame * 1000)) m)
 
 
-{-| Sail out the 3 s countdown and a little more.
+{-| Sail on for a little over 3 s (the race starts at once).
 -}
 racing : SailModel -> SailModel
 racing m =

@@ -7,7 +7,6 @@ module Sails.ShipMesh exposing
     , buildScenery
     , partProgress
     , sailByColour
-    , sailByPartName
     , studScale
     )
 
@@ -128,13 +127,6 @@ maxDraftLdu =
 sailByColour : Int -> Placement -> Bool
 sailByColour code p =
     p.color == code
-
-
-{-| Sail rule for loaded builds: parts whose name says sail, flag or cloth.
--}
-sailByPartName : (String -> Bool) -> Placement -> Bool
-sailByPartName isSail p =
-    isSail p.part
 
 
 {-| Part files still to fetch for a boat, and how many are on their way.

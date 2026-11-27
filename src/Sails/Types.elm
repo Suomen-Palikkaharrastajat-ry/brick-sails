@@ -279,7 +279,8 @@ type BoatKind
     from a build link, whose parsed document is kept by `Main` instead.
   - `sailColour`: the LDraw colour code of the sail bricks. Bricks of this
     colour take the player colour when the boat is drawn for another player.
-    `Nothing` means: find sails by part name (see `Sails.Ingest.isSailPart`).
+    `Nothing` means: find sails by part name and white bricks above the
+    deck (see `Sails.Ingest.sailRule`).
   - `topSpeed` is in m/s, `turnRate` in degrees per second at full helm,
     `acceleration` the rate (1/s) the speed closes on its target.
 

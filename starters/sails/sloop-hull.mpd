@@ -3,10 +3,10 @@
 0 Name: Sloop Hull
 0 Author: Brick Sails
 0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
-0 // Description: Microscale 4 x 9 stud sloop hull (12 studs with the bowsprit): raked bow, gunport band, flat deck and raised quarterdeck with helm. The NPC sloop is this hull with one mast, square sails and four cannons.
-0 // Parts: 39 (all inside the grouped submodel npc-sloop-hull.ldr, the hull of the NPC sloop in src/Sails/NpcShips.elm)
+0 // Description: Microscale 4 x 9 stud sloop hull (12 studs with the bowsprit): raked bow, gunport band, flat deck and raised quarterdeck. The NPC sloop is this hull with one mast, square sails and four cannons.
+0 // Parts: 38 (all inside the grouped submodel npc-sloop-hull.ldr, the hull of the NPC sloop in src/Sails/NpcShips.elm)
 0 // Hull only: no mast or sail (add them in the editor)
-0 // Bounds LDU: x -52..52, y -94..24, z -160..80 (size 104 x 118 x 240)
+0 // Bounds LDU: x -52..52, y -60..24, z -160..80 (size 104 x 84 x 240)
 0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
 1 16 0 0 0 1 0 0 0 1 0 0 0 1 npc-sloop-hull.ldr
 0 NOFILE
@@ -49,9 +49,8 @@
 1 70 -20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat
 1 70 20 -32 -60 0 0 1 0 1 0 -1 0 0 3020.dat
 1 70 20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat
-0 // Raised quarterdeck with helm and stern lanterns
+0 // Raised quarterdeck with stern lanterns
 1 28 0 -48 60 1 0 0 0 1 0 0 0 1 3001.dat
-1 0 0 -56 50 1 0 0 0 1 0 0 0 1 3829c01.dat
 1 19 0 -56 70 1 0 0 0 1 0 0 0 1 3069b.dat
 1 14 30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat
 1 14 -30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat

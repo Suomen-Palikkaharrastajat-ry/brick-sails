@@ -83,7 +83,7 @@ moveOnto p m =
 
 racing : SailModel -> SailModel
 racing m =
-    -- Sail out the 3 s countdown and a little more.
+    -- Sail on for a little over 3 s (the race starts at once).
     List.foldl (\_ x -> step x) m (List.range 1 200)
 
 

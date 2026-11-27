@@ -33,8 +33,8 @@ ship with `Studio.Health` and for loose parts.
 Every part is in the brick catalog's curated set, so the ships load from the
 same part bundles as the player's boats. The masts and yards are reddish
 brown (70), the wood of the editor's palette. The sails are the white bricks
-(`sailColour`), so the game can tint them per faction; nothing else on the
-ships is white. The cannons are 32828 plates (1 x 1 round with bar) with the
+(`sailColour`) above the deck, which `Sails.Ingest.sailRule` takes as sails,
+so the game can tint them per faction; nothing else on the ships is white. The cannons are 32828 plates (1 x 1 round with bar) with the
 bar pointing outboard, so `Sails.ShipMesh` finds their muzzles.
 
 -}
@@ -223,7 +223,7 @@ sloop =
         , "0 Author: Brick Sails"
         , "0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt"
         , "0 // Microscale single-masted sloop: 4 x 9 stud hull with a raked bow, bowsprit,"
-        , "0 // raised quarterdeck with helm and lanterns, four deck cannons and white brick"
+        , "0 // raised quarterdeck with lanterns, four deck cannons and white brick"
         , "0 // square sails (the sail colour, 15)."
         , "0 // Hull: one grouped submodel, moved as one piece"
         , "1 16 0 0 0 1 0 0 0 1 0 0 0 1 npc-sloop-hull.ldr"
@@ -289,9 +289,8 @@ sloop =
         , "1 70 -20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat"
         , "1 70 20 -32 -60 0 0 1 0 1 0 -1 0 0 3020.dat"
         , "1 70 20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat"
-        , "0 // Raised quarterdeck with helm and stern lanterns"
+        , "0 // Raised quarterdeck with stern lanterns"
         , "1 28 0 -48 60 1 0 0 0 1 0 0 0 1 3001.dat"
-        , "1 0 0 -56 50 1 0 0 0 1 0 0 0 1 3829c01.dat"
         , "1 19 0 -56 70 1 0 0 0 1 0 0 0 1 3069b.dat"
         , "1 14 30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat"
         , "1 14 -30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat"

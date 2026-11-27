@@ -456,8 +456,8 @@ iconButton attrs label icon =
         [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
 
 
-{-| Top left: the wind (direction and speed), quick exit icon back to boats
-shown only when anchored, and minimal hull health.
+{-| Top left: the wind (direction and speed), the sail setting, quick exit
+icon back to boats shown only when anchored, and minimal hull health.
 -}
 viewTopLeftButtons :
     { a
@@ -467,11 +467,14 @@ viewTopLeftButtons :
         , actions : HudActions msg
         , wind : Wind
         , cameraYaw : Float
+        , sailLevel : Int
+        , state : SailingState
     }
     -> Html msg
-viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw } =
+viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw, sailLevel, state } =
     div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-left" ]
         (viewWindBadge language cameraYaw wind
+            :: viewSailBadge language isAnchored sailLevel state.sail
             :: (if isAnchored then
                     [ iconButton
                         [ Events.onClick actions.onExit ]
@@ -505,6 +508,41 @@ viewWindBadge language cameraYaw wind =
         ]
 
 
+{-| The sail setting beside the wind: a sail icon, the level's name (Down,
+Storm, Reefed, Full, Press, see `Sails.Physics.sailLevels`) and five rising
+bars, in the wind badge's style, lit as far as the sail is hoisted. `hoist`
+is the boat's eased sail share (0 lowered, 1 full, 1.2 pressed), so the bars
+follow the sail as it goes up or down. At anchor the sail shows lowered.
+-}
+viewSailBadge : Language -> Bool -> Int -> Float -> Html msg
+viewSailBadge language isAnchored sailLevel hoist =
+    let
+        ( name, shownHoist ) =
+            if isAnchored then
+                ( "Down", 0 )
+
+            else
+                ( Tuple.first (Physics.sailLevel sailLevel), hoist )
+
+        lit =
+            clamp 0 5 (round (shownHoist / 1.2 * 5))
+
+        label =
+            T.sailStatusLabel language ++ ": " ++ T.sailLevelName language name
+    in
+    div
+        [ Attr.class (panel ++ " px-2 py-1 flex items-center gap-1.5 text-[11px] font-bold text-sky-200")
+        , Attr.attribute "data-testid" "sail-status"
+        , Attr.attribute "data-sail-level" name
+        , Attr.title label
+        , Attr.attribute "aria-label" label
+        ]
+        [ FeatherIcons.triangle |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
+        , span [ Attr.class "uppercase tracking-wide leading-none" ] [ text (T.sailLevelName language name) ]
+        , levelBars "sail-bars" lit
+        ]
+
+
 {-| The wind's strength as five rising bars: one bar lit for each 3.2 m/s of
 wind, so a light breeze lights one or two and a gale lights all five.
 -}
@@ -514,7 +552,15 @@ windBars speed =
         lit =
             clamp 1 5 (round (speed / 3.2))
     in
-    div [ Attr.class "flex items-end gap-0.5 h-4", Attr.attribute "data-testid" "wind-bars" ]
+    levelBars "wind-bars" lit
+
+
+{-| Five rising bars with the first `lit` of them lit, the meter of the wind
+and sail badges.
+-}
+levelBars : String -> Int -> Html msg
+levelBars testId lit =
+    div [ Attr.class "flex items-end gap-0.5 h-4", Attr.attribute "data-testid" testId ]
         (List.map
             (\bar ->
                 div

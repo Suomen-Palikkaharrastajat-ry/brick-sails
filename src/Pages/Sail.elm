@@ -37,6 +37,7 @@ import Pages.Results as Results
 import Ports
 import Sails.Archipelago as Archipelago
 import Sails.CameraRig as CameraRig exposing (Follow)
+import Sails.CannonPick as CannonPick
 import Sails.Coins as Coins exposing (FlyingCoin)
 import Sails.Crew as Crew exposing (Crew)
 import Sails.Ending as Ending exposing (Ending)
@@ -70,8 +71,7 @@ import Sails.Wreck as Wreck
 
 
 type Phase
-    = Countdown Float
-    | Racing
+    = Racing
     | WaitingForRoom
 
 
@@ -153,11 +153,6 @@ type SailMsg
     | DropAnchor
 
 
-countdownSeconds : Float
-countdownSeconds =
-    3.0
-
-
 cannonReload : Float
 cannonReload =
     0.8
@@ -223,7 +218,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
             WaitingForRoom
 
         else
-            Countdown countdownSeconds
+            Racing
     , follow = CameraRig.initFollow state.position state.heading
     , simTime = 0
     , audioMuted = audioMuted
@@ -743,8 +738,19 @@ update msg model =
                         (0 - (dxNorm * cos camYawRad) + depth * sin camYawRad)
                         0
                         (dxNorm * sin camYawRad + depth * cos camYawRad)
+
+                tapped =
+                    { model | touchShoot = tap.pointerType == "touch" }
             in
-            fireInAimDirection worldDir { model | touchShoot = tap.pointerType == "touch" }
+            -- A tap on one of the drawn cannons fires that cannon, square to
+            -- the hull on its side; anywhere else fires a broadside towards
+            -- the tap.
+            case CannonPick.pickCannon (CameraRig.followView model.follow) model.viewportWidth model.viewportHeight model.state model.cannons { x = tap.x, y = tap.y } of
+                Just muzzle ->
+                    fireShot (\m -> Physics.fireFromMuzzle muzzle (mySlot m) m.state m.nextCannonId) worldDir tapped
+
+                Nothing ->
+                    fireInAimDirection worldDir tapped
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -1006,11 +1012,20 @@ fireInDirection sideSign m =
 
 
 fireInAimDirection : Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
-fireInAimDirection aimDir m =
+fireInAimDirection aimDir =
+    fireShot (\m -> Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId) aimDir
+
+
+{-| Fire the balls `shoot` makes (see `Physics.fireTowardsFrom`) when the
+guns are loaded and the race is on; `aimDir` is the camera's shot bearing
+when nothing is fired.
+-}
+fireShot : (SailModel -> ( List Cannonball, Float, Float )) -> Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
+fireShot shoot aimDir m =
     if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) && not m.progress.finished then
         let
             ( balls, _, targetHeading ) =
-                Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
+                shoot m
 
             -- World bearing of the shot, in the same convention as heading:
             -- the way the ball actually flies (its horizontal velocity),
@@ -1051,17 +1066,8 @@ tick dt model =
         time =
             model.simTime + dt
 
-        ( phase, phaseCmd, goToast ) =
-            case model.phase of
-                Countdown t ->
-                    if t - dt <= 0 then
-                        ( Racing, sfx GameAudio.Horn, Just ( T.goBanner model.language, 0.8 ) )
-
-                    else
-                        ( Countdown (t - dt), Cmd.none, Nothing )
-
-                other ->
-                    ( other, Cmd.none, Nothing )
+        phase =
+            model.phase
 
         wreckedBefore =
             Hull.wrecked model.hull
@@ -1579,7 +1585,7 @@ tick dt model =
                 Nothing
 
         toast =
-            case List.filterMap identity [ ghostToast, reefToast, regalia.toast, hullToast, goToast, passToast, treasureToast, hitToast ] of
+            case List.filterMap identity [ ghostToast, reefToast, regalia.toast, hullToast, passToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -1872,7 +1878,7 @@ tick dt model =
                 Nothing ->
                     Nothing
       }
-    , Cmd.batch (phaseCmd :: audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
+    , Cmd.batch (audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
     )
 
 
@@ -2047,9 +2053,6 @@ viewRace model callbacks maybeRoom =
 
         countdown =
             case model.phase of
-                Countdown t ->
-                    Just (ceiling t)
-
                 WaitingForRoom ->
                     case maybeRoom |> Maybe.map .status of
                         Just (Multiplayer.Countdown n) ->
