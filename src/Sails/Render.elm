@@ -59,6 +59,7 @@ import Render.Mesh exposing (Vertex)
 import Render.Scene exposing (Scene)
 import Render.Shader as Shader
 import Sails.Coins as Coins exposing (FlyingCoin)
+import Sails.Harbours as Harbours
 import Sails.IslandDecor as IslandDecor
 import Sails.IslandDressing as IslandDressing
 import Sails.IslandMesh as IslandMesh
@@ -89,6 +90,27 @@ import Sails.Wreck as Wreck
 import WebGL
 import WebGL.Settings.Blend as Blend
 import WebGL.Settings.DepthTest as DepthTest
+
+
+
+-- PERFORMANCE
+
+
+{-| Wake and bow-spray plates are drawn only for boats this near the camera
+(metres). Farther off a 0.42 m foam plate is under about two pixels high, but
+each still costs a draw call (eight per moving boat).
+-}
+wakeDrawRange : Float
+wakeDrawRange =
+    100
+
+
+{-| Extra metres added to a boat's cull sphere (beyond its size) so its
+hoisted standard and dropped anchor chain are never clipped at the screen edge.
+-}
+boatCullMargin : Float
+boatCullMargin =
+    4
 
 
 
@@ -271,6 +293,7 @@ renderWorld :
         , coins : List FlyingCoin
         , shipMeshOf : Wreck.Source -> Maybe ShipMesh
         , standards : List StandardState
+        , harbourDamage : Harbours.Damage
         }
     -> Int
     -> Int
@@ -316,6 +339,11 @@ renderWorld cam scene width height =
         draw =
             { prop = drawProp, fitted = withFit }
 
+        -- Boats, their wakes and debris off screen or past the fog cost
+        -- nothing (`boatInView`, `wakeInView`).
+        visibleBoats =
+            List.filter (boatInView inView) scene.boats
+
         entities =
             [ Ocean.skyEntity ctx
             , Ocean.oceanEntity ctx
@@ -326,73 +354,121 @@ renderWorld cam scene width height =
                 ++ lighthouseBeamEntity ctx scene.time scene.course
                 ++ townEntities inView ctx width height scene.scenery draw scene.standards scene.course.towns
                 ++ treasureEntities inView ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
-                ++ List.concatMap (harbourEntities inView ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
-                ++ List.concatMap (boatEntities ctx width height draw) scene.boats
+                ++ List.concatMap (harbourEntities inView ctx width height scene.scenery draw scene.time scene.nextIndex scene.harbourDamage scene.course) scene.course.waypoints
+                ++ List.concatMap (boatEntities ctx width height draw) visibleBoats
                 ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
-                ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
+                ++ List.concatMap (debrisEntities inView ctx width height draw scene.shipMeshOf) scene.debris
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
                 ++ List.concatMap (coinEntity draw) scene.coins
-                ++ List.concatMap (sprayEntities ctx draw scene.time) (List.take 1 scene.boats)
-                ++ List.concatMap (wakeEntities ctx draw scene.time) scene.boats
+                ++ List.concatMap (sprayEntities ctx draw scene.time) (List.filter (wakeInView inView ctx) (List.take 1 scene.boats))
+                ++ List.concatMap (wakeEntities ctx draw scene.time) (List.filter (wakeInView inView ctx) visibleBoats)
                 ++ boltEntities ctx scene.weather
                 ++ rainEntities ctx scene.time scene.weather
     in
     canvas width height entities
 
 
-{-| One loose piece of a wrecked boat (see `Sails.Wreck`): one of the
-boat's own parts, drawn as it was built (`Sails.ShipMesh.parts`), or a
-generic brick in its colour, at about the scale of the boats' own bricks.
+{-| Size of a boat as drawn (metres): its longer side, at its drawn scale.
 -}
-debrisEntities : Ctx -> Int -> Int -> Draw -> (Wreck.Source -> Maybe ShipMesh) -> Wreck.Piece -> List WebGL.Entity
-debrisEntities ctx width height draw shipMeshOf piece =
+boatSize : RenderBoat -> Float
+boatSize rb =
+    case rb.mesh of
+        Just mesh ->
+            rb.scale * max mesh.lengthMeters mesh.heightMeters
+
+        Nothing ->
+            0
+
+
+{-| Whether any of a boat (its hull, rig, standard and anchor chain) can be on
+screen: a sphere round it as big as the whole boat, plus `boatCullMargin`.
+-}
+boatInView : (Vec3 -> Float -> Bool) -> RenderBoat -> Bool
+boatInView inView rb =
+    inView (Vec3.add rb.state.position (vec3 0 (0.3 * boatSize rb) 0)) (boatSize rb + boatCullMargin)
+
+
+{-| Whether a boat's wake and spray are worth drawing: within `wakeDrawRange`
+of the camera and in view (the wake trails under 6 m behind the boat).
+-}
+wakeInView : (Vec3 -> Float -> Bool) -> Ctx -> RenderBoat -> Bool
+wakeInView inView ctx rb =
+    Vec3.distance ctx.eye rb.state.position
+        <= wakeDrawRange
+        && inView rb.state.position (0.5 * boatSize rb + 7)
+
+
+{-| One loose piece of a wrecked boat or smashed pier (see `Sails.Wreck`):
+one of the model's own parts, drawn as it was built (`Sails.ShipMesh.parts`)
+at the size the model was drawn, or a generic brick in its colour, at about
+the scale of the boats' own bricks.
+-}
+debrisEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> Draw -> (Wreck.Source -> Maybe ShipMesh) -> Wreck.Piece -> List WebGL.Entity
+debrisEntities inView ctx width height draw shipMeshOf piece =
     let
         p =
             Vec3.toRecord piece.position
 
         u =
             0.035
+
+        -- A ship's part is culled as if it were as big as its whole ship.
+        reach =
+            case piece.look of
+                Wreck.Brick _ _ ->
+                    1.5
+
+                Wreck.ShipPart source _ ->
+                    shipMeshOf source
+                        |> Maybe.map (\m -> Wreck.sourceScale source * max m.lengthMeters m.heightMeters + 1)
+                        |> Maybe.withDefault 0
     in
-    case piece.look of
-        Wreck.Brick part colour ->
-            let
-                brickColor =
-                    if colour == 20 then
-                        vec3 0.18 0.98 0.52
+    if not (inView piece.position reach) then
+        []
 
-                    else
-                        BrickLook.colour colour
-            in
-            draw.prop part
-                (Mat4.makeTranslate3 p.x p.y p.z
-                    |> rotY piece.yaw
-                    |> rotX piece.tumble
-                    |> Mat4.translate3 0 (12 * u) 0
-                    |> Mat4.scale3 u u u
-                )
-                (tint3 brickColor)
+    else
+        case piece.look of
+            Wreck.Brick part colour ->
+                let
+                    brickColor =
+                        if colour == 20 then
+                            vec3 0.18 0.98 0.52
 
-        Wreck.ShipPart source slot ->
-            case shipMeshOf source of
-                Just mesh ->
-                    if Array.isEmpty mesh.parts then
-                        []
+                        else
+                            BrickLook.colour colour
+                in
+                draw.prop part
+                    (Mat4.makeTranslate3 p.x p.y p.z
+                        |> rotY piece.yaw
+                        |> rotX piece.tumble
+                        |> Mat4.translate3 0 (12 * u) 0
+                        |> Mat4.scale3 u u u
+                    )
+                    (tint3 brickColor)
 
-                    else
-                        case Array.get (modBy (Array.length mesh.parts) slot) mesh.parts of
+            Wreck.ShipPart source index ->
+                case shipMeshOf source of
+                    Just mesh ->
+                        case Wreck.partSlot (Array.length mesh.parts) index |> Maybe.andThen (\slot -> Array.get slot mesh.parts) of
                             Just part ->
                                 let
                                     pivot =
                                         Vec3.toRecord part.pivot
 
+                                    scale =
+                                        Wreck.sourceScale source
+
                                     -- The part turns about its own centre, which
                                     -- is where the piece is; `linear` takes it to
-                                    -- boat metres, as the whole boat is drawn.
+                                    -- boat metres, as the whole boat is drawn, at
+                                    -- the size the ship was drawn (a patrol
+                                    -- ship's kind, `Sails.Pirates.shipScale`).
                                     pose =
                                         Mat4.makeTranslate3 p.x p.y p.z
                                             |> rotY piece.yaw
                                             |> rotX piece.tumble
+                                            |> Mat4.scale3 scale scale scale
 
                                     model =
                                         Mat4.mul pose mesh.linear
@@ -403,8 +479,8 @@ debrisEntities ctx width height draw shipMeshOf piece =
                             Nothing ->
                                 []
 
-                Nothing ->
-                    []
+                    Nothing ->
+                        []
 
 
 {-| Shipyard preview: one boat on the water of the map's sea colours
@@ -990,10 +1066,11 @@ the harbour, with a pirate flag where it leaves the beach, a red and a
 green channel beacon either side of the approach, a pulsing ring and a
 spinning beacon over the next harbour to dock at and a grey ring round the
 ones already visited. The final harbour also has the pirate arch across the
-approach. The piers are decoration: nothing bumps into them.
+approach. A harbour's pier is solid and can be smashed (`Sails.Harbours`):
+a smashed pier is not drawn, its bricks fly off as debris instead.
 -}
-harbourEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Float -> Int -> Course -> Waypoint -> List WebGL.Entity
-harbourEntities inView ctx width height scenery draw time nextIndex course wp =
+harbourEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> Float -> Int -> Harbours.Damage -> Course -> Waypoint -> List WebGL.Entity
+harbourEntities inView ctx width height scenery draw time nextIndex damage course wp =
     let
         p =
             Vec3.toRecord wp.position
@@ -1047,7 +1124,7 @@ harbourEntities inView ctx width height scenery draw time nextIndex course wp =
             -- (the one with the nearest shore) out towards the harbour, like a
             -- town's pier, with a pirate flag where it leaves the beach.
             pier =
-                case dockIsland course.islands p of
+                case Harbours.dockIsland course.islands p of
                     Just isl ->
                         let
                             bearing =
@@ -1088,7 +1165,14 @@ harbourEntities inView ctx width height scenery draw time nextIndex course wp =
                                 else
                                     []
                         in
-                        pierInView inView ctx width height scenery isl bearing ++ flagEntities
+                        -- A smashed pier is gone (its bricks are debris).
+                        (if Harbours.isWrecked damage wp.index then
+                            []
+
+                         else
+                            pierInView inView ctx width height scenery isl bearing
+                        )
+                            ++ flagEntities
 
                     Nothing ->
                         []
@@ -1162,15 +1246,6 @@ harbourEntities inView ctx width height scenery draw time nextIndex course wp =
                 pier ++ ring ++ channelBeacons
 
 
-{-| The island a harbour at `p` docks at: the one whose shore is nearest.
--}
-dockIsland : List Island -> { x : Float, y : Float, z : Float } -> Maybe Island
-dockIsland islands p =
-    islands
-        |> List.sortBy (\isl -> sqrt ((p.x - isl.x) ^ 2 + (p.z - isl.z) ^ 2) - isl.radius)
-        |> List.head
-
-
 {-| Islands generated procedurally as stepped 4-tier brick shells
 (`Sails.IslandMesh`) sized to each island's radius and height in the map's
 colours (`Sails.World.islandPalette`), dressed once per voyage
@@ -1211,42 +1286,26 @@ islandEntities inView ctx draw props _ islandMeshes =
                     shoreDistance =
                         max 0 (Vec3.distance ctx.eye (vec3 isl.x 0 isl.z) - isl.radius)
 
-                    loaded =
-                        List.all (\it -> Dict.member it.prop props) entry.items
-
                     near =
-                        shoreDistance < nearDressing && loaded
+                        shoreDistance < nearDressing && List.all (\name -> Dict.member name props) entry.propNames
 
-                    landmarks =
-                        List.filter (\it -> isLandmark it.prop) entry.items
-
-                    drawItem it =
-                        let
-                            s =
-                                it.spot
-
-                            centre =
-                                vec3 s.x (s.y + 0.5 * it.height) s.z
-                        in
-                        if it.small && Vec3.distance ctx.eye centre > IslandDressing.smallPropRange then
+                    -- Placements are worked out once per voyage
+                    -- (`IslandMesh.Placed`); only the culling runs per frame.
+                    drawItem placed =
+                        if placed.item.small && Vec3.distance ctx.eye placed.centre > IslandDressing.smallPropRange then
                             []
 
-                        else if inView centre (max it.reach (0.6 * it.height)) then
-                            draw.prop it.prop
-                                (Mat4.makeTranslate3 s.x s.y s.z
-                                    |> rotY (degrees s.bearing)
-                                    |> Mat4.scale3 Scenery.metersPerLdu Scenery.metersPerLdu Scenery.metersPerLdu
-                                )
-                                (tint3 (BrickLook.colour it.tint))
+                        else if inView placed.centre placed.radius then
+                            draw.prop placed.item.prop placed.model placed.tint
 
                         else
                             []
                 in
                 if near then
-                    Ocean.islandEntity ctx isl entry.shell :: List.concatMap drawItem entry.items
+                    Ocean.islandEntity ctx isl entry.shell :: List.concatMap drawItem entry.placed
 
                 else
-                    Ocean.islandEntity ctx isl entry.far :: List.concatMap drawItem landmarks
+                    Ocean.islandEntity ctx isl entry.far :: List.concatMap drawItem entry.landmarks
         )
         islandMeshes
 
@@ -1257,11 +1316,6 @@ bricks; the rest show their baked far mesh.
 nearDressing : Float
 nearDressing =
     110
-
-
-isLandmark : String -> Bool
-isLandmark prop =
-    prop == "fort" || prop == "dec:lighthouse" || prop == "dec:cairn"
 
 
 {-| The hub island of a course, where the landmark, its beam and the

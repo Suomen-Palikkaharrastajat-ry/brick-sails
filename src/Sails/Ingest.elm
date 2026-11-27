@@ -9,6 +9,8 @@ module Sails.Ingest exposing
     , hashWithoutMap
     , ingestDocument
     , ingestFromPlacements
+    , isCannonPart
+    , isMastPart
     , isSailPart
     , mapFromHash
     , maxShipParts
@@ -334,6 +336,22 @@ Part of `sailRule`.
 isSailPart : String -> Bool
 isSailPart part =
     classifyPart part 0 == Sail
+
+
+{-| Whether a part file is a mast (antennas, bars, poles, axles), as
+`ingestDocument` counts masts.
+-}
+isMastPart : String -> Bool
+isMastPart part =
+    classifyPart part 0 == Mast
+
+
+{-| Whether a part file is a cannon (`32828`, or a name with "cannon" or
+"shooting"), as `ingestDocument` counts cannons.
+-}
+isCannonPart : String -> Bool
+isCannonPart part =
+    classifyPart part 0 == Cannon
 
 
 {-| The one sail rule of the game, for player builds, other players' copies

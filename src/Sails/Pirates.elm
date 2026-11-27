@@ -16,7 +16,6 @@ module Sails.Pirates exposing
     , reach
     , reloadSeconds
     , sailTint
-    , shipName
     , shipNameFor
     , shipScale
     , shipSlot
@@ -191,14 +190,6 @@ reloadSeconds pirate =
     4.5 + 0.8 * toFloat (modBy 3 pirate.id)
 
 
-{-| The built-in boat a sunk pirate's wreck is broken from (see
-`Sails.Wreck`); `shipNameFor` names the model a pirate is drawn with.
--}
-shipName : String
-shipName =
-    "Schooner"
-
-
 {-| Sail color tint for each faction's patrol vessel:
 
   - Pirates: deep black/charcoal
@@ -221,7 +212,8 @@ sailTint pirate =
 
 {-| Model a pirate's vessel is drawn with (see `Sails.NpcShips`), by its
 kind: frigates and corvettes are three-masted frigates (at different
-scales, `shipScale`), sloops are sloops.
+scales, `shipScale`), sloops are sloops. A sunk pirate breaks up into the
+parts of this same model (`Sails.Wreck`).
 -}
 shipNameFor : Pirate -> String
 shipNameFor pirate =

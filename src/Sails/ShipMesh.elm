@@ -8,6 +8,7 @@ module Sails.ShipMesh exposing
     , partProgress
     , sailByColour
     , studScale
+    , withParts
     )
 
 {-| Turn a brick model into the geometry the game draws.
@@ -168,9 +169,6 @@ build isSail doc rawCache =
         sailGeom =
             flatten sails
 
-        markSail ( a, b, c ) =
-            ( { a | inherit = 1 }, { b | inherit = 1 }, { c | inherit = 1 } )
-
         sailTriangles =
             List.map markSail sailGeom.triangles
 
@@ -223,31 +221,9 @@ build isSail doc rawCache =
             linear
                 |> Mat4.translate3 -centre.x -(Vec3.getY bounds.min + draftLdu - 24) -centre.z
 
-        onePart p =
-            let
-                geom =
-                    Geometry.flattenWith Geometry.worldOptions [ toRef p ] cache 15 Mat4.identity
-
-                tris =
-                    if isSail p then
-                        List.map markSail geom.triangles
-
-                    else
-                        geom.triangles
-
-                box =
-                    boundsOf tris
-
-                partBfc =
-                    docIsBfcSafe doc && BrickProps.arePartsBfcCertified cache [ p.part ]
-            in
-            { scene = Scene.buildScene { triangles = tris, lines = geom.lines, conditionalLines = [] } partBfc
-            , pivot = Vec3.scale 0.5 (Vec3.add box.min box.max)
-            }
-
         parts =
             placements
-                |> List.map onePart
+                |> List.map (onePart isSail doc cache)
                 |> Array.fromList
 
         docSafe =
@@ -276,6 +252,37 @@ build isSail doc rawCache =
     , cannons = cannonMuzzles toBoat placements
     , linear = linear
     , parts = parts
+    }
+
+
+markSail : ( Vertex, Vertex, Vertex ) -> ( Vertex, Vertex, Vertex )
+markSail ( a, b, c ) =
+    ( { a | inherit = 1 }, { b | inherit = 1 }, { c | inherit = 1 } )
+
+
+{-| One placed part of a model on its own, for its wreck (`ShipPart`).
+-}
+onePart : (Placement -> Bool) -> Document -> PartCache -> Placement -> ShipPart
+onePart isSail doc cache p =
+    let
+        geom =
+            Geometry.flattenWith Geometry.worldOptions [ toRef p ] cache 15 Mat4.identity
+
+        tris =
+            if isSail p then
+                List.map markSail geom.triangles
+
+            else
+                geom.triangles
+
+        box =
+            boundsOf tris
+
+        partBfc =
+            docIsBfcSafe doc && BrickProps.arePartsBfcCertified cache [ p.part ]
+    in
+    { scene = Scene.buildScene { triangles = tris, lines = geom.lines, conditionalLines = [] } partBfc
+    , pivot = Vec3.scale 0.5 (Vec3.add box.min box.max)
     }
 
 
@@ -414,6 +421,19 @@ buildScenery metersPerLdu doc rawCache =
     , linear = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , parts = Array.empty
     }
+
+
+{-| A piece of scenery with its own parts too, for when it is smashed (a
+harbour's pier, see `Sails.Harbours`), the way a boat breaks up
+(`Sails.Wreck`). `buildScenery` leaves them out: most scenery never breaks.
+-}
+withParts : Document -> PartCache -> ShipMesh -> ShipMesh
+withParts doc rawCache mesh =
+    let
+        cache =
+            List.foldl (\( name, lines ) acc -> Dict.insert name (Loaded lines) acc) rawCache (Document.subfiles doc)
+    in
+    { mesh | parts = Array.fromList (List.map (onePart (\_ -> False) doc cache) (Document.flattenedPlacements doc)) }
 
 
 docIsBfcSafe : Document -> Bool

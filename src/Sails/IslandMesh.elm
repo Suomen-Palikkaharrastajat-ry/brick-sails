@@ -2,8 +2,10 @@ module Sails.IslandMesh exposing
     ( CourseMesh
     , IslandMeshes
     , IslandVertex
+    , Placed
     , build
     , forCourse
+    , isLandmark
     , proxyTriangles
     , triangles
     )
@@ -41,12 +43,14 @@ island far off costs a single draw call.
 -}
 
 import Game.BrickLook as BrickLook
-import Math.Matrix4 as Mat4
+import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Math.Vector4 exposing (Vec4, vec4)
 import Sails.Archipelago as Archipelago
 import Sails.IslandDecor as Decor exposing (Shape(..))
 import Sails.IslandDressing as Dressing exposing (Item)
 import Sails.Physics as Physics
+import Sails.Scenery as Scenery
 import Sails.Types exposing (Course, Island, IslandRole(..))
 import Sails.World as World exposing (IslandPalette)
 import WebGL
@@ -72,14 +76,75 @@ type alias CourseMesh =
 
 
 {-| One island's meshes: the bare `shell`, the `far` mesh (the shell with the
-far proxies of its dressing baked in) and the dressing's items.
+far proxies of its dressing baked in) and the dressing's items, with what
+`Sails.Render` needs to draw them worked out once per voyage instead of on
+every frame: each item's placement (`placed`), the hub's landmarks among them
+(`landmarks`) and the prop models the island needs (`propNames`, each once).
 -}
 type alias IslandMeshes =
     { island : Island
     , shell : WebGL.Mesh IslandVertex
     , far : WebGL.Mesh IslandVertex
     , items : List Item
+    , placed : List Placed
+    , landmarks : List Placed
+    , propNames : List String
     }
+
+
+{-| An item of an island's dressing placed in the world: its model matrix at
+the islands' one brick scale, the centre and radius of the sphere it is culled
+by, and its tint (for its colour-16 parts).
+-}
+type alias Placed =
+    { item : Item
+    , model : Mat4
+    , centre : Vec3
+    , radius : Float
+    , tint : Vec4
+    }
+
+
+placeItem : Item -> Placed
+placeItem it =
+    let
+        s =
+            it.spot
+
+        c =
+            BrickLook.colour it.tint
+    in
+    { item = it
+    , model =
+        Mat4.makeTranslate3 s.x s.y s.z
+            |> Mat4.rotate (degrees s.bearing) (vec3 0 1 0)
+            |> Mat4.scale3 Scenery.metersPerLdu Scenery.metersPerLdu Scenery.metersPerLdu
+    , centre = vec3 s.x (s.y + 0.5 * it.height) s.z
+    , radius = max it.reach (0.6 * it.height)
+    , tint = vec4 (Vec3.getX c) (Vec3.getY c) (Vec3.getZ c) 1
+    }
+
+
+{-| The hub's landmarks, seen from across the course, so drawn in real bricks
+even on an island far off.
+-}
+isLandmark : String -> Bool
+isLandmark prop =
+    prop == "fort" || prop == "dec:lighthouse" || prop == "dec:cairn"
+
+
+uniqueNames : List String -> List String
+uniqueNames names =
+    List.foldl
+        (\n acc ->
+            if List.member n acc then
+                acc
+
+            else
+                n :: acc
+        )
+        []
+        names
 
 
 type alias Profile =
@@ -131,11 +196,17 @@ forCourse course =
 
                 items =
                     itemsOf isl
+
+                placed =
+                    List.map placeItem items
             in
             { island = isl
             , shell = WebGL.triangles shellTris
             , far = WebGL.triangles (shellTris ++ proxyTriangles isl items)
             , items = items
+            , placed = placed
+            , landmarks = List.filter (\p -> isLandmark p.item.prop) placed
+            , propNames = uniqueNames (List.map .prop items)
             }
         )
         course.islands

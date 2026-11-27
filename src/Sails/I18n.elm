@@ -46,6 +46,8 @@ module Sails.I18n exposing
     , gridHostDesc
     , harbourAria
     , harbourCount
+    , harbourHitToast
+    , harbourSmashedToast
     , harbourTimeTitle
     , harbourToast
     , hazardPounding
@@ -1067,6 +1069,27 @@ piratesSunkToast =
     pirateSunkToast
 
 
+{-| A cannon ball hit a harbour's pier, which takes `left` more hits.
+-}
+harbourHitToast : Language -> Int -> String
+harbourHitToast lang left =
+    pick lang "Osuma laituriin! Kestää vielä " "Pier hit! It holds for "
+        ++ String.fromInt left
+        ++ (if left == 1 then
+                pick lang " osuman." " more hit."
+
+            else
+                pick lang " osumaa." " more hits."
+           )
+
+
+{-| A harbour's pier was smashed: no docking there now, sail on.
+-}
+harbourSmashedToast : Language -> String
+harbourSmashedToast lang =
+    pick lang "Laituri hajosi! Sinne ei voi enää kiinnittyä." "The pier is smashed! No docking there now."
+
+
 harbourToast : Language -> Int -> Int -> String
 harbourToast lang n total =
     pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
@@ -1396,6 +1419,9 @@ allPhrases =
     , ( "pointOfSail reaching", \l -> pointOfSailText l { inIrons = False, closeHauled = False, reaching = True } )
     , ( "pointOfSail running", \l -> pointOfSailText l { inIrons = False, closeHauled = False, reaching = False } )
     , ( "harbourAria", harbourAria )
+    , ( "harbourHitToast", \l -> harbourHitToast l 3 )
+    , ( "harbourHitToast one", \l -> harbourHitToast l 1 )
+    , ( "harbourSmashedToast", harbourSmashedToast )
     , ( "harbourCount", \l -> harbourCount l 1 7 )
     , ( "windDirection", windDirection )
     , ( "weather Squall", \l -> weatherName l "Squall" )

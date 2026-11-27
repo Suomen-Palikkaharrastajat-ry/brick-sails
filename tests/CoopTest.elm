@@ -23,6 +23,7 @@ import Sails.Ending as Ending
 import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates
+import Sails.Wreck as Wreck
 import Test exposing (Test, describe, test)
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
@@ -183,6 +184,39 @@ suite =
                             room JoinedPlayer 2 InRace [ player 1 True, player 2 True ]
                     in
                     Expect.equal [ ( 1, 4.5 ) ] (Dict.toList (Crew.heardMoorings r Dict.empty))
+            , test "a crewmate's wrecked ship breaks up here into its own build's parts" <|
+                \_ ->
+                    let
+                        mate =
+                            player 1 False
+
+                        r =
+                            room JoinedPlayer 2 InRace [ { mate | vehicleId = "vehicle:abc" }, player 2 False ]
+
+                        wrecked =
+                            { id = "w1", slot = 1, kind = "wrecked", at = 3, position = vec3 5 0 7, data = Encode.object [ ( "heading", Encode.float 90 ) ] }
+
+                        heard =
+                            Tuple.first (Sail.update (UpdateMultiplayerRoom { r | events = [ wrecked ] }) (sail (Just r)))
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal [ ( 1, 90 ) ] (List.map (\w -> ( w.slot, w.heading )) (Crew.heardWrecks { r | events = [ wrecked ] }))
+                        , \_ -> Expect.equal Wreck.pieceCount (List.length heard.debris)
+                        , \_ ->
+                            Expect.equal True
+                                (List.all
+                                    (\piece ->
+                                        case piece.look of
+                                            Wreck.ShipPart (Wreck.RemoteShip "vehicle:abc") _ ->
+                                                True
+
+                                            _ ->
+                                                False
+                                    )
+                                    heard.debris
+                                )
+                        ]
+                        ()
             , test "the crew time is the latest mooring of the crew, the same on every screen" <|
                 \_ ->
                     let

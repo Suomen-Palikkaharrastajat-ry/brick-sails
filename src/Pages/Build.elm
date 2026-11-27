@@ -3,10 +3,14 @@ module Pages.Build exposing
     , Model
     , Msg(..)
     , Outcome(..)
+    , ShipCheck(..)
     , document
     , init
     , resize
     , setLanguage
+    , shipCheckFix
+    , shipCheckText
+    , shipChecks
     , subscriptions
     , update
     , view
@@ -109,6 +113,7 @@ type Msg
     | PickColour Int
     | AddPart String
     | AddPartList (List String)
+    | AddPartInColour Int String
     | SelectPlacements (List Int)
     | RemovePlacements (List Int)
     | Turn TurnDirection
@@ -393,6 +398,9 @@ update msg model =
                 AddPart file ->
                     file /= model.activePart
 
+                AddPartInColour _ file ->
+                    file /= model.activePart
+
                 _ ->
                     endsPaletteTap msg
 
@@ -445,28 +453,10 @@ updateModel msg model =
                 ( picked, requestThumbnails picked, Stay )
 
         AddPart file ->
-            let
-                matrix =
-                    Editor.dropMatrix (Core.getDocument model.studio) model.studio.selection file
+            addPartIn model.colour file model
 
-                partName =
-                    Editor.parts
-                        |> List.filter (\p -> p.file == file)
-                        |> List.head
-                        |> Maybe.map (\p -> tr model.language p.nameEn p.nameFi)
-                        |> Maybe.withDefault file
-
-                noticeText =
-                    tr model.language ("➕ Added: " ++ partName) ("➕ Lisätty: " ++ partName)
-
-                closed =
-                    setTab BuildBricksTab model
-            in
-            stay
-                (runCore
-                    (Core.addPartAt file model.colour matrix)
-                    { closed | activePart = file, notice = Just noticeText }
-                )
+        AddPartInColour colour file ->
+            addPartIn colour file model
 
         AddPartList files ->
             List.foldl
@@ -692,6 +682,35 @@ updateModel msg model =
             stay (requestDockParts { model | dockParts = Resolve.updateCache name result Parser.parseFile model.dockParts })
 
 
+{-| Add `file` in `colour` where `Editor.dropMatrix` puts it, close the drawer
+and say what was added.
+-}
+addPartIn : Int -> String -> Model -> ( Model, Cmd Msg, Outcome )
+addPartIn colour file model =
+    let
+        matrix =
+            Editor.dropMatrix (Core.getDocument model.studio) model.studio.selection file
+
+        partName =
+            Editor.parts
+                |> List.filter (\p -> p.file == file)
+                |> List.head
+                |> Maybe.map (\p -> tr model.language p.nameEn p.nameFi)
+                |> Maybe.withDefault file
+
+        noticeText =
+            tr model.language ("➕ Added: " ++ partName) ("➕ Lisätty: " ++ partName)
+
+        closed =
+            setTab BuildBricksTab model
+    in
+    (\( m, c ) -> ( m, c, Stay ))
+        (runCore
+            (Core.addPartAt file colour matrix)
+            { closed | activePart = file, notice = Just noticeText }
+        )
+
+
 {-| Run a studio step, unless the hull is locked and the step would split it:
 then the step is dropped (its model, commands and events) and the player is
 told why.
@@ -900,6 +919,7 @@ view model =
             ]
         , topBar model
         , noticeView model
+        , shipChecksView model
         , bottomPanel model
         ]
 
@@ -1812,6 +1832,193 @@ viewImportDrawer model =
         ]
 
 
+{-| What a ship still lacks to sail and fight: a mast, a sail, a gun. The
+builder shows a prompt with a one-tap fix for each (`shipChecks`) until the
+part is on board.
+-}
+type ShipCheck
+    = NoMast
+    | NoSail
+    | NoGuns
+
+
+{-| The checks a build fails, in prompt order. Each one is there only while
+the ship has no part of its kind at all:
+
+  - `NoMast`: no mast part (what `Sails.Ingest` counts as a mast, the antenna
+    `3957a`, or the editor's mast pillar `43888`),
+  - `NoSail`: no placement passes `Sails.Ingest.sailRule`, the rule the game
+    raises and lowers the sails by (flags and cloth, or white 1 x N bricks on
+    the deck),
+  - `NoGuns`: no cannon (`Sails.Ingest.isCannonPart`, e.g. `32828`).
+
+-}
+shipChecks : Document -> List ShipCheck
+shipChecks doc =
+    let
+        placements =
+            Document.flattenedPlacements doc
+
+        isSail =
+            Ingest.sailRule placements
+
+        isMast part =
+            Ingest.isMastPart part || String.contains "43888" (String.toLower part)
+    in
+    List.filterMap identity
+        [ if List.any (.part >> isMast) placements then
+            Nothing
+
+          else
+            Just NoMast
+        , if List.any isSail placements then
+            Nothing
+
+          else
+            Just NoSail
+        , if List.any (.part >> Ingest.isCannonPart) placements then
+            Nothing
+
+          else
+            Just NoGuns
+        ]
+
+
+{-| The helper that fixes a check: a mast (antenna `3957a`), a white
+(colour 15) 1 x 3 brick sail (`3622`), or a cannon (`32828`).
+-}
+shipCheckFix : ShipCheck -> Msg
+shipCheckFix check =
+    case check of
+        NoMast ->
+            AddPartList [ "3957a.dat" ]
+
+        NoSail ->
+            AddPartInColour 15 "3622.dat"
+
+        NoGuns ->
+            AddPartList [ "32828.dat" ]
+
+
+{-| A check's prompt, its detail line and its helper button label.
+-}
+shipCheckText : Language -> ShipCheck -> { title : String, detail : String, button : String }
+shipCheckText lang check =
+    case check of
+        NoMast ->
+            { title = tr lang "Your ship has no mast" "Laivassasi ei ole mastoa"
+            , detail = tr lang "Add a mast (antenna 3957a) on the deck to carry the sails." "Lisää masto (antenni 3957a) kannelle kantamaan purjeita."
+            , button = tr lang "Add mast" "Lisää masto"
+            }
+
+        NoSail ->
+            { title = tr lang "Your ship has no sails" "Laivassasi ei ole purjeita"
+            , detail = tr lang "Add a white 1 x 3 brick on the deck as a sail to catch the wind." "Lisää valkoinen 1 x 3 -palikka kannelle purjeeksi ottamaan tuulta."
+            , button = tr lang "Add sail" "Lisää purje"
+            }
+
+        NoGuns ->
+            { title = tr lang "Your ship has no guns" "Laivassasi ei ole tykkejä"
+            , detail = tr lang "Add a cannon (32828) to sink pirate ships for gold coins." "Lisää tykki (32828) upottaaksesi merirosvolaivoja kultakolikoiksi."
+            , button = tr lang "Add cannon" "Lisää tykki"
+            }
+
+
+{-| The builder's prompts for `shipChecks`, at the bottom left of the 3D
+view: one row per missing kind of part with its helper button. They do not
+cover the view (only the buttons take taps) and go away once the part is on
+board. Hidden while the evaluation drawer, which lists the same checks, is
+open.
+-}
+shipChecksView : Model -> Html Msg
+shipChecksView model =
+    let
+        checks =
+            shipChecks (Core.getDocument model.studio)
+    in
+    if List.isEmpty checks || model.activeTab == ReviewTab then
+        text ""
+
+    else
+        div
+            [ Attr.attribute "data-testid" "builder-checks"
+            , Attr.attribute "role" "status"
+            , Attr.style "position" "absolute"
+            , Attr.style "left" "max(8px, env(safe-area-inset-left))"
+            , Attr.style "top" (px (canvasHeight model - 8))
+            , Attr.style "transform" "translateY(-100%)"
+            , Attr.style "z-index" "20"
+            , Attr.style "display" "flex"
+            , Attr.style "flex-direction" "column"
+            , Attr.style "align-items" "flex-start"
+            , Attr.style "gap" "6px"
+            , Attr.style "max-width" "calc(100% - 16px)"
+            , Attr.style "pointer-events" "none"
+            ]
+            (List.map (shipCheckRow model.language) checks)
+
+
+shipCheckRow : Language -> ShipCheck -> Html Msg
+shipCheckRow lang check =
+    let
+        texts =
+            shipCheckText lang check
+    in
+    div
+        [ Attr.attribute "data-testid" ("builder-check-" ++ shipCheckId check)
+        , Attr.title texts.detail
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "gap" "8px"
+        , Attr.style "padding" "4px 4px 4px 10px"
+        , Attr.style "border-radius" "10px"
+        , Attr.style "background" "rgba(15, 23, 42, 0.86)"
+        , Attr.style "border" "1px solid rgba(245, 158, 11, 0.6)"
+        , Attr.style "font-size" "13px"
+        , Attr.style "color" "#e2e8f0"
+        ]
+        [ span
+            [ Attr.style "width" "8px"
+            , Attr.style "height" "8px"
+            , Attr.style "border-radius" "50%"
+            , Attr.style "flex-shrink" "0"
+            , Attr.style "background" "#f59e0b"
+            ]
+            []
+        , span [ Attr.style "min-width" "0" ] [ text texts.title ]
+        , button
+            [ Attr.type_ "button"
+            , onClick (shipCheckFix check)
+            , Attr.attribute "aria-label" texts.button
+            , Attr.style "flex-shrink" "0"
+            , Attr.style "padding" "4px 10px"
+            , Attr.style "border-radius" "8px"
+            , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+            , Attr.style "border" "1px solid rgba(250, 200, 10, 0.5)"
+            , Attr.style "color" Brand.legoYellow
+            , Attr.style "font-size" "12px"
+            , Attr.style "font-weight" "800"
+            , Attr.style "cursor" "pointer"
+            , Attr.style "pointer-events" "auto"
+            , Attr.style "touch-action" "manipulation"
+            ]
+            [ text ("+ " ++ texts.button) ]
+        ]
+
+
+shipCheckId : ShipCheck -> String
+shipCheckId check =
+    case check of
+        NoMast ->
+            "mast"
+
+        NoSail ->
+            "sail"
+
+        NoGuns ->
+            "guns"
+
+
 type EvalSeverity
     = EvalBlocker
     | EvalWarning
@@ -1822,12 +2029,12 @@ type alias EvalHint =
     { severity : EvalSeverity
     , title : String
     , detail : Maybe String
-    , addParts : Maybe (List String)
+    , fix : Maybe Msg
     }
 
 
 {-| Drawer showing ship evaluation, seaworthiness rating, telemetry specs,
-one-tap missing-part helpers (mast, sail, cannon, ship's wheel), evaluation
+one-tap missing-part helpers (mast, sail, cannon: `shipChecks`), evaluation
 hints with quick-fix buttons, and the Set Sail CTA (matching Brick Racer's
 `viewReviewDrawer`).
 -}
@@ -1843,12 +2050,17 @@ viewReviewDrawer model =
         doc =
             Core.getDocument model.studio
 
-        allParts =
-            Document.flattenedPlacements doc
-                |> List.map (.part >> String.toLower)
+        checks =
+            shipChecks doc
 
-        hasShipsWheel =
-            List.member "3829c01.dat" allParts
+        hasMast =
+            not (List.member NoMast checks)
+
+        hasSail =
+            not (List.member NoSail checks)
+
+        hasCannon =
+            not (List.member NoGuns checks)
 
         spec =
             Ingest.ingestDocument title doc
@@ -1860,7 +2072,7 @@ viewReviewDrawer model =
             spec.hullPartCount < 2
 
         ready =
-            not hasBlocking && spec.mastPartCount >= 1 && spec.sailPartCount >= 1
+            not hasBlocking && hasMast && hasSail
 
         starCount =
             if hasBlocking then
@@ -1868,19 +2080,19 @@ viewReviewDrawer model =
 
             else
                 2
-                    + (if spec.mastPartCount >= 1 then
+                    + (if hasMast then
                         1
 
                        else
                         0
                       )
-                    + (if spec.sailPartCount >= 1 then
+                    + (if hasSail then
                         1
 
                        else
                         0
                       )
-                    + (if spec.cannonCount >= 1 || hasShipsWheel then
+                    + (if hasCannon then
                         1
 
                        else
@@ -1967,10 +2179,10 @@ viewReviewDrawer model =
 
         -- Icon button that adds missing parts, drawn with the target part's real
         -- LDraw thumbnail (matching Brick Racer's helperBtn).
-        helperBtn label thumbFile partFiles =
+        helperBtn label thumbFile fixMsg =
             button
                 [ Attr.type_ "button"
-                , onClick (AddPartList partFiles)
+                , onClick fixMsg
                 , Attr.title label
                 , Attr.attribute "aria-label" label
                 , Attr.style "position" "relative"
@@ -2016,36 +2228,21 @@ viewReviewDrawer model =
                     [ text "+" ]
                 ]
 
-        sailFixFiles =
-            if spec.mastPartCount == 0 then
-                [ "3957a.dat", "2335.dat" ]
+        checkThumb check =
+            case check of
+                NoMast ->
+                    "3957a.dat"
 
-            else
-                [ "2335.dat" ]
+                NoSail ->
+                    "3622.dat"
+
+                NoGuns ->
+                    "32828.dat"
 
         missingButtons =
-            List.filterMap identity
-                [ if spec.mastPartCount == 0 then
-                    Just (helperBtn (tr lang "Add mast" "Lisää masto") "3957a.dat" [ "3957a.dat" ])
-
-                  else
-                    Nothing
-                , if spec.sailPartCount == 0 then
-                    Just (helperBtn (tr lang "Add sail" "Lisää purje") "2335.dat" sailFixFiles)
-
-                  else
-                    Nothing
-                , if spec.cannonCount == 0 then
-                    Just (helperBtn (tr lang "Add cannon" "Lisää tykki") "32828.dat" [ "32828.dat" ])
-
-                  else
-                    Nothing
-                , if not hasShipsWheel then
-                    Just (helperBtn (tr lang "Add ship's wheel" "Lisää ruori") "3829c01.dat" [ "3829c01.dat" ])
-
-                  else
-                    Nothing
-                ]
+            List.map
+                (\check -> helperBtn (shipCheckText lang check).button (checkThumb check) (shipCheckFix check))
+                checks
 
         missingSection =
             if List.isEmpty missingButtons then
@@ -2065,85 +2262,60 @@ viewReviewDrawer model =
                         { severity = EvalBlocker
                         , title = tr lang "Insufficient hull volume to float" "Liian vähän runkoa kellumiseen"
                         , detail = Just (tr lang "Add hull bricks or slopes to form a buoyant hull." "Lisää runkopalikoita tai viisteitä kantavaksi rungoksi.")
-                        , addParts = Just [ "3001.dat", "3039.dat" ]
-                        }
-
-                  else
-                    Nothing
-                , if spec.mastPartCount == 0 then
-                    Just
-                        { severity = EvalWarning
-                        , title = tr lang "No mast detected" "Mastoa ei löytynyt"
-                        , detail = Just (tr lang "Add an antenna mast (3957a) or mast pillar (43888) on the deck." "Lisää antennimasto (3957a) tai mastopylväs (43888) kannelle.")
-                        , addParts = Just [ "3957a.dat" ]
-                        }
-
-                  else
-                    Nothing
-                , if spec.sailPartCount == 0 then
-                    Just
-                        { severity = EvalWarning
-                        , title = tr lang "No sail detected — ship will only drift" "Purjetta ei löytynyt — laiva vain ajelehtii"
-                        , detail = Just (tr lang "Attach a sail (flag 2335) to the mast to catch the wind." "Kiinnitä purje (lippu 2335) mastoon ottamaan tuulta.")
-                        , addParts = Just sailFixFiles
-                        }
-
-                  else
-                    Nothing
-                , if spec.cannonCount == 0 then
-                    Just
-                        { severity = EvalWarning
-                        , title = tr lang "Unarmed vessel — no cannons on deck" "Aseistamaton alus — ei tykkejä kannella"
-                        , detail = Just (tr lang "Add a cannon (32828) to sink pirate ships for gold coins." "Lisää tykki (32828) upottaaksesi merirosvolaivoja kultakolikoiksi.")
-                        , addParts = Just [ "32828.dat" ]
-                        }
-
-                  else
-                    Nothing
-                , if not hasShipsWheel then
-                    Just
-                        { severity = EvalWarning
-                        , title = tr lang "No ship's wheel on deck" "Ei ruoria kannella"
-                        , detail = Just (tr lang "Add a ship's wheel (3829c01) to complete the helm." "Lisää ruori (3829c01) täydentämään ohjaamo.")
-                        , addParts = Just [ "3829c01.dat" ]
-                        }
-
-                  else
-                    Nothing
-                , if spec.mastPartCount > 0 && spec.sailPartCount > 0 then
-                    Just
-                        { severity = EvalBonus
-                        , title =
-                            if report.sailAreaDisplacementRatio > 20.0 then
-                                tr lang "Corsair rig — swift in light and moderate winds" "Korsaaritakila — nopea kevyessä ja kohtalaisessa tuulessa"
-
-                            else
-                                tr lang "Galleon rig — steady and forgiving in heavy seas" "Kaljuunatakila — vakaa kovassa merenkäynnissä"
-                        , detail =
-                            Just
-                                (tr lang
-                                    ("Sail area: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Hull speed: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " kn")
-                                    ("Purjepinta-ala: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Runkonopeus: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " solmua")
-                                )
-                        , addParts = Nothing
-                        }
-
-                  else
-                    Nothing
-                , if spec.cannonCount > 0 then
-                    Just
-                        { severity = EvalBonus
-                        , title =
-                            tr lang
-                                ("Broadside battery ready (" ++ String.fromInt spec.cannonCount ++ " cannons)")
-                                ("Täyslaidallinen valmiina (" ++ String.fromInt spec.cannonCount ++ " tykkiä)")
-                        , detail = Just (tr lang "Tap water or press Space while sailing to fire." "Napauta vettä tai paina välilyöntiä purjehtiessa ampuaksesi.")
-                        , addParts = Nothing
+                        , fix = Just (AddPartList [ "3001.dat", "3039.dat" ])
                         }
 
                   else
                     Nothing
                 ]
+                ++ List.map
+                    (\check ->
+                        let
+                            texts =
+                                shipCheckText lang check
+                        in
+                        { severity = EvalWarning
+                        , title = texts.title
+                        , detail = Just texts.detail
+                        , fix = Just (shipCheckFix check)
+                        }
+                    )
+                    checks
+                ++ List.filterMap identity
+                    [ if hasMast && hasSail then
+                        Just
+                            { severity = EvalBonus
+                            , title =
+                                if report.sailAreaDisplacementRatio > 20.0 then
+                                    tr lang "Corsair rig — swift in light and moderate winds" "Korsaaritakila — nopea kevyessä ja kohtalaisessa tuulessa"
+
+                                else
+                                    tr lang "Galleon rig — steady and forgiving in heavy seas" "Kaljuunatakila — vakaa kovassa merenkäynnissä"
+                            , detail =
+                                Just
+                                    (tr lang
+                                        ("Sail area: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Hull speed: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " kn")
+                                        ("Purjepinta-ala: " ++ String.fromInt (round spec.sailAreaSqMeters) ++ " m² • Runkonopeus: " ++ String.fromInt (round report.maxHullSpeedKnots) ++ " solmua")
+                                    )
+                            , fix = Nothing
+                            }
+
+                      else
+                        Nothing
+                    , if hasCannon then
+                        Just
+                            { severity = EvalBonus
+                            , title =
+                                tr lang
+                                    ("Broadside battery ready (" ++ String.fromInt spec.cannonCount ++ " cannons)")
+                                    ("Täyslaidallinen valmiina (" ++ String.fromInt spec.cannonCount ++ " tykkiä)")
+                            , detail = Just (tr lang "Tap water or press Space while sailing to fire." "Napauta vettä tai paina välilyöntiä purjehtiessa ampuaksesi.")
+                            , fix = Nothing
+                            }
+
+                      else
+                        Nothing
+                    ]
 
         severityColour sev =
             case sev of
@@ -2156,10 +2328,10 @@ viewReviewDrawer model =
                 EvalBonus ->
                     "#22c55e"
 
-        fixButton files =
+        fixButton fixMsg =
             button
                 [ Attr.type_ "button"
-                , onClick (AddPartList files)
+                , onClick fixMsg
                 , Attr.style "flex-shrink" "0"
                 , Attr.style "padding" "4px 10px"
                 , Attr.style "border-radius" "8px"
@@ -2205,9 +2377,9 @@ viewReviewDrawer model =
                                         Nothing ->
                                             text ""
                                     ]
-                                , case hint.addParts of
-                                    Just files ->
-                                        fixButton files
+                                , case hint.fix of
+                                    Just fixMsg ->
+                                        fixButton fixMsg
 
                                     Nothing ->
                                         text ""

@@ -252,6 +252,11 @@ flashLight ctx colour =
 
 {-| 64 x 64 grid of 12 m cells, centred on the origin; the shader moves it
 to the course's arena (`u_centre`).
+
+Indexed: each of the 65 x 65 grid points is one vertex shared by the six
+triangles round it, so the heavy wave vertex shader runs 4,225 times a frame
+instead of once per triangle corner (24,576). The triangles are the same.
+
 -}
 waterMesh : WebGL.Mesh WaterVertex
 waterMesh =
@@ -265,15 +270,24 @@ waterMesh =
         half =
             toFloat n * step / 2
 
-        v i j =
-            { position = vec3 (toFloat i * step - half) 0 (toFloat j * step - half) }
+        -- Grid point (i, j) is vertex i * (n + 1) + j.
+        vertices =
+            List.range 0 n
+                |> List.concatMap
+                    (\i ->
+                        List.range 0 n
+                            |> List.map (\j -> { position = vec3 (toFloat i * step - half) 0 (toFloat j * step - half) })
+                    )
+
+        at i j =
+            i * (n + 1) + j
 
         quad i j =
-            [ ( v i j, v i (j + 1), v (i + 1) j ), ( v (i + 1) j, v i (j + 1), v (i + 1) (j + 1) ) ]
+            [ ( at i j, at i (j + 1), at (i + 1) j ), ( at (i + 1) j, at i (j + 1), at (i + 1) (j + 1) ) ]
     in
     List.range 0 (n - 1)
         |> List.concatMap (\i -> List.range 0 (n - 1) |> List.concatMap (quad i))
-        |> WebGL.triangles
+        |> WebGL.indexedTriangles vertices
 
 
 {-| The sea: tropical studded plates (`Game.BrickLook.surfaceFragmentShader`),

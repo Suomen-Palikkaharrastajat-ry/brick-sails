@@ -2,9 +2,11 @@ module Sails.Crew exposing
     ( Crew
     , allInPort
     , heardMoorings
+    , heardWrecks
     , mooredEvent
     , ofRoom
     , sharedTime
+    , wreckedEvent
     )
 
 {-| The cooperative rules of an online room: everyone in a room is one crew
@@ -23,6 +25,7 @@ page's clock fell behind (a hidden tab gets no frames).
 
 import Dict exposing (Dict)
 import Game.Multiplayer as Multiplayer exposing (RoomState, RoomStatus(..))
+import Json.Decode as Decode
 import Json.Encode as Encode
 import Math.Vector3 exposing (Vec3)
 
@@ -114,3 +117,33 @@ sharedTime room moorings clock =
         |> List.map (\slot -> Dict.get slot moorings |> Maybe.withDefault clock)
         |> List.maximum
         |> Maybe.withDefault clock
+
+
+wreckedKind : String
+wreckedKind =
+    "wrecked"
+
+
+{-| The room event that tells the crew this ship was wrecked at crew clock
+`at`, where it was and the compass `heading` it was sailing, so the others
+see it break up into its own bricks (`Sails.Wreck`).
+-}
+wreckedEvent : Float -> Vec3 -> Float -> Encode.Value
+wreckedEvent at position heading =
+    Multiplayer.encodeEvent { kind = wreckedKind, at = at, position = position, fields = [ ( "heading", Encode.float heading ) ] }
+
+
+{-| The crewmates' wrecks a room state tells of: whose ship (`slot`), where
+and on what heading.
+-}
+heardWrecks : RoomState -> List { slot : Int, position : Vec3, heading : Float }
+heardWrecks room =
+    room.events
+        |> List.filter (\e -> e.kind == wreckedKind && e.slot /= room.mySlot)
+        |> List.map
+            (\e ->
+                { slot = e.slot
+                , position = e.position
+                , heading = Decode.decodeValue (Decode.field "heading" Decode.float) e.data |> Result.withDefault 0
+                }
+            )

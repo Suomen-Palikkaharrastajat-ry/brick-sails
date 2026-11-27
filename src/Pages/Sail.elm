@@ -42,14 +42,17 @@ import Sails.CannonPick as CannonPick
 import Sails.Coins as Coins exposing (FlyingCoin)
 import Sails.Crew as Crew exposing (Crew)
 import Sails.Ending as Ending exposing (Ending)
+import Sails.FrameGuard as FrameGuard exposing (FrameGuard)
 import Sails.GhostShip as GhostShip exposing (GhostShip)
 import Sails.HUD as HUD exposing (Side(..))
+import Sails.Harbours as Harbours
 import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
 import Sails.IslandMesh as IslandMesh
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
+import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (Muzzle, ShipMesh)
 import Sails.TiltPitch as TiltPitch
 import Sails.Types
@@ -129,6 +132,12 @@ type alias SailModel =
       sinceShot : Float
     , islandMeshes : IslandMesh.CourseMesh
     , cannons : List Muzzle
+    , -- Cannon ball hits each harbour's pier has taken (`Sails.Harbours`);
+      -- a smashed pier stays smashed until the course is sailed again.
+      harbourDamage : Harbours.Damage
+    , -- The canvas resolution guard (`Sails.FrameGuard`): drawing only, it
+      -- lowers the 3D canvas resolution while frames stay slow.
+      frameGuard : FrameGuard
     }
 
 
@@ -287,6 +296,8 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , sinceShot = HUD.hintReturnSeconds
     , islandMeshes = islandMeshes
     , cannons = []
+    , harbourDamage = Dict.empty
+    , frameGuard = FrameGuard.init
     }
 
 
@@ -653,7 +664,7 @@ update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
 update msg model =
     case msg of
         Tick dtMs ->
-            tick (clamp 0.001 0.05 (dtMs / 1000)) model
+            tick (clamp 0.001 0.05 (dtMs / 1000)) { model | frameGuard = FrameGuard.record dtMs model.frameGuard }
 
         Steer Left down ->
             ( { model | touchLeft = down }, Cmd.none )
@@ -938,6 +949,7 @@ update msg model =
             ( { fresh
                 | multiplayer = model.multiplayer
                 , run = model.run + 1
+                , frameGuard = model.frameGuard
                 , weather = Weather.init (World.weatherProfile model.course.map) (weatherSeed model.course model.multiplayer (model.run + 1))
                 , pirates = Pirates.fleet (pirateSeed model.course model.multiplayer (model.run + 1)) model.course
                 , sailLevel = model.sailLevel
@@ -966,6 +978,23 @@ update msg model =
                 heard =
                     Crew.heardMoorings room model.moorings
 
+                -- Crewmates' ships wrecked: they break up into their own
+                -- bricks here too.
+                crewWrecks =
+                    Crew.heardWrecks room
+                        |> List.concatMap
+                            (\w ->
+                                case List.filter (\p -> p.slot == w.slot) room.players of
+                                    player :: _ ->
+                                        Wreck.burst (Wreck.RemoteShip player.vehicleId) w.position w.heading 0
+
+                                    [] ->
+                                        []
+                            )
+
+                withWrecks =
+                    { model | debris = model.debris ++ crewWrecks }
+
                 wasCounting =
                     case model.multiplayer |> Maybe.map .status of
                         Just (Multiplayer.Countdown _) ->
@@ -977,7 +1006,7 @@ update msg model =
             case room.status of
                 Multiplayer.Countdown _ ->
                     if wasCounting then
-                        ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
+                        ( { withWrecks | multiplayer = Just room, moorings = heard }, Cmd.none )
 
                     else
                         -- The host started the voyage: the whole crew, the
@@ -986,17 +1015,17 @@ update msg model =
                             fresh =
                                 initSailWith (Just model.islandMeshes) model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
-                        ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch }, GamePorts.calibrateTilt () )
+                        ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch, frameGuard = model.frameGuard }, GamePorts.calibrateTilt () )
 
                 InRace ->
                     if model.phase == WaitingForRoom then
-                        ( { model | multiplayer = Just room, moorings = heard, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
+                        ( { withWrecks | multiplayer = Just room, moorings = heard, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
 
                     else
-                        ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
+                        ( { withWrecks | multiplayer = Just room, moorings = heard }, Cmd.none )
 
                 _ ->
-                    ( { model | multiplayer = Just room, moorings = heard }, Cmd.none )
+                    ( { withWrecks | multiplayer = Just room, moorings = heard }, Cmd.none )
 
         ReturnToShipyard ->
             ( model, Cmd.none )
@@ -1145,9 +1174,25 @@ tick dt model =
                         []
                    )
 
-        bumpedDrifted =
+        bumpedShips =
             Physics.bumpShips otherShips drifted
                 |> Physics.keepInArena model.course.arena
+
+        -- The harbours' piers are solid (`Sails.Harbours`): slow, the boat
+        -- stops against one; at ramming speed it smashes it.
+        standingPiers =
+            Harbours.intactFootprints model.harbourDamage model.course
+
+        -- The harbour the boat docks at next only stops it, at any speed.
+        dockingHarbour =
+            if model.progress.finished then
+                Nothing
+
+            else
+                Just model.progress.currentWaypointIndex
+
+        ( bumpedDrifted, rammedHarbours ) =
+            Harbours.collide dockingHarbour standingPiers bumpedShips
 
         reefImpact =
             Physics.checkReefGrounding (Physics.reefsOf model.course) model.boat model.state bumpedDrifted
@@ -1195,7 +1240,7 @@ tick dt model =
 
         debris =
             if justWrecked then
-                Wreck.breakUp Wreck.OwnBoat state
+                Wreck.breakUp (Wreck.Ship { name = model.boat.name, scale = 1 }) state
 
             else
                 Wreck.step dt conditions.sea time model.debris
@@ -1265,8 +1310,33 @@ tick dt model =
                 ++ ghostTargets
                 ++ remoteTargets
 
-        ( afterPirates, pirateFlashes, pirateSlotsHit ) =
+        ( afterShipHits, pirateFlashes, pirateSlotsHit ) =
             Physics.checkShipHits ownFlying shipsToCheck
+
+        -- The boat's own balls hit the piers still standing, too: after
+        -- `Harbours.hitsToDestroy` hits a pier is smashed.
+        ( afterPirates, harbourFlashes, harbourHits ) =
+            Harbours.checkHits (List.filter (\( i, _ ) -> not (List.member i rammedHarbours)) standingPiers) afterShipHits
+
+        ( harbourDamage, shotDownHarbours ) =
+            Harbours.recordHits harbourHits (List.foldl Harbours.wreck model.harbourDamage rammedHarbours)
+
+        pierDebris =
+            List.concatMap
+                (\( i, fp ) ->
+                    if List.member i rammedHarbours then
+                        Harbours.smash fp bumpedShips.heading bumpedShips.speed
+
+                    else if List.member i shotDownHarbours then
+                        Harbours.smash fp 0 0
+
+                    else
+                        []
+                )
+                standingPiers
+
+        smashedHarbours =
+            rammedHarbours ++ shotDownHarbours
 
         sunkNow =
             List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
@@ -1497,12 +1567,24 @@ tick dt model =
         treasureCoins =
             Coins.treasureChest * List.length treasure
 
-        progress =
+        scored =
             { progressAfterHarbours
                 | shipsSunk = progressAfterHarbours.shipsSunk + countedHits
                 , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
                 , coins = progressAfterHarbours.coins + sunkCoins + boardingCoins + treasureCoins
             }
+
+        -- A smashed harbour can no longer be docked at: its leg is done
+        -- and the boat sails on to the next (`Harbours.skipWrecked`).
+        ( progress, skippedHarbours ) =
+            if racing then
+                Harbours.skipWrecked harbourDamage scored
+
+            else
+                ( scored, [] )
+
+        finishedBySkip =
+            not (List.isEmpty skippedHarbours) && progress.finished && not scored.finished
 
         -- Coins flying: a burst out of each ship sunk, a pop over the boat
         -- for a boarding fought off or a chest taken aboard.
@@ -1540,7 +1622,23 @@ tick dt model =
                         Just ( T.harbourToast model.language (i + 1) progress.totalWaypoints ++ " · " ++ T.coinsGained model.language Coins.harbourDocked, 1.0 )
 
                 Nothing ->
-                    Nothing
+                    if finishedBySkip then
+                        Just ( T.finishToast model.language, 1.5 )
+
+                    else
+                        Nothing
+
+        harbourToast =
+            if not (List.isEmpty smashedHarbours) then
+                Just ( T.harbourSmashedToast model.language, 1.8 )
+
+            else
+                case List.reverse harbourHits of
+                    i :: _ ->
+                        Just ( T.harbourHitToast model.language (Harbours.hitsLeft harbourDamage i), 1.2 )
+
+                    [] ->
+                        Nothing
 
         hitToast =
             if countedHits > 0 then
@@ -1589,7 +1687,7 @@ tick dt model =
                 Nothing
 
         toast =
-            case List.filterMap identity [ ghostToast, reefToast, regalia.toast, hullToast, passToast, treasureToast, hitToast ] of
+            case List.filterMap identity [ ghostToast, reefToast, regalia.toast, hullToast, passToast, harbourToast, treasureToast, hitToast ] of
                 t :: _ ->
                     Just t
 
@@ -1614,8 +1712,12 @@ tick dt model =
                         sfx GameAudio.Bell
 
                 Nothing ->
-                    Cmd.none
-            , if not (List.isEmpty pirateFlashes) then
+                    if finishedBySkip then
+                        sfx GameAudio.Finish
+
+                    else
+                        Cmd.none
+            , if not (List.isEmpty pirateFlashes) || not (List.isEmpty harbourFlashes) || not (List.isEmpty rammedHarbours) then
                 sfx (GameAudio.Impact 1.0)
 
               else if not (List.isEmpty splashes) then
@@ -1677,6 +1779,9 @@ tick dt model =
             )
                 + (if justWrecked then
                     1
+
+                   else if not (List.isEmpty rammedHarbours) then
+                    0.6
 
                    else
                     0
@@ -1788,6 +1893,14 @@ tick dt model =
             else
                 Cmd.none
 
+        -- This ship was just wrecked in a room: the crew sees it break up.
+        wreckedCmd =
+            if justWrecked && model.multiplayer /= Nothing then
+                GamePorts.sendMultiplayerEvents [ Crew.wreckedEvent crewClock state.position state.heading ]
+
+            else
+                Cmd.none
+
         -- The latest mooring of the crew, once all are in port, is the
         -- crew's time.
         crewTime =
@@ -1825,7 +1938,7 @@ tick dt model =
         , simTime = time
         , weather = weather
         , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ boatFlashes)
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ harbourFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , standards = regalia.standards
         , pirateCooldown =
@@ -1859,7 +1972,8 @@ tick dt model =
                 0
         , debris =
             debris
-                ++ List.concatMap (\( _, ps ) -> Wreck.breakUp Wreck.PirateShip ps) sunkNow
+                ++ List.concatMap (\( p, ps ) -> Wreck.breakUp (pirateWreck p) ps) sunkNow
+                ++ pierDebris
                 ++ ghostDebris
                 ++ celebration
         , flyingCoins = Coins.step dt model.flyingCoins ++ newCoins
@@ -1868,6 +1982,7 @@ tick dt model =
         , moorings = moorings
         , crewTime = crewTime
         , ghostShip = updatedGhostShip
+        , harbourDamage = harbourDamage
         , combatTurnTarget =
             case model.combatTurnTarget of
                 Just targetH ->
@@ -1887,8 +2002,16 @@ tick dt model =
                 Nothing ->
                     Nothing
       }
-    , Cmd.batch (audioCmd :: telemetryCmd :: mooredCmd :: sfxCmds)
+    , Cmd.batch (audioCmd :: telemetryCmd :: mooredCmd :: wreckedCmd :: sfxCmds)
     )
+
+
+{-| What a sunk patrol ship breaks up into: the parts of its own kind's
+model (`Pirates.shipNameFor`), at its kind's size (`Pirates.shipScale`).
+-}
+pirateWreck : Pirate -> Wreck.Source
+pirateWreck pirate =
+    Wreck.Ship { name = Pirates.shipNameFor pirate, scale = Pirates.shipScale pirate.kind }
 
 
 {-| The pirates in reach of the boat fire at it when their guns are ready
@@ -2076,16 +2199,23 @@ viewRace model callbacks maybeRoom =
                 Racing ->
                     Nothing
 
+        -- The weather of this frame, worked out once for the scene and the HUD.
+        conditions =
+            Weather.conditions model.course.wind model.weather
+
         shipMeshOf source =
             case source of
-                Wreck.OwnBoat ->
-                    callbacks.meshFor model.boat.name
+                Wreck.Ship ship ->
+                    callbacks.meshFor ship.name
 
-                Wreck.PirateShip ->
-                    callbacks.meshFor Pirates.shipName
+                Wreck.RemoteShip vehicleId ->
+                    (callbacks.remoteShip vehicleId).mesh
 
                 Wreck.GhostShip ->
                     callbacks.meshFor "Schooner"
+
+                Wreck.HarbourPier ->
+                    callbacks.meshFor (Scenery.key Scenery.pier)
 
         worldArgs =
             { course = model.course
@@ -2100,7 +2230,7 @@ viewRace model callbacks maybeRoom =
             , balls = model.cannonballs
             , impacts = model.impacts
             , time = model.simTime
-            , weather = Weather.conditions model.course.wind model.weather
+            , weather = conditions
             , scenery = callbacks.meshFor
             , treasureFound = model.progress.treasureFound
             , props = callbacks.props
@@ -2109,6 +2239,7 @@ viewRace model callbacks maybeRoom =
             , coins = model.flyingCoins
             , shipMeshOf = shipMeshOf
             , standards = model.standards
+            , harbourDamage = model.harbourDamage
             }
     in
     div
@@ -2129,7 +2260,11 @@ viewRace model callbacks maybeRoom =
                     (Decode.at [ "pointerType" ] Decode.string)
                 )
             ]
-            [ Render.renderWorld (CameraRig.followView model.follow) worldArgs model.viewportWidth model.viewportHeight ]
+            [ Render.renderWorld (CameraRig.followView model.follow)
+                worldArgs
+                (FrameGuard.scaled model.frameGuard model.viewportWidth)
+                (FrameGuard.scaled model.frameGuard model.viewportHeight)
+            ]
         , if model.progress.finished then
             text ""
 
@@ -2149,9 +2284,9 @@ viewRace model callbacks maybeRoom =
                 , countdown = countdown
                 , toast = Maybe.map Tuple.first model.toast
                 , sailLevel = model.sailLevel
-                , wind = (Weather.conditions model.course.wind model.weather).wind
+                , wind = conditions.wind
                 , weather = Weather.label model.weather
-                , flash = (Weather.conditions model.course.wind model.weather).flash
+                , flash = conditions.flash
                 , hull = model.hull
                 , hazards = { rocks = model.rockTimer > 0, pounding = model.seaStrain > poundingStrain }
                 , stopped = abs model.state.speed < stoppedSpeed

@@ -972,7 +972,12 @@ requestParts model =
 -}
 buildMesh : String -> Document -> Model -> ShipMesh
 buildMesh name doc model =
-    if Scenery.isScenery name then
+    if name == Scenery.key Scenery.pier then
+        -- A harbour's pier can be smashed into its own parts.
+        ShipMesh.buildScenery Scenery.metersPerLdu doc model.partCache
+            |> ShipMesh.withParts doc model.partCache
+
+    else if Scenery.isScenery name then
         ShipMesh.buildScenery Scenery.metersPerLdu doc model.partCache
 
     else

@@ -3,18 +3,25 @@ module Sails.Wreck exposing
     , Piece
     , Source(..)
     , breakUp
+    , burst
+    , partSlot
     , pieceCount
+    , sourceScale
     , step
     )
 
 {-| A wrecked boat breaking up into its own bricks.
 
-When a boat's hull gives out (`Sails.Hull.wrecked`), or a pirate ship sinks,
-the boat is drawn no more; in its place `pieceCount` pieces burst out of it.
-Each one is a real part of that boat (`ShipPart`: one of the bricks it was
-built from, drawn in its own colours, see `Sails.ShipMesh.parts`), so the
-wreck comes apart into the very bricks it was made of. The bright bursts of
-the finish are generic bricks (`Brick`). The pieces tumble through the air,
+When a boat's hull gives out (`Sails.Hull.wrecked`), a pirate ship sinks,
+another player's ship is wrecked or a harbour pier is smashed (see
+`Sails.Harbours`), it is drawn no more; in its place up to `pieceCount`
+pieces burst out of it. Each one is a real part of that very model
+(`ShipPart`: one of the bricks it was built from, drawn in its own colours,
+see `Sails.ShipMesh.parts`), so a sunk frigate comes apart into frigate
+bricks and a sloop into sloop bricks, at the size the ship was drawn
+(`Source` carries the model's name and scale). A model with more parts
+than `pieceCount` gives an even sample of them (`partSlot`). The bright
+bursts of the finish and the ghost ship's are generic bricks (`Brick`). The pieces tumble through the air,
 splash down and float, bobbing on the swell and slowly spreading out.
 
 The pieces come from the boat's position and heading alone, so a wreck
@@ -27,18 +34,43 @@ import Sails.Physics as Physics
 import Sails.Types exposing (SailingState)
 
 
-{-| Whose boat broke up: the player's own, a pirate ship, or the spectral ghost ship.
+{-| What broke up, and so which model's parts its pieces are:
+
+  - `Ship`: a ship drawn from a model looked up by `name` (the player's own
+    boat or build, or a patrol ship's `npc:frigate` / `npc:sloop`), at
+    `scale` times the boats' brick scale (`Sails.Pirates.shipScale`; 1 for
+    the player's boat).
+  - `RemoteShip`: another player's ship, by its vehicle id.
+  - `GhostShip`: the spectral ghost ship (generic green bricks).
+  - `HarbourPier`: a harbour's pier (`Sails.Scenery.pier`).
+
 Its parts are looked up when the wreck is drawn.
+
 -}
 type Source
-    = OwnBoat
-    | PirateShip
+    = Ship { name : String, scale : Float }
+    | RemoteShip String
     | GhostShip
+    | HarbourPier
 
 
-{-| What a piece looks like: one of the parts of a boat (`ShipPart` the
-boat, and a slot that is taken modulo the boat's part count when drawn), or
-a generic brick of part "3001.dat" or "3003.dat" and an LDraw colour code.
+{-| The size a source's parts are drawn at, relative to the model's own
+brick scale.
+-}
+sourceScale : Source -> Float
+sourceScale source =
+    case source of
+        Ship ship ->
+            ship.scale
+
+        _ ->
+            1
+
+
+{-| What a piece looks like: one of the parts of a model (`ShipPart` the
+model, and the piece's index, which `partSlot` turns into one of the model's
+parts when drawn), or a generic brick of part "3001.dat" or "3003.dat" and
+an LDraw colour code.
 -}
 type Look
     = ShipPart Source Int
@@ -60,9 +92,32 @@ type alias Piece =
     }
 
 
+{-| The most pieces one wreck breaks into (the cap): a model with fewer
+parts breaks into just its parts, one with more into an even sample of them.
+-}
 pieceCount : Int
 pieceCount =
-    18
+    20
+
+
+{-| Which of a model's `partCount` parts piece number `index` is: every part
+once for a small model (pieces past its last part show nothing), an even
+spread over all of them for a model of more than `pieceCount` parts.
+-}
+partSlot : Int -> Int -> Maybe Int
+partSlot partCount index =
+    if index < 0 || index >= pieceCount || partCount <= 0 then
+        Nothing
+
+    else if partCount <= pieceCount then
+        if index < partCount then
+            Just index
+
+        else
+            Nothing
+
+    else
+        Just ((index * partCount + partCount // 2) // pieceCount)
 
 
 {-| Burst a boat into its pieces. Pieces fly out all round, more of them
@@ -71,12 +126,20 @@ another part of the boat, spread over all its parts.
 -}
 breakUp : Source -> SailingState -> List Piece
 breakUp source state =
+    burst source state.position state.heading state.speed
+
+
+{-| Burst something at `position`, moving at `speed` (m/s) along compass
+`heading` (degrees), into its pieces (see `breakUp`).
+-}
+burst : Source -> Vec3 -> Float -> Float -> List Piece
+burst source position heading speed =
     let
         p =
-            Vec3.toRecord state.position
+            Vec3.toRecord position
 
         rad =
-            degrees state.heading
+            degrees heading
 
         fwd =
             ( sin rad, cos rad )
@@ -97,7 +160,7 @@ breakUp source state =
                     4 + 4 * frac (fi * 0.4142)
 
                 carry =
-                    0.45 * state.speed
+                    0.45 * speed
 
                 ox =
                     sin angle
@@ -129,7 +192,7 @@ breakUp source state =
                             20
 
                     _ ->
-                        ShipPart source (floor (frac (fi * 0.7548776662) * 1000000))
+                        ShipPart source i
             , afloat = False
             }
     in

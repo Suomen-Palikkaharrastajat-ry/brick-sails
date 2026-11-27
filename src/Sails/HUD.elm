@@ -260,9 +260,13 @@ viewHudGoal index goal =
     div
         [ Attr.class "absolute flex items-center gap-1.5 px-2 py-0.5 rounded-full border shadow-lg backdrop-blur-sm text-xs font-bold pointer-events-none select-none transition-all duration-75"
         , Attr.class colorClasses
-        , Attr.style "left" ("calc(50% + " ++ String.fromFloat offsetX ++ "px)")
-        , Attr.style "top" ("calc(56% + " ++ String.fromFloat offsetY ++ "px)")
-        , Attr.style "transform" "translate(-50%, -50%)"
+
+        -- The hint moves every frame: by `transform` only (not `left` and
+        -- `top`), so the browser neither lays the HUD out again nor runs a
+        -- layout transition each frame; it lands in the same place.
+        , Attr.style "left" "50%"
+        , Attr.style "top" "56%"
+        , Attr.style "transform" ("translate(calc(-50% + " ++ String.fromFloat offsetX ++ "px), calc(-50% + " ++ String.fromFloat offsetY ++ "px))")
         ]
         [ span
             [ Attr.class "inline-flex items-center justify-center shrink-0"

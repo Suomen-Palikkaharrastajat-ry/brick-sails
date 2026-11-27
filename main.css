@@ -159,3 +159,15 @@ body:not(:has(.is-racing)) .rotate-hint {
   font-family: ui-monospace, monospace;
   color: var(--color-brand-yellow);
 }
+
+/* Touch devices: no backdrop blur on the race HUD. The HUD's panels and
+   buttons sit over the 3D canvas, which redraws every frame, so each blurred
+   panel is blurred again every frame: a GPU pass per panel that phones feel.
+   The panels are 80-95 % opaque, so they read the same without it. Desktop
+   (a fine pointer) keeps the blur. */
+@media (pointer: coarse) {
+  .is-racing [class*='backdrop-blur'] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
