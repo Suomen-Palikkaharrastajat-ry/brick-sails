@@ -29,6 +29,7 @@ import Array exposing (Array)
 import Dict
 import Game.BrickProps as BrickProps
 import Game.PartLoading as PartLoading
+import LDraw.Connectivity as Connectivity exposing (ConnectionType(..))
 import LDraw.Document as Document exposing (Document, Entry(..), Placement)
 import LDraw.Geometry as Geometry
 import LDraw.Resolve exposing (PartCache, PartStatus(..))
@@ -37,6 +38,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Render.Mesh exposing (Vertex)
 import Render.Scene as Scene exposing (Scene)
+import Set exposing (Set)
 
 
 {-| A boat's geometry, ready to draw.
@@ -49,6 +51,8 @@ import Render.Scene as Scene exposing (Scene)
   - `toBoat`: maps the scene into boat space in metres: centred on the hull,
     bow along +Z, waterline at y = 0.
   - `lengthMeters`, `heightMeters`: size on the water, for cameras.
+  - `deckStuds`: the free studs on top of the hull, in boat space (metres),
+    where an anchor chain can be hooked on.
 
 -}
 type alias ShipMesh =
@@ -61,6 +65,7 @@ type alias ShipMesh =
     , triangleCount : Int
     , lengthMeters : Float
     , heightMeters : Float
+    , deckStuds : List Vec3
     }
 
 
@@ -261,9 +266,56 @@ build isSail doc rawCache =
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
     , heightMeters = size.y * scale
+    , deckStuds = deckStudPoints toBoat placements body
     , linear = linear
     , parts = parts
     }
+
+
+{-| The free studs on top of the hull, in boat space (metres). Candidates are
+the upward studs of the hull's own bricks (sails are left out); a stud is not
+free when an anti-stud of any brick, sail or not, sits on it. Connectors are
+in LDraw space, flipped to the Y-up scene (see `LDraw.Geometry.worldOptions`)
+and then mapped by `toBoat`.
+-}
+deckStudPoints : Mat4 -> List Placement -> List Placement -> List Vec3
+deckStudPoints toBoat allPlacements hullPlacements =
+    let
+        worldConnectors kind placement =
+            case Connectivity.knownCatalogPart placement.part of
+                Just conn ->
+                    conn.connections
+                        |> List.filter (\c -> c.connType == kind)
+                        |> List.map (Connectivity.transformPoint placement.matrix 0)
+
+                Nothing ->
+                    []
+
+        -- LDraw is Y-down; the scene negates Y and Z.
+        sceneFlip =
+            Mat4.makeScale3 1 -1 -1
+
+        toBoatPoint p =
+            Mat4.transform toBoat (Mat4.transform sceneFlip p)
+
+        key v =
+            let
+                q =
+                    Vec3.toRecord v
+            in
+            ( round (q.x * 100), round (q.y * 100), round (q.z * 100) )
+
+        covered : Set ( Int, Int, Int )
+        covered =
+            allPlacements
+                |> List.concatMap (worldConnectors AntiStud)
+                |> List.map (.worldPosition >> key)
+                |> Set.fromList
+    in
+    hullPlacements
+        |> List.concatMap (worldConnectors Stud)
+        |> List.filter (\s -> Vec3.getY s.worldNormal < -0.7 && not (Set.member (key s.worldPosition) covered))
+        |> List.map (.worldPosition >> toBoatPoint)
 
 
 {-| Flatten a scenery model (see `Sails.Scenery`) whose parts are all in the
@@ -304,6 +356,7 @@ buildScenery metersPerLdu doc rawCache =
     , triangleCount = List.length geom.triangles
     , lengthMeters = max size.x size.z * metersPerLdu
     , heightMeters = size.y * metersPerLdu
+    , deckStuds = []
     , linear = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , parts = Array.empty
     }

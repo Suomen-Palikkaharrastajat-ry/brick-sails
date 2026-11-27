@@ -2,6 +2,7 @@ module Sails.Render exposing
     ( Draw
     , Props
     , RenderBoat
+    , anchorChainEntities
     , ballEntity
     , ghostBoat
     , propDetailOptions
@@ -46,6 +47,7 @@ import Game.MapParams exposing (MapParams)
 import Game.Precipitation as Precipitation
 import Html exposing (Html)
 import Html.Attributes as Attr
+import LDraw.Flex as Flex
 import LDraw.Geometry as Geometry
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
@@ -128,6 +130,7 @@ propSources _ =
     , ( "plate1x1", BrickModels.singlePart "3024.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
+    , ( "92338-f1.dat", BrickModels.singlePart "92338-f1.dat" )
     , ( "finishArch", finishArchModel )
     ]
 
@@ -205,14 +208,16 @@ finishArchModel =
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
-loading), its state, and an optional sail colour override (used to tell
-multiplayer boats apart).
+loading), its state, an optional sail colour override (used to tell
+multiplayer boats apart), whether it is the phantom ghost vessel, and whether
+its anchor chain is dropped.
 -}
 type alias RenderBoat =
     { mesh : Maybe ShipMesh
     , state : SailingState
     , sailTint : Maybe Vec3
     , isGhost : Bool
+    , anchored : Bool
     }
 
 
@@ -224,6 +229,7 @@ ghostBoat mesh state =
     , state = state
     , sailTint = Just (vec3 0.18 0.98 0.52)
     , isGhost = True
+    , anchored = False
     }
 
 
@@ -453,7 +459,7 @@ renderShipyard map mesh time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing, isGhost = False }
+            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing, isGhost = False, anchored = False }
         )
 
 
@@ -563,6 +569,211 @@ boatEntities ctx width height draw rb =
                 brickPasses ctx width height distance tint model mesh.scene
                     ++ brickPasses ctx width height distance tint sailModel mesh.sails
                     ++ hoistedBanner
+                    ++ anchorChainEntities ctx draw rb
+
+
+{-| Brick-built anchor chain: `92338-f1.dat` (Chain 5 Links) segments hung
+ring to ring from the boat's bow gunwale down into the sea whenever the boat's
+anchor is dropped. The route is a catenary cubic spline (`LDraw.Flex.evaluateSpline`)
+in LDU; each rigid 100 LDU segment spans one chord of it, so consecutive
+segments share an end ring, and every other segment is rolled a quarter turn
+so the rings interlock like real chain.
+-}
+anchorChainEntities : Ctx -> Draw -> RenderBoat -> List WebGL.Entity
+anchorChainEntities ctx draw rb =
+    if not rb.anchored || rb.isGhost then
+        []
+
+    else
+        let
+            s =
+                rb.state
+
+            p =
+                Vec3.toRecord s.position
+
+            world =
+                Mat4.makeTranslate3 p.x p.y p.z
+                    |> rotY (degrees s.heading)
+                    |> rotZ (degrees -s.heel)
+                    |> rotX (degrees -s.pitch)
+
+            len =
+                rb.mesh |> Maybe.map .lengthMeters |> Maybe.withDefault 5.0
+
+            halfLen =
+                0.5 * len
+
+            -- Exact 1:1 brick scale (0.035 m/LDU) matching the boat's own bricks and studs.
+            linkScale =
+                Sails.ShipMesh.studScale
+
+            -- The chain hooks onto the deck stud nearest the bow; a hull with
+            -- no free stud keeps the chain on the gunwale.
+            bowPoint =
+                vec3 -0.35 1.05 (halfLen * 0.42)
+
+            hawsePoint =
+                rb.mesh
+                    |> Maybe.map .deckStuds
+                    |> Maybe.andThen (nearestPoint bowPoint)
+                    |> Maybe.withDefault bowPoint
+                    |> Mat4.transform world
+
+            rad =
+                degrees s.heading
+
+            fwdX =
+                sin rad
+
+            fwdZ =
+                cos rad
+
+            sideX =
+                negate (cos rad)
+
+            sideZ =
+                sin rad
+
+            forwardOffset =
+                halfLen * 0.6 + 1.6
+
+            sideOffset =
+                2.6
+
+            anchorX =
+                p.x + fwdX * forwardOffset + sideX * sideOffset
+
+            anchorZ =
+                p.z + fwdZ * forwardOffset + sideZ * sideOffset
+
+            waterY =
+                Physics.seaElevation ctx.sea anchorX anchorZ ctx.time
+
+            -- Plunge well below the water surface so the ocean depth buffer clips the submerged chain cleanly.
+            anchorPoint =
+                vec3 anchorX (waterY - 2.4) anchorZ
+
+            startTangent =
+                vec3 (fwdX * 0.35 + sideX * 0.85) 0.15 (fwdZ * 0.35 + sideZ * 0.85)
+
+            endTangent =
+                vec3 (fwdX * 0.1 + sideX * 0.2) -1 (fwdZ * 0.1 + sideZ * 0.2)
+
+            toLdu =
+                Vec3.scale (1 / linkScale)
+
+            endLdu =
+                toLdu anchorPoint
+
+            -- Dense samples of the route in LDU, walked into exact 100 LDU chords.
+            route =
+                Flex.evaluateSpline
+                    { startPoint = toLdu hawsePoint
+                    , startTangent = startTangent
+                    , endPoint = endLdu
+                    , endTangent = endTangent
+                    , slack = 1.0
+                    , segmentPitch = 4
+                    }
+
+            ringPoints =
+                chainRingPoints chain5Pitch (List.map .point route.frames ++ [ endLdu ])
+
+            chainColor =
+                tint3 (BrickLook.colour 72)
+
+            drawSegment idx ( from, to ) =
+                draw.prop "92338-f1.dat"
+                    (Mat4.mul (Mat4.makeScale3 linkScale linkScale linkScale)
+                        (chainSegmentMatrix (toFloat (modBy 2 idx) * pi / 2) from to)
+                    )
+                    chainColor
+        in
+        List.map2 Tuple.pair ringPoints (List.drop 1 ringPoints)
+            |> List.indexedMap drawSegment
+            |> List.concat
+
+
+{-| The point of the list nearest to the given one.
+-}
+nearestPoint : Vec3 -> List Vec3 -> Maybe Vec3
+nearestPoint target points =
+    points
+        |> List.sortBy (Vec3.distance target)
+        |> List.head
+
+
+{-| End ring to end ring length of `92338-f1.dat` (Chain 5 Links), in LDU.
+-}
+chain5Pitch : Float
+chain5Pitch =
+    100
+
+
+{-| Walk a polyline into points exactly `pitch` apart: each next point is the
+first sample at least `pitch` from the last, pulled in onto that distance. A
+last point past the end keeps the chain whole down to (and below) its end.
+-}
+chainRingPoints : Float -> List Vec3 -> List Vec3
+chainRingPoints pitch samples =
+    case samples of
+        [] ->
+            []
+
+        first :: rest ->
+            let
+                step q ( last, acc ) =
+                    if Vec3.distance last q >= pitch then
+                        let
+                            next =
+                                Vec3.add last (Vec3.scale pitch (Vec3.normalize (Vec3.sub q last)))
+                        in
+                        ( next, next :: acc )
+
+                    else
+                        ( last, acc )
+
+                ( lastRing, rings ) =
+                    List.foldl step ( first, [ first ] ) rest
+
+                end =
+                    List.foldl (\q _ -> q) first rest
+
+                tail =
+                    if Vec3.distance lastRing end > 1 then
+                        [ Vec3.add lastRing (Vec3.scale pitch (Vec3.normalize (Vec3.sub end lastRing))) ]
+
+                    else
+                        []
+            in
+            List.reverse rings ++ tail
+
+
+{-| Place one chain segment (in LDU) with its first end ring at `from` and its
+last at `to`, rolled by `roll` about its own axis. `Game.BrickProps` bakes parts
+with Y and Z flipped, so the chain runs from z = 0 to z = -100; the half turn
+about Y points it along +Z, the chord's direction.
+-}
+chainSegmentMatrix : Float -> Vec3 -> Vec3 -> Mat4
+chainSegmentMatrix roll from to =
+    let
+        dir =
+            Vec3.normalize (Vec3.sub to from)
+
+        side =
+            if abs (Vec3.getY dir) > 0.98 then
+                vec3 1 0 0
+
+            else
+                Vec3.normalize (Vec3.cross (vec3 0 1 0) dir)
+
+        up =
+            Vec3.cross dir side
+    in
+    Mat4.mul (Mat4.makeTranslate from) (Mat4.makeBasis side up dir)
+        |> rotZ roll
+        |> rotY pi
 
 
 {-| Draw the phantom ghost vessel: ethereal glowing trans-green spectral tint,

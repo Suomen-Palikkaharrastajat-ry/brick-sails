@@ -751,6 +751,7 @@ update msg model =
             if model.anchored then
                 ( { model
                     | anchored = False
+                    , sailLevel = Physics.defaultSailLevel
                     , toast = Just ( T.anchorWeighedToast model.language, 1.5 )
                   }
                 , sfx (GameAudio.Impact 0.4)
@@ -795,6 +796,7 @@ update msg model =
                 ( { model
                     | progress = newProgress
                     , state = stoppedState
+                    , sailLevel = 0
                     , toast = passedToast
                     , ending = ending
                     , anchored = True
@@ -1064,8 +1066,15 @@ tick dt model =
                 let
                     s =
                         model.state
+
+                    pos =
+                        Vec3.toRecord s.position
                 in
-                { s | speed = 0 }
+                { s
+                    | speed = 0
+                    , position = vec3 pos.x (Physics.seaElevation conditions.sea pos.x pos.z time) pos.z
+                    , sail = Tuple.second (Physics.sailLevel model.sailLevel)
+                }
 
             else
                 Physics.stepBoat
@@ -1093,7 +1102,7 @@ tick dt model =
         -- Far off the course a current carries the boat back towards it, and
         -- a pirate ship in its way bumps it off (`Physics.bumpShips`).
         drifted =
-            if racing then
+            if racing && not model.anchored then
                 Physics.driftWith dt (Physics.courseCurrent (Physics.courseRoute model.course) sailed.position) sailed
 
             else
@@ -1920,6 +1929,7 @@ remoteBoat standards remoteShip p =
         }
     , sailTint = Just (slotTint p.slot)
     , isGhost = False
+    , anchored = False
     }
 
 
@@ -1937,6 +1947,7 @@ pirateBoat standards meshFor ( pirate, state ) =
                 state
     , sailTint = Just (Pirates.sailTint pirate)
     , isGhost = False
+    , anchored = False
     }
 
 
@@ -1974,7 +1985,7 @@ viewRace model callbacks maybeRoom =
                 []
 
             else
-                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing, isGhost = False } ]
+                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing, isGhost = False, anchored = model.anchored } ]
 
         ghostBoat =
             if model.ghostShip.active then

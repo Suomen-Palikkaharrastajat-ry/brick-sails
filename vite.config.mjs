@@ -24,26 +24,32 @@ const mimeTypes = {
 }
 
 function serveViewerAssets() {
+  const middleware = (req, res, next) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    const pathname = decodeURIComponent(url.pathname)
+
+    for (const root of candidateRoots) {
+      if (!fs.existsSync(root)) continue
+      const file = path.join(root, pathname)
+      if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+        continue
+      }
+      res.setHeader('Content-Type', mimeTypes[path.extname(file)] ?? 'application/octet-stream')
+      fs.createReadStream(file).pipe(res)
+      return
+    }
+
+    next()
+  }
   return {
     name: 'serve-viewer-assets',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = new URL(req.url ?? '/', 'http://localhost')
-        const pathname = decodeURIComponent(url.pathname)
-
-        for (const root of candidateRoots) {
-          if (!fs.existsSync(root)) continue
-          const file = path.join(root, pathname)
-          if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-            continue
-          }
-          res.setHeader('Content-Type', mimeTypes[path.extname(file)] ?? 'application/octet-stream')
-          fs.createReadStream(file).pipe(res)
-          return
-        }
-
-        next()
-      })
+      server.middlewares.use(middleware)
+    },
+    // `make preview` serves the sibling catalog too, so a local catalog build
+    // (new parts not yet on the CDN) can be checked against a production build.
+    configurePreviewServer(server) {
+      server.middlewares.use(middleware)
     },
   }
 }
