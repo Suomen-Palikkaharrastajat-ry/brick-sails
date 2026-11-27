@@ -464,7 +464,8 @@ iconButton attrs label icon =
         [ icon |> FeatherIcons.withSize 20 |> FeatherIcons.toHtml [] ]
 
 
-{-| Top left: quick exit icon back to boats shown only when anchored, and minimal hull health.
+{-| Top left: the wind (direction and speed), quick exit icon back to boats
+shown only when anchored, and minimal hull health.
 -}
 viewTopLeftButtons :
     { a
@@ -472,20 +473,73 @@ viewTopLeftButtons :
         , hull : Hull
         , isAnchored : Bool
         , actions : HudActions msg
+        , wind : Wind
+        , cameraYaw : Float
     }
     -> Html msg
-viewTopLeftButtons { language, hull, isAnchored, actions } =
+viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw } =
     div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-left" ]
-        (if isAnchored then
-            [ iconButton
-                [ Events.onClick actions.onExit ]
-                (T.backToBoats language)
-                FeatherIcons.logOut
-            , viewMinimalHealth hull
-            ]
+        (viewWindBadge language cameraYaw wind
+            :: (if isAnchored then
+                    [ iconButton
+                        [ Events.onClick actions.onExit ]
+                        (T.backToBoats language)
+                        FeatherIcons.logOut
+                    , viewMinimalHealth hull
+                    ]
 
-         else
-            [ viewMinimalHealth hull ]
+                else
+                    [ viewMinimalHealth hull ]
+               )
+        )
+
+
+{-| The wind as an arrow (pointing where it blows to, turned to the camera's
+view) and its speed in knots.
+-}
+viewWindBadge : Language -> Float -> Wind -> Html msg
+viewWindBadge language cameraYaw wind =
+    div
+        [ Attr.class (panel ++ " px-2 py-1 flex items-center gap-1.5 text-[11px] font-bold text-sky-200")
+        , Attr.attribute "data-testid" "wind-indicator"
+        , Attr.title (T.windDirection language)
+        ]
+        [ span
+            [ Attr.class "inline-flex"
+            , Attr.style "transform" ("rotate(" ++ String.fromFloat (cameraYaw - wind.direction) ++ "deg)")
+            ]
+            [ FeatherIcons.arrowUp |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
+        , windBars wind.speed
+        ]
+
+
+{-| The wind's strength as five rising bars: one bar lit for each 3.2 m/s of
+wind, so a light breeze lights one or two and a gale lights all five.
+-}
+windBars : Float -> Html msg
+windBars speed =
+    let
+        lit =
+            clamp 1 5 (round (speed / 3.2))
+    in
+    div [ Attr.class "flex items-end gap-0.5 h-4", Attr.attribute "data-testid" "wind-bars" ]
+        (List.map
+            (\bar ->
+                div
+                    [ Attr.class
+                        ("w-1 rounded-sm "
+                            ++ (if bar <= lit then
+                                    "bg-sky-300"
+
+                                else
+                                    "bg-white/15"
+                               )
+                        )
+                    , Attr.style "height" (String.fromInt (bar * 3) ++ "px")
+                    ]
+                    []
+            )
+            (List.range 1 5)
         )
 
 
