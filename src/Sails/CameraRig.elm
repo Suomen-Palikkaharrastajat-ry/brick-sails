@@ -85,6 +85,7 @@ type alias Follow =
     , shootFocusTimer : Float
     , targetBroadsideBias : Float
     , shootBearing : Float
+    , side : Float
     }
 
 
@@ -125,6 +126,7 @@ initFollow boat heading =
     , shootFocusTimer = 0
     , targetBroadsideBias = 0
     , shootBearing = 0
+    , side = 1
     }
 
 
@@ -366,6 +368,19 @@ stepFollow dt aspect boat heading speed next follow =
         else
             0
     , shootBearing = follow.shootBearing
+    , side =
+        -- Eases between the two sides, so a shot to port does not swing the
+        -- view 36 degrees in one frame when its bias crosses zero.
+        follow.side
+            + ((if follow.broadsideBias < 0 then
+                    -1
+
+                else
+                    1
+               )
+                - follow.side
+              )
+            * min 1 (3.0 * dt)
     }
 
 
@@ -376,15 +391,7 @@ the old +sideDegrees behaviour.
 -}
 lookYawDegrees : Follow -> Float
 lookYawDegrees follow =
-    let
-        sideSign =
-            if follow.broadsideBias < 0 then
-                -1
-
-            else
-                1
-    in
-    follow.yaw + follow.broadsideBias + sideSign * sideDegrees
+    follow.yaw + follow.broadsideBias + follow.side * sideDegrees
 
 
 {-| Eye and look-at point for the current follow state.

@@ -608,17 +608,9 @@ anchorChainEntities ctx draw rb =
             linkScale =
                 Sails.ShipMesh.studScale
 
-            -- The chain hooks onto the deck stud nearest the bow; a hull with
-            -- no free stud keeps the chain on the gunwale.
-            bowPoint =
-                vec3 -0.35 1.05 (halfLen * 0.42)
-
+            -- The chain comes off the bow gunwale, on the hull.
             hawsePoint =
-                rb.mesh
-                    |> Maybe.map .deckStuds
-                    |> Maybe.andThen (nearestPoint bowPoint)
-                    |> Maybe.withDefault bowPoint
-                    |> Mat4.transform world
+                Mat4.transform world (vec3 -0.35 1.5 (halfLen * 0.42))
 
             rad =
                 degrees s.heading
@@ -693,15 +685,6 @@ anchorChainEntities ctx draw rb =
         List.map2 Tuple.pair ringPoints (List.drop 1 ringPoints)
             |> List.indexedMap drawSegment
             |> List.concat
-
-
-{-| The point of the list nearest to the given one.
--}
-nearestPoint : Vec3 -> List Vec3 -> Maybe Vec3
-nearestPoint target points =
-    points
-        |> List.sortBy (Vec3.distance target)
-        |> List.head
 
 
 {-| End ring to end ring length of `92338-f1.dat` (Chain 5 Links), in LDU.
