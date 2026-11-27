@@ -180,6 +180,7 @@ partCategories =
             , part "2335.dat" "Sail (flag 2 x 2)" "Purje (lippu 2 x 2)"
             , part "32828.dat" "Cannon" "Tykki"
             , part "3829c01.dat" "Ship's wheel" "Ruori"
+            , part "92338-f1.dat" "Chain 5 links" "Ketju 5 lenkkiä"
             , part "4589.dat" "Cone 1 x 1" "Kartio 1 x 1"
             , part "6141.dat" "Round plate 1 x 1" "Pyöreä levy 1 x 1"
             ]

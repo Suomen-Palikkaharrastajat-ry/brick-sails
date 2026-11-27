@@ -5,18 +5,24 @@ module GameplayTest exposing (suite)
 
 import Dict
 import Expect
+import I18n
 import LDraw.Document as Document
 import LDraw.Parser as Parser
 import LDraw.Resolve exposing (PartStatus(..))
+import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3
+import Pages.Sail as Sail
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
+import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
+import Sails.Render as Render
 import Sails.Scenery as Scenery
 import Sails.ShipMesh as ShipMesh
 import Sails.Types exposing (CourseProgress, Faction(..), HarbourKind(..), SailingState, Wind)
 import Sails.Weather as Weather exposing (Spell(..), Weather)
 import Test exposing (Test, describe, test)
+import WebGL
 
 
 course : Sails.Types.Course
@@ -884,6 +890,75 @@ suite =
                         , \_ -> Expect.equal False p1.finished
                         , \_ -> Expect.equal (Just lastIndex) finalHarbour
                         , \_ -> Expect.equal True pFinal.finished
+                        ]
+                        ()
+            , test "dropping anchor via DropAnchor sets anchored and hangs 92338 Chain 5 Links segments from the bow" <|
+                \_ ->
+                    let
+                        sail0 =
+                            Sail.initSail I18n.En Boats.default course True Nothing Nothing { available = False, enabled = False } 1280 720
+
+                        ( anchoredModel, _ ) =
+                            Sail.update Sail.DropAnchor sail0
+
+                        ( weighedModel, _ ) =
+                            Sail.update Sail.DropAnchor anchoredModel
+
+                        ctx =
+                            Ocean.makeCtx { eye = Vec3.vec3 0 10 20, target = Vec3.vec3 0 0 0 } 1.0 800 600
+
+                        dummyEntity =
+                            Ocean.propEntity ctx Mat4.identity (Vec3.vec3 1 1 1) (WebGL.triangles [])
+
+                        draw =
+                            { prop =
+                                \name _ _ ->
+                                    if name == "92338-f1.dat" then
+                                        [ dummyEntity ]
+
+                                    else
+                                        []
+                            , fitted = \_ _ _ _ -> []
+                            }
+
+                        unanchoredBoat =
+                            { mesh = Nothing
+                            , state = sail0.state
+                            , sailTint = Nothing
+                            , isGhost = False
+                            , anchored = sail0.anchored
+                            }
+
+                        anchoredBoat =
+                            { mesh = Nothing
+                            , state = anchoredModel.state
+                            , sailTint = Nothing
+                            , isGhost = False
+                            , anchored = anchoredModel.anchored
+                            }
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal True anchoredModel.anchored
+                        , \_ -> Expect.equal False weighedModel.anchored
+                        , \_ -> Expect.equal 0 (List.length (Render.anchorChainEntities ctx draw unanchoredBoat))
+                        , \_ -> Expect.atLeast 2 (List.length (Render.anchorChainEntities ctx draw anchoredBoat))
+                        ]
+                        ()
+            , test "dropping anchor lowers the sail and weighing it raises the sail to its default level" <|
+                \_ ->
+                    let
+                        sail0 =
+                            Sail.initSail I18n.En Boats.default course True Nothing Nothing { available = False, enabled = False } 1280 720
+
+                        ( anchoredModel, _ ) =
+                            Sail.update Sail.DropAnchor sail0
+
+                        ( weighedModel, _ ) =
+                            Sail.update Sail.DropAnchor anchoredModel
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal 0 anchoredModel.sailLevel
+                        , \_ -> Expect.equal Physics.defaultSailLevel weighedModel.sailLevel
                         ]
                         ()
             ]
