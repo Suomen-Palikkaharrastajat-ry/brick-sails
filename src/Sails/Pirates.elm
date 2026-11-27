@@ -9,6 +9,7 @@ module Sails.Pirates exposing
     , fleetSize
     , harbourClearance
     , hitRadius
+    , hitsToSink
     , isPirateSlot
     , kindOf
     , patrolRoutes
@@ -164,6 +165,14 @@ collisionRadius kind =
 
         Sloop ->
             1.5
+
+
+{-| How many cannon hits a pirate ship takes before it sinks: it lasts a few
+shots, and every hit flashes it.
+-}
+hitsToSink : Int
+hitsToSink =
+    3
 
 
 {-| How close (m) a cannon ball must come to a kind of ship to hit it: its

@@ -312,13 +312,19 @@ suite =
                     case base.pirates of
                         p :: _ ->
                             let
-                                at =
-                                    (Pirates.stateAt (base.simTime + 0.02) p).position
+                                -- A ball comes down on the pirate each frame
+                                -- until it has taken enough hits to sink.
+                                hit m =
+                                    let
+                                        at =
+                                            (Pirates.stateAt (m.simTime + 0.02) p).position
 
-                                ball =
-                                    { id = 99, sourceSlot = 1, position = Math.Vector3.add at (vec3 0 1.5 0), velocity = vec3 0 0 0, age = 0 }
+                                        ball =
+                                            { id = 99, sourceSlot = 1, position = Math.Vector3.add at (vec3 0 1.5 0), velocity = vec3 0 0 0, age = 0 }
+                                    in
+                                    frame { m | cannonballs = [ ball ] }
                             in
-                            frame { base | cannonballs = [ ball ] }
+                            List.foldl (\_ m -> hit m) base (List.range 1 Pirates.hitsToSink)
                                 |> .piratesSunk
                                 |> Expect.equal [ p.id ]
 

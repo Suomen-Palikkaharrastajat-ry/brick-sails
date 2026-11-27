@@ -114,6 +114,7 @@ type alias SailModel =
     , ending : Maybe Ending
     , pirates : List Pirate
     , piratesSunk : List Int
+    , pirateHits : Dict Int Int
     , pirateCooldown : Float
     , pirateGuns : Dict Int Float
     , touchShoot : Bool
@@ -277,6 +278,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , ending = Nothing
     , pirates = Pirates.fleet (pirateSeed course maybeMulti 0) course
     , piratesSunk = []
+    , pirateHits = Dict.empty
     , pirateCooldown = 0
     , pirateGuns = Dict.empty
     , touchShoot = False
@@ -1352,8 +1354,26 @@ tick dt model =
         smashedHarbours =
             rammedHarbours ++ shotDownHarbours
 
+        -- Each cannon hit adds to a pirate ship's count; it sinks when the
+        -- count reaches `Pirates.hitsToSink`.
+        pirateHitsNow =
+            List.foldl
+                (\slot acc -> Dict.update slot (\m -> Just (Maybe.withDefault 0 m + 1)) acc)
+                model.pirateHits
+                pirateSlotsHit
+
         sunkNow =
-            List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
+            List.filter
+                (\( p, _ ) ->
+                    let
+                        slot =
+                            Pirates.shipSlot p.id
+                    in
+                    List.member slot pirateSlotsHit
+                        && (Dict.get slot pirateHitsNow |> Maybe.withDefault 0)
+                        >= Pirates.hitsToSink
+                )
+                piratesNow
 
         ( updatedGhostShip, ghostAppeared, ghostBanished ) =
             GhostShip.step time model.weather pirateSlotsHit model.ghostShip
@@ -1954,6 +1974,7 @@ tick dt model =
         , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
         , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ harbourFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
+        , pirateHits = pirateHitsNow
         , standards = regalia.standards
         , pirateCooldown =
             if boarding then

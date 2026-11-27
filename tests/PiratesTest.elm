@@ -82,6 +82,28 @@ moveOnto p m =
     { m | state = { s | position = (Pirates.stateAt (m.simTime + frame) p).position, speed = 0 } }
 
 
+{-| The frame in which a cannon ball, dropped just above the pirate, comes
+down on it.
+-}
+hitOnce : Pirate -> SailModel -> SailModel
+hitOnce p m =
+    let
+        at =
+            (Pirates.stateAt (m.simTime + frame) p).position
+
+        ball =
+            { id = 99, sourceSlot = 1, position = Vec3.add at (Vec3.vec3 0 1.5 0), velocity = Vec3.vec3 0 0 0, age = 0 }
+    in
+    step { m | cannonballs = [ ball ] }
+
+
+{-| `n` cannon balls, one a frame, each coming down on the pirate.
+-}
+hits : Int -> Pirate -> SailModel -> SailModel
+hits n p m =
+    List.foldl (\_ x -> hitOnce p x) m (List.range 1 n)
+
+
 racing : SailModel -> SailModel
 racing m =
     -- Sail on for a little over 3 s (the race starts at once).
@@ -257,17 +279,15 @@ suite =
                                 m =
                                     racing fresh
 
-                                at =
-                                    (Pirates.stateAt (m.simTime + frame) p).position
-
-                                -- A ball just above the pirate, about to come down on it.
-                                ball =
-                                    { id = 99, sourceSlot = 1, position = Vec3.add at (Vec3.vec3 0 1.5 0), velocity = Vec3.vec3 0 0 0, age = 0 }
+                                -- One hit short of sinking it still floats.
+                                almost =
+                                    hits (Pirates.hitsToSink - 1) p m
 
                                 hit =
-                                    step { m | cannonballs = [ ball ] }
+                                    hitOnce p almost
                             in
-                            Expect.equal ( [ p.id ], m.progress.shipsSunk + 1 ) ( hit.piratesSunk, hit.progress.shipsSunk )
+                            Expect.equal ( ( [], m.progress.shipsSunk ), ( [ p.id ], m.progress.shipsSunk + 1 ) )
+                                ( ( almost.piratesSunk, almost.progress.shipsSunk ), ( hit.piratesSunk, hit.progress.shipsSunk ) )
 
                         [] ->
                             Expect.fail "no pirates"
@@ -368,14 +388,7 @@ suite =
                             racing fresh
 
                         sinks p =
-                            let
-                                at =
-                                    (Pirates.stateAt (m.simTime + frame) p).position
-
-                                ball =
-                                    { id = 99, sourceSlot = 1, position = Vec3.add at (Vec3.vec3 0 1.5 0), velocity = Vec3.vec3 0 0 0, age = 0 }
-                            in
-                            (step { m | cannonballs = [ ball ] }).piratesSunk == [ p.id ]
+                            (hits Pirates.hitsToSink p m).piratesSunk == [ p.id ]
 
                         oneOf k =
                             List.filter (\p -> p.kind == k) fresh.pirates |> List.take 1

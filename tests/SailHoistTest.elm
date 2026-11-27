@@ -7,12 +7,16 @@ the less sail is set. Parts are stand-in boxes so no catalog is needed.
 
 import Dict
 import Expect
+import I18n exposing (Language(..))
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
 import LDraw.Resolve exposing (PartCache, PartStatus(..))
 import LDraw.Types exposing (LDrawLine)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3
+import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
+import Sails.Archipelago as Archipelago
+import Sails.Boats as Boats
 import Sails.Ingest as Ingest
 import Sails.NpcShips as NpcShips
 import Sails.ShipMesh as ShipMesh exposing (ShipMesh)
@@ -79,6 +83,27 @@ meshOf doc =
     ShipMesh.build (Ingest.sailRule (Document.flattenedPlacements doc)) doc cache
 
 
+{-| A race on the default course with the default boat, sailing at once.
+-}
+fresh : SailModel
+fresh =
+    Sail.initSail En Boats.default Archipelago.defaultCourse True Nothing Nothing { available = False, enabled = False } 800 600
+
+
+{-| Press a key `n` times (S lowers the sail a level, W raises it).
+-}
+press : Int -> String -> SailModel -> SailModel
+press n code m =
+    List.foldl (\_ x -> Tuple.first (Sail.update (KeyDown code) x)) m (List.range 1 n)
+
+
+{-| Sail on for 5 s, long enough for the sail to ease to the level set.
+-}
+settle : SailModel -> SailModel
+settle m =
+    List.foldl (\_ x -> Tuple.first (Sail.update (Tick (1000 / 60)) x)) m (List.range 1 300)
+
+
 {-| Lowest and highest point (Y-up LDU) of the sails as drawn at a sail
 setting.
 -}
@@ -136,6 +161,33 @@ suite =
         , lowersToAttachment "a flag hung at the mast top comes down to the deck"
             (meshOf (ship [ "1 15 0 -104 0 1 0 0 0 1 0 0 0 1 2335.dat" ]))
             deckTop
+        , test "S lowers the drawn sail towards the deck and W raises it back to the masthead" <|
+            \_ ->
+                let
+                    -- The default boat's rig: a flag hung at the mast top.
+                    mesh =
+                        meshOf (ship [ "1 15 0 -104 0 1 0 0 0 1 0 0 0 1 2335.dat" ])
+
+                    topOf m =
+                        Tuple.second (drawnSails mesh m.state.sail)
+
+                    full =
+                        settle fresh
+
+                    lowered =
+                        settle (press 3 "KeyS" full)
+
+                    raised =
+                        settle (press 3 "KeyW" lowered)
+                in
+                Expect.all
+                    [ \_ -> Expect.equal ( 3, 0, 3 ) ( full.sailLevel, lowered.sailLevel, raised.sailLevel )
+                    , \_ -> Expect.within (Expect.Absolute 0.5) mesh.sailTop (topOf full)
+                    , \_ -> Expect.lessThan (topOf full - 20) (topOf lowered)
+                    , \_ -> Expect.greaterThan (topOf lowered + 20) (topOf raised)
+                    , \_ -> Expect.within (Expect.Absolute 0.5) mesh.sailTop (topOf raised)
+                    ]
+                    ()
         , test "the frigate's sails hanging from yards come down below the lowest yard, to the mast foot" <|
             \_ ->
                 let

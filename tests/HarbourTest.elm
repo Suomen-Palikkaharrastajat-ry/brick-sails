@@ -309,11 +309,17 @@ suite =
                     case List.filter (\p -> p.kind == Frigate) fresh.pirates of
                         p :: _ ->
                             let
-                                at =
-                                    (Pirates.stateAt (fresh.simTime + frame) p).position
+                                -- A ball comes down on the frigate each frame
+                                -- until it has taken enough hits to sink.
+                                hit m =
+                                    let
+                                        at =
+                                            (Pirates.stateAt (m.simTime + frame) p).position
+                                    in
+                                    step { m | cannonballs = [ { id = 99, sourceSlot = 1, position = Vec3.add at (vec3 0 1.5 0), velocity = vec3 0 0 0, age = 0 } ] }
 
                                 sunk =
-                                    step { fresh | cannonballs = [ { id = 99, sourceSlot = 1, position = Vec3.add at (vec3 0 1.5 0), velocity = vec3 0 0 0, age = 0 } ] }
+                                    List.foldl (\_ m -> hit m) fresh (List.range 1 Pirates.hitsToSink)
 
                                 frigate =
                                     Wreck.Ship { name = NpcShips.frigateName, scale = Pirates.shipScale Frigate }

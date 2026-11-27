@@ -60,10 +60,18 @@ firstPirate m expect =
             Expect.fail "no pirates"
 
 
-{-| The frame in which a cannon ball comes down on the pirate.
+{-| `Pirates.hitsToSink` cannon balls, one a frame, each coming down on the
+pirate: the last frame is the one it sinks in.
 -}
 sinking : Pirate -> SailModel -> SailModel
 sinking p m =
+    List.foldl (\_ x -> hitOnce p x) m (List.range 1 Pirates.hitsToSink)
+
+
+{-| The frame in which a cannon ball comes down on the pirate.
+-}
+hitOnce : Pirate -> SailModel -> SailModel
+hitOnce p m =
     let
         at =
             (Pirates.stateAt (m.simTime + frame) p).position
