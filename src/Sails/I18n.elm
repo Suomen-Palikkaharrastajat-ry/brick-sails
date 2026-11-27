@@ -54,7 +54,6 @@ module Sails.I18n exposing
     , heelLabel
     , heelTitle
     , hitToast
-    , hitsStat
     , hostTitle
     , hullDamagedToast
     , hullLabel
@@ -101,6 +100,7 @@ module Sails.I18n exposing
     , seasonName
     , setSail
     , shipLoadError
+    , shipsSunkStat
     , shipwrecked
     , shipwreckedText
     , shootHint
@@ -446,13 +446,13 @@ controlsHint : Language -> Bool -> String
 controlsHint lang tilt =
     if tilt then
         pick lang
-            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta tai klikkaa ampuaksesi, kun olet lähellä kelluvia maalitauluja ja merirosvolaivoja, kapteeni."
-            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap to shoot when you're near the floating targets or pirate ships, captain."
+            "Kallista puhelinta ohjataksesi. ⇑ ⇓ nostaa ja laskee purjetta. Napauta tai klikkaa ampuaksesi, kun olet lähellä merirosvolaivoja, kapteeni."
+            "Tilt the phone to steer. ⇑ ⇓ raise and lower the sail. Tap to shoot when you're near pirate ships, captain."
 
     else
         pick lang
-            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). Napauta tai klikkaa ampuaksesi (välilyönti) kelluvien maalitaulujen ja merirosvolaivojen lähellä."
-            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). Tap or click (Space) to shoot nearby floating targets and pirate ships."
+            "Pidä ◀ ▶ (tai nuolinäppäimiä) pohjassa ohjataksesi. Nosta / laske purjetta ⇑ ⇓ (W / S). Napauta tai klikkaa ampuaksesi (välilyönti) merirosvolaivojen lähellä."
+            "Hold ◀ ▶ (or arrow keys) to steer. Raise / lower sail with ⇑ ⇓ (W / S). Tap or click (Space) to shoot nearby pirate ships."
 
 
 speedLabel : Language -> String
@@ -918,11 +918,11 @@ sailingStat lang =
     pick lang "Purjehdus" "Sailing"
 
 
-{-| Finish screen stat: targets hit.
+{-| Finish screen stat: patrol ships sunk.
 -}
-hitsStat : Language -> String
-hitsStat lang =
-    pick lang "Osumat" "Hits"
+shipsSunkStat : Language -> String
+shipsSunkStat lang =
+    pick lang "Upotetut" "Ships sunk"
 
 
 {-| Finish screen stat: treasure found.
@@ -1072,7 +1072,7 @@ harbourToast lang n total =
     pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
-{-| A cannon ball hit a floating target (it wins no coins).
+{-| A cannon ball sank a ship.
 -}
 hitToast : Language -> String
 hitToast lang =
@@ -1469,7 +1469,7 @@ allPhrases =
     , ( "ghostShipBanishedToast", ghostShipBanishedToast )
     , ( "finalTimeLabel", finalTimeLabel )
     , ( "sailingStat", sailingStat )
-    , ( "hitsStat", hitsStat )
+    , ( "shipsSunkStat", shipsSunkStat )
     , ( "treasureStat", treasureStat )
     , ( "treasureToast", \l -> treasureToast l 25 )
     , ( "finishToast", finishToast )

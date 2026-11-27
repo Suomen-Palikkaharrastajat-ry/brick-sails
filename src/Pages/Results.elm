@@ -8,7 +8,7 @@ module Pages.Results exposing
 own look: while bricks burst over the boat (`Sails.Ending`), a card rises
 with a bobbing boat, "Land ho!", the stars popping in one by one, the
 headline, the gold coins won (the score, `Sails.Coins`) with the time
-sailed, hits and treasure beside them, the new record badge, and the ways
+sailed, the ships sunk and treasure beside them, the new record badge, and the ways
 on: sail the same map again, roll a new map with the same picks (sailing
 alone), or back to the main menu. The time is shown but does not rank the
 run: the stars and the personal best count coins.
@@ -213,7 +213,7 @@ viewResults { course, progress, boatName, personalBest, ending, crew, language, 
                                 , span [ Attr.class "text-[10px] font-bold uppercase tracking-wider text-slate-400" ] [ text (T.finalTimeLabel language) ]
                                 , span [ Attr.class "font-mono text-sm font-black text-white" ] [ text (Leaderboard.formatRaceTime seconds) ]
                                 ]
-                            , statCard "🎯" (T.hitsStat language) (String.fromInt progress.targetsHit)
+                            , statCard "💥" (T.shipsSunkStat language) (String.fromInt progress.shipsSunk)
                             , statCard "💰" (T.treasureStat language) (String.fromInt (List.length progress.treasureFound))
                             ]
                 , if crew /= Nothing then

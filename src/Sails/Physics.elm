@@ -3,6 +3,7 @@ module Sails.Physics exposing
     , angleDiff
     , beachHeight
     , boatDraft
+    , boatRadius
     , bumpShips
     , canClearReef
     , canDropAnchor
@@ -13,7 +14,6 @@ module Sails.Physics exposing
     , checkBoatHits
     , checkReefGrounding
     , checkShipHits
-    , checkTargetHits
     , coralReefRadius
     , courseCurrent
     , courseFreeRange
@@ -66,7 +66,6 @@ module Sails.Physics exposing
     , stepProgress
     , stepProjectiles
     , stepStandards
-    , stepTargets
     , swellHeading
     , treasureReach
     , waterElevation
@@ -101,7 +100,6 @@ import Sails.Types
         , Island
         , SailingState
         , StandardState(..)
-        , Target
         , Town
         , Treasure
         , Waypoint
@@ -208,7 +206,7 @@ initProgress course =
     , elapsedSeconds = 0
     , splits = []
     , finished = False
-    , targetsHit = 0
+    , shipsSunk = 0
     , treasureFound = []
     , coins = 0
     , berthSeconds = 0
@@ -721,6 +719,8 @@ normalize h =
     h - 360.0 * toFloat (floor (h / 360.0))
 
 
+{-| Radius (m) of the player's boat for bumping off islands and ships.
+-}
 boatRadius : Float
 boatRadius =
     2.0
@@ -1141,7 +1141,7 @@ reachedTreasure state treasures found =
 -- CANNONS
 
 
-{-| Targets further than this are out of reach.
+{-| Ships further than this are out of the cannons' reach.
 -}
 cannonRange : Float
 cannonRange =
@@ -1505,7 +1505,7 @@ fireTowardsFrom muzzles slot state aimVec aimPoints startId =
         camBias =
             sideSign * clamp 40.0 65.0 (abs relAngle)
 
-        -- Check if there is an existing target (buoy, pirate, target) near the tapped direction
+        -- Check if there is a ship to aim at (a pirate, the ghost ship, a rival) near the tapped direction
         isNearAim p =
             let
                 pr =
@@ -1660,52 +1660,17 @@ stepProjectiles sea dt time balls =
     List.foldl stepOne ( [], [] ) balls
 
 
-targetHitRadius : Float
-targetHitRadius =
-    2.2
-
-
-{-| Sink targets the balls touch. Returns surviving balls, hit flashes,
-updated targets and the number of new hits.
--}
-checkTargetHits : List Cannonball -> List Target -> ( List Cannonball, List CombatImpact, ( List Target, Int ) )
-checkTargetHits balls targets =
-    let
-        hits ball target =
-            not target.sunk && Vec3.distance ball.position (Vec3.add target.position (vec3 0 0.6 0)) <= targetHitRadius
-
-        step ball ( alive, flashes, ( ts, count ) ) =
-            case List.filter (hits ball) ts |> List.head of
-                Just struck ->
-                    ( alive
-                    , { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes
-                    , ( List.map
-                            (\t ->
-                                if t.id == struck.id then
-                                    { t | sunk = True }
-
-                                else
-                                    t
-                            )
-                            ts
-                      , count + 1
-                      )
-                    )
-
-                Nothing ->
-                    ( ball :: alive, flashes, ( ts, count ) )
-    in
-    List.foldl step ( [], [], ( targets, 0 ) ) balls
-
-
 {-| Balls hitting ships: the pirate ships (`Sails.Pirates`), never a
-crewmate's ship in a room. Returns surviving balls, flashes and the slots hit.
+crewmate's ship in a room. A ball hits a ship within that ship's `radius`
+(m) of its position, so a big frigate is easier to hit than a small sloop
+(see `Sails.Pirates.hitRadius`). Returns surviving balls, flashes and the
+slots hit.
 -}
-checkShipHits : List Cannonball -> List { slot : Int, position : Vec3 } -> ( List Cannonball, List CombatImpact, List Int )
+checkShipHits : List Cannonball -> List { slot : Int, position : Vec3, radius : Float } -> ( List Cannonball, List CombatImpact, List Int )
 checkShipHits balls ships =
     let
         step ball ( alive, flashes, slots ) =
-            case List.filter (\s -> s.slot /= ball.sourceSlot && Vec3.distance ball.position s.position <= 2.6) ships |> List.head of
+            case List.filter (\s -> s.slot /= ball.sourceSlot && Vec3.distance ball.position s.position <= s.radius) ships |> List.head of
                 Just ship ->
                     ( alive, { id = ball.id, position = ball.position, age = 0, isHit = True } :: flashes, ship.slot :: slots )
 
@@ -1717,11 +1682,12 @@ checkShipHits balls ships =
 
 {-| Push the boat clear of ships (pirates) it has run into, the way it is
 pushed off an island: it stops dead where it struck and bumps back, losing
-most of its speed. `shipRadius` is each ship's radius (m).
+most of its speed. Each ship has its own `radius` (m), the size of its
+hull (see `Sails.Pirates.collisionRadius`).
 -}
-bumpShips : Float -> List Vec3 -> SailingState -> SailingState
-bumpShips shipRadius ships state =
-    List.foldl (bumpShip shipRadius) state ships
+bumpShips : List { position : Vec3, radius : Float } -> SailingState -> SailingState
+bumpShips ships state =
+    List.foldl (\ship -> bumpShip ship.radius ship.position) state ships
 
 
 bumpShip : Float -> Vec3 -> SailingState -> SailingState
@@ -1774,30 +1740,6 @@ checkBoatHits boat balls =
                 ( ball :: alive, flashes, hits )
     in
     List.foldl step ( [], [], 0 ) balls
-
-
-{-| Age sinking targets; keep their bob in sync with the water of the sea
-state `sea`.
--}
-stepTargets : Float -> Float -> Float -> List Target -> List Target
-stepTargets sea dt time targets =
-    List.map
-        (\t ->
-            let
-                p =
-                    Vec3.toRecord t.position
-            in
-            { t
-                | position = vec3 p.x (seaElevation sea p.x p.z time) p.z
-                , sinkAge =
-                    if t.sunk then
-                        t.sinkAge + dt
-
-                    else
-                        0
-            }
-        )
-        targets
 
 
 stepImpacts : Float -> List CombatImpact -> List CombatImpact

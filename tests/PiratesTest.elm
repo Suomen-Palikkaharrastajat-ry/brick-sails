@@ -1,7 +1,8 @@
 module PiratesTest exposing (suite)
 
 {-| Pirate ships: where they patrol (seeded, clear of the harbours, the
-start and the islands, so the course can always be finished), how they
+start, the islands and each other, so the course can always be finished),
+what kinds and sizes they come in, how they
 move (round their circle at a steady speed, facing the way they go), and
 what they do in a race (board a boat that comes close, sink when hit).
 -}
@@ -101,10 +102,35 @@ suite : Test
 suite =
     describe "Pirates"
         [ describe "placement"
-            [ test "a race has three pirates on three different legs" <|
+            [ test "a race has six pirates (it had three) on six different patrol spots" <|
                 \_ ->
-                    Expect.equal [ 3, 3, 3 ]
-                        (List.map (\s -> Pirates.fleet s course |> List.map .id |> List.sortBy identity |> dedupe |> List.length) [ 1, 42, 2024 ])
+                    Expect.equal ( 6, [ 6, 6, 6 ] )
+                        ( Pirates.fleetSize
+                        , List.map (\s -> Pirates.fleet s course |> List.map .id |> List.sortBy identity |> dedupe |> List.length) [ 1, 42, 2024 ]
+                        )
+            , test "two pirates' circles keep apart, so they never sail into each other" <|
+                \_ ->
+                    seeds
+                        |> List.all
+                            (\s ->
+                                let
+                                    ships =
+                                        Pirates.fleet s course
+                                in
+                                List.all
+                                    (\a ->
+                                        List.all
+                                            (\b -> a.id == b.id || dist ( a.centreX, a.centreZ ) ( b.centreX, b.centreZ ) >= Pirates.patrolSeparation)
+                                            ships
+                                    )
+                                    ships
+                                    && Pirates.patrolSeparation
+                                    >= 2
+                                    * 9
+                                    + 2
+                                    * Pirates.collisionRadius Pirates.Frigate
+                            )
+                        |> Expect.equal True
             , test "the same seed gives the same pirates" <|
                 \_ -> Expect.equal (Pirates.fleet 42 course) (Pirates.fleet 42 course)
             , test "different seeds give different fleets" <|
@@ -114,10 +140,10 @@ suite =
                         |> dedupe
                         |> List.length
                         |> Expect.atLeast 3
-            , test "on every seat's route of many maps, enough legs between harbours have room for a patrol" <|
+            , test "on every seat's route of many maps, the whole fleet finds room to patrol" <|
                 \_ ->
                     sweepCourses
-                        |> List.filter (\c -> List.length (Pirates.patrolRoutes c) < Pirates.fleetSize)
+                        |> List.filter (\c -> List.any (\seed -> List.length (Pirates.fleet seed c) < Pirates.fleetSize) [ 1, 42 ])
                         |> List.map .id
                         |> Expect.equal []
             , test "a pirate never comes near a harbour's mooring circle" <|
@@ -133,17 +159,21 @@ suite =
                 \_ ->
                     everywhere (\pos -> List.all (\i -> dist pos ( i.x, i.z ) > i.radius) course.islands)
                         |> Expect.equal True
-            , test "each patrol is centred on the leg it guards, so it crosses the route" <|
+            , test "each patrol is centred on a leg it guards (a quarter, half or three quarters along), so it crosses the route" <|
                 \_ ->
                     let
                         harbours =
                             List.map (.position >> flat) course.waypoints
 
-                        mids =
-                            List.map2 (\( ax, az ) ( bx, bz ) -> ( (ax + bx) / 2, (az + bz) / 2 )) harbours (List.drop 1 harbours)
+                        spots =
+                            List.map2
+                                (\( ax, az ) ( bx, bz ) -> List.map (\f -> ( ax + (bx - ax) * f, az + (bz - az) * f )) [ 0.25, 0.5, 0.75 ])
+                                harbours
+                                (List.drop 1 harbours)
+                                |> List.concat
                     in
                     Pirates.patrolRoutes course
-                        |> List.all (\p -> List.member ( p.centreX, p.centreZ ) mids)
+                        |> List.all (\p -> List.any (\q -> dist q ( p.centreX, p.centreZ ) < 1.0e-6) spots)
                         |> Expect.equal True
             ]
         , describe "movement"
@@ -196,7 +226,7 @@ suite =
             ]
         , describe "in a race"
             [ test "the race's pirates are the fleet of its seed" <|
-                \_ -> Expect.equal Pirates.fleetSize (List.length fresh.pirates)
+                \_ -> Expect.equal ( 6, Pirates.fleetSize ) ( List.length fresh.pirates, List.length fresh.pirates )
             , test "a pirate alongside boards the boat: one hit's damage, then a pause" <|
                 \_ ->
                     case fresh.pirates of
@@ -219,7 +249,7 @@ suite =
 
                         [] ->
                             Expect.fail "no pirates"
-            , test "a cannon ball that hits a pirate sinks it and counts as a hit" <|
+            , test "a cannon ball that hits a pirate sinks it and counts as a ship sunk" <|
                 \_ ->
                     case fresh.pirates of
                         p :: _ ->
@@ -237,7 +267,7 @@ suite =
                                 hit =
                                     step { m | cannonballs = [ ball ] }
                             in
-                            Expect.equal ( [ p.id ], m.progress.targetsHit + 1 ) ( hit.piratesSunk, hit.progress.targetsHit )
+                            Expect.equal ( [ p.id ], m.progress.shipsSunk + 1 ) ( hit.piratesSunk, hit.progress.shipsSunk )
 
                         [] ->
                             Expect.fail "no pirates"
@@ -281,21 +311,78 @@ suite =
                         , Just (Vec3.vec3 0.82 0.16 0.12)
                         )
                         ( tintOf Pirates, tintOf BlueCoats, tintOf RedCoats )
-            , test "BlueCoats patrol in sloops while Pirates and RedCoats sail frigates" <|
+            , test "every race has ships of all three kinds, two of each, and each faction two different kinds" <|
+                \_ ->
+                    seeds
+                        |> List.all
+                            (\s ->
+                                let
+                                    ships =
+                                        Pirates.fleet s course
+
+                                    count k =
+                                        List.length (List.filter (\p -> p.kind == k) ships)
+
+                                    kindsOf f =
+                                        ships |> List.filter (\p -> p.faction == f) |> List.map .kind |> dedupe |> List.length
+                                in
+                                List.map count Pirates.allKinds
+                                    == [ 2, 2, 2 ]
+                                    && List.map kindsOf [ Pirates, BlueCoats, RedCoats ]
+                                    == [ 2, 2, 2 ]
+                            )
+                        |> Expect.equal True
+            , test "frigates and corvettes are drawn as frigates, sloops as sloops, each kind at its own size" <|
                 \_ ->
                     let
-                        fleet =
+                        shipOf k =
                             Pirates.fleet 42 course
-
-                        shipOf f =
-                            fleet
-                                |> List.filter (\p -> p.faction == f)
+                                |> List.filter (\p -> p.kind == k)
                                 |> List.head
                                 |> Maybe.map Pirates.shipNameFor
                     in
                     Expect.equal
-                        ( Just "npc:frigate", Just "npc:sloop", Just "npc:frigate" )
-                        ( shipOf Pirates, shipOf BlueCoats, shipOf RedCoats )
+                        ( [ Just "npc:frigate", Just "npc:frigate", Just "npc:sloop" ], [ 1.2, 0.85, 0.75 ] )
+                        ( List.map shipOf Pirates.allKinds, List.map Pirates.shipScale Pirates.allKinds )
+            , test "a bigger ship is bigger to bump into, to hit and to be boarded by" <|
+                \_ ->
+                    let
+                        decreasing f =
+                            case List.map f Pirates.allKinds of
+                                [ a, b, c ] ->
+                                    a > b && b > c
+
+                                _ ->
+                                    False
+                    in
+                    Expect.equal ( True, True, True )
+                        ( decreasing Pirates.collisionRadius
+                        , decreasing Pirates.hitRadius
+                        , decreasing Pirates.boardingRange
+                            && List.all (\k -> Pirates.boardingRange k > Physics.boatRadius + Pirates.collisionRadius k) Pirates.allKinds
+                        )
+            , test "a ball comes down on a pirate of every kind and sinks it" <|
+                \_ ->
+                    let
+                        m =
+                            racing fresh
+
+                        sinks p =
+                            let
+                                at =
+                                    (Pirates.stateAt (m.simTime + frame) p).position
+
+                                ball =
+                                    { id = 99, sourceSlot = 1, position = Vec3.add at (Vec3.vec3 0 1.5 0), velocity = Vec3.vec3 0 0 0, age = 0 }
+                            in
+                            (step { m | cannonballs = [ ball ] }).piratesSunk == [ p.id ]
+
+                        oneOf k =
+                            List.filter (\p -> p.kind == k) fresh.pirates |> List.take 1
+                    in
+                    List.concatMap oneOf Pirates.allKinds
+                        |> List.map sinks
+                        |> Expect.equal [ True, True, True ]
             , test "each faction is assigned the patrol near its island" <|
                 \_ ->
                     let
@@ -310,14 +397,20 @@ suite =
                                 |> Maybe.map (\t -> ( t.island.x, t.island.z ))
                                 |> Maybe.withDefault ( 0, 0 )
 
+                        -- The first ship each faction places (the Pirates'
+                        -- frigate, the Blue Coats' sloop, the Red Coats'
+                        -- corvette) takes a spot near home.
+                        firstOf f k =
+                            fleet |> List.filter (\p -> p.faction == f && p.kind == k) |> List.head
+
                         pirateShip =
-                            fleet |> List.filter (\p -> p.faction == Pirates) |> List.head
+                            firstOf Pirates Pirates.Frigate
 
                         blueCoatsShip =
-                            fleet |> List.filter (\p -> p.faction == BlueCoats) |> List.head
+                            firstOf BlueCoats Pirates.Sloop
 
                         redCoatsShip =
-                            fleet |> List.filter (\p -> p.faction == RedCoats) |> List.head
+                            firstOf RedCoats Pirates.Corvette
                     in
                     case ( pirateShip, blueCoatsShip, redCoatsShip ) of
                         ( Just p, Just b, Just r ) ->

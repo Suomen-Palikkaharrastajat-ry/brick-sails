@@ -19,7 +19,7 @@ module Sails.Archipelago exposing
     )
 
 {-| The archipelago of a map: the islands, the harbours, the routes round
-them, the treasure, the targets, the towns and the decoration on the water,
+them, the treasure, the towns and the decoration on the water,
 all made from the map's seed (`generate`), so one map code gives the same
 archipelago on every device and in every seat of a room.
 
@@ -79,7 +79,7 @@ import Sails.World as World
 bearing of each dock from its island's centre, before the final harbour on
 the hub (`finalBearing`); the heading the boat starts on (towards the
 first harbour); the treasure island and where on its shore the chest lies;
-the floating targets beside the legs; and the route's length in metres.
+and the route's length in metres.
 -}
 type alias Route =
     { harbours : List ( Island, Float )
@@ -87,7 +87,6 @@ type alias Route =
     , startHeading : Float
     , treasureBearing : Float
     , treasure : Island
-    , targets : List ( Float, Float )
     , lengthM : Float
     }
 
@@ -650,7 +649,7 @@ candidate layout order =
             dockAll (List.map (\( isl, b ) -> dockPoint isl b) firstPass)
 
         route =
-            { harbours = harbours, finalBearing = finalBearing, startHeading = 0, treasureBearing = 0, treasure = hub, targets = [], lengthM = 0 }
+            { harbours = harbours, finalBearing = finalBearing, startHeading = 0, treasureBearing = 0, treasure = hub, lengthM = 0 }
 
         stops =
             fullStops hub route
@@ -913,7 +912,7 @@ furnish =
     furnishWith False
 
 
-{-| Add the treasure, the targets, the towns, the skerries, the decoration,
+{-| Add the treasure, the towns, the skerries, the decoration,
 the arena and the wind to a layout with its routes. The treasure island
 must lie within reach of every route kept (see `placeTreasure`); if it
 cannot, the last routes are dropped until it does. `Nothing` if it fits
@@ -980,7 +979,11 @@ furnishWith force map attempt layout offered seed0 =
                 arena =
                     { x = ax, z = az, radius = arenaRadius }
 
-                ( targetSeeds, seed2 ) =
+                -- One draw per route once placed the floating targets,
+                -- which are gone; it is still drawn, so the rest of the
+                -- archipelago (skerries, decoration, wind, towns) of a map
+                -- code stays as it was.
+                ( _, seed2 ) =
                     Random.step (Random.list (List.length candidates) (Random.int 1 2147483646)) seed1
 
                 ( skerries, seed3 ) =
@@ -999,8 +1002,8 @@ furnishWith force map attempt layout offered seed0 =
                     Random.step (Random.list 4 (Random.map2 (\a s -> a * s) (range ( 40, 70 )) (Random.uniform 1 [ -1 ]))) seed5
 
                 routes =
-                    List.map2
-                        (\c tSeed ->
+                    List.map
+                        (\c ->
                             { harbours = c.harbours
                             , finalBearing = c.finalBearing
                             , startHeading =
@@ -1012,12 +1015,10 @@ furnishWith force map attempt layout offered seed0 =
                                         0
                             , treasureBearing = treasureBearing
                             , treasure = treasure
-                            , targets = placeTargets islands c.stops tSeed
                             , lengthM = c.lengthM
                             }
                         )
                         candidates
-                        targetSeeds
 
                 wind =
                     { speed = World.windSpeed map, direction = fairWind routes windDir }
@@ -1189,89 +1190,6 @@ firstJust f xs =
 
                 Nothing ->
                     firstJust f rest
-
-
-{-| Seven floating targets beside a route's legs, 35 to 65 % of the way
-along, 12 to 20 m off to the side away from the nearest island, at least
-6 m off every island's shore and off the pirates' patrol circles.
--}
-placeTargets : List Island -> List Stop -> Int -> List ( Float, Float )
-placeTargets islands stops seedInt =
-    let
-        routeLegs =
-            pairs stops
-
-        nLegs =
-            List.length routeLegs
-
-        ( draws, _ ) =
-            Random.step (Random.list 7 (Random.map2 Tuple.pair (range ( 0.35, 0.65 )) (range ( 12, 20 )))) (Random.initialSeed seedInt)
-
-        harbourLegs =
-            pairs (List.drop 1 stops)
-
-        mids =
-            List.map (\( a, b ) -> ( (Tuple.first a.point + Tuple.first b.point) / 2, (Tuple.second a.point + Tuple.second b.point) / 2 )) harbourLegs
-
-        target i ( f0, o ) =
-            case List.drop (modBy (max 1 nLegs) i) routeLegs of
-                ( a, b ) :: _ ->
-                    let
-                        f =
-                            if i >= nLegs then
-                                1 - f0
-
-                            else
-                                f0
-
-                        ( ax, az ) =
-                            a.point
-
-                        ( bx, bz ) =
-                            b.point
-
-                        len =
-                            max 1 (dist a.point b.point)
-
-                        ( nx, nz ) =
-                            ( (bz - az) / len, -(bx - ax) / len )
-
-                        base =
-                            ( ax + (bx - ax) * f, az + (bz - az) * f )
-
-                        nearest =
-                            islands
-                                |> List.sortBy (\isl -> dist base (centreOf isl) - isl.radius)
-                                |> List.head
-
-                        awaySide =
-                            case nearest of
-                                Just isl ->
-                                    if (isl.x - Tuple.first base) * nx + (isl.z - Tuple.second base) * nz > 0 then
-                                        -1
-
-                                    else
-                                        1
-
-                                Nothing ->
-                                    1
-
-                        spot s off =
-                            ( Tuple.first base + nx * s * off, Tuple.second base + nz * s * off )
-
-                        fits p =
-                            List.all (\isl -> dist p (centreOf isl) >= isl.radius + 6) islands
-                                && List.all (\m -> abs (dist p m - 9) >= 5) mids
-                                && List.all (\s -> dist p s.point >= 12) stops
-                    in
-                    [ spot awaySide o, spot awaySide 12, spot (negate awaySide) o, spot (negate awaySide) 12 ]
-                        |> List.filter fits
-                        |> List.head
-
-                [] ->
-                    Nothing
-    in
-    List.filterMap identity (List.indexedMap target draws)
 
 
 {-| A town on each harbour island, 40 to 70 degrees round the shore from its
@@ -1508,7 +1426,7 @@ placeDecor map arena islands allLegs seed0 =
 
 {-| The course of a seat (0 for the first seat and for a boat sailing
 alone): the archipelago's islands, towns and decoration, with the harbour
-order, targets and start heading of route `seat` modulo the number of
+order and start heading of route `seat` modulo the number of
 routes.
 -}
 courseFor : Archipelago -> Int -> Course
@@ -1520,7 +1438,7 @@ courseFor arch seat =
                     r
 
                 [] ->
-                    { harbours = [], finalBearing = 0, startHeading = 0, treasureBearing = 0, treasure = arch.hub, targets = [], lengthM = 950 }
+                    { harbours = [], finalBearing = 0, startHeading = 0, treasureBearing = 0, treasure = arch.hub, lengthM = 950 }
 
         harbour i kind island bearing =
             let
@@ -1551,7 +1469,6 @@ courseFor arch seat =
     , title = MapParams.toCode arch.map
     , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on a small island beside the route."
     , waypoints = waypoints
-    , targets = List.indexedMap (\i ( x, z ) -> { id = i, position = vec3 x 0 z, sunk = False, sinkAge = 0 }) route.targets
     , islands = arch.islands
     , towns = arch.towns
     , treasures =

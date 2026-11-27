@@ -15,7 +15,6 @@ module Sails.Types exposing
     , SailingState
     , ShipSpec
     , StandardState(..)
-    , Target
     , Town
     , Treasure
     , ViewMode(..)
@@ -31,7 +30,7 @@ module Sails.Types exposing
     )
 
 {-| Domain data types for Brick Sails: the toy boats, the harbour course,
-floating targets, the arcade sailing state and leaderboard records.
+the arcade sailing state and leaderboard records.
 -}
 
 import Game.MapParams exposing (MapParams)
@@ -67,16 +66,6 @@ type alias Waypoint =
     , position : Vec3
     , radius : Float
     , kind : HarbourKind
-    }
-
-
-{-| A floating target the player can shoot (a hit is counted; it wins no coins).
--}
-type alias Target =
-    { id : Int
-    , position : Vec3
-    , sunk : Bool
-    , sinkAge : Float
     }
 
 
@@ -237,7 +226,7 @@ type alias Wind =
     }
 
 
-{-| One short course: harbours in order, targets along the way, a few islands,
+{-| One short course: harbours in order, a few islands,
 the towns on them and the treasure hidden on them, the decoration on the
 water and the circle of sea the boats may sail in (`arena`). Every course is
 made from a map (`Sails.Archipelago`); `id` is the map's leaderboard key
@@ -249,7 +238,6 @@ type alias Course =
     , title : String
     , description : String
     , waypoints : List Waypoint
-    , targets : List Target
     , islands : List Island
     , towns : List Town
     , treasures : List Treasure
@@ -370,7 +358,8 @@ type alias SailingState =
 
 {-| Progress through the course. `treasureFound` lists the ids of the
 treasure collected, `coins` the gold coins earned so far, the run's score
-(see `Sails.Coins`). `berthSeconds` counts how long the boat has been
+(see `Sails.Coins`), `shipsSunk` how many patrol ships the boat's cannon
+balls have sunk. `berthSeconds` counts how long the boat has been
 moored, slow enough, at the harbour it is docking at.
 -}
 type alias CourseProgress =
@@ -379,7 +368,7 @@ type alias CourseProgress =
     , elapsedSeconds : Float
     , splits : List Float
     , finished : Bool
-    , targetsHit : Int
+    , shipsSunk : Int
     , treasureFound : List Int
     , coins : Int
     , berthSeconds : Float

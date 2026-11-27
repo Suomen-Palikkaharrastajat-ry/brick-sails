@@ -360,7 +360,7 @@ suite =
                         progress =
                             Physics.initProgress Archipelago.defaultCourse
                     in
-                    Expect.equal ( 0, 0 ) ( progress.coins, progress.targetsHit )
+                    Expect.equal ( 0, 0 ) ( progress.coins, progress.shipsSunk )
             ]
         , describe "Localization Phrases"
             [ test "reef scrape toast" <|

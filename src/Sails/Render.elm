@@ -17,7 +17,7 @@ the biome and season (groves of trees, towns of houses along their paths,
 rocks, farms; `Sails.IslandDressing`) with the fort, lighthouse or cairn on
 the hub island, the harbour piers, the pirate arch
 over the final harbour, the decoration on the water (coral reefs, a wreck,
-sea arches), floating targets, cannonballs, the towns and the treasure on
+sea arches), cannonballs, the towns and the treasure on
 the islands, the toy boats, and the weather (spray, rain or snow, and
 lightning).
 
@@ -78,7 +78,6 @@ import Sails.Types
         , IslandRole(..)
         , SailingState
         , StandardState(..)
-        , Target
         , Town
         , Treasure
         , Waypoint
@@ -114,7 +113,6 @@ propSources : MapParams -> List ( String, String )
 propSources map =
     [ ( "buoy", BrickModels.buoy )
     , ( "beacon", BrickModels.beacon )
-    , ( "floatingTarget", BrickModels.floatingTarget )
     , ( "fort", Scenery.fort )
     , ( "rock", BrickModels.rock )
     , ( "barn", BrickModels.barn )
@@ -224,8 +222,10 @@ finishArchModel =
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
 loading), its state, an optional sail colour override (used to tell
-multiplayer boats apart), whether it is the phantom ghost vessel, and whether
-its anchor chain is dropped.
+multiplayer boats apart), whether it is the phantom ghost vessel, whether
+its anchor chain is dropped, and how many times its brick size it is drawn
+(`scale`: 1 for every boat but the pirates, whose kinds differ in size, see
+`Sails.Pirates.shipScale`).
 -}
 type alias RenderBoat =
     { mesh : Maybe ShipMesh
@@ -233,6 +233,7 @@ type alias RenderBoat =
     , sailTint : Maybe Vec3
     , isGhost : Bool
     , anchored : Bool
+    , scale : Float
     }
 
 
@@ -245,6 +246,7 @@ ghostBoat mesh state =
     , sailTint = Just (vec3 0.18 0.98 0.52)
     , isGhost = True
     , anchored = False
+    , scale = 1
     }
 
 
@@ -257,7 +259,6 @@ renderWorld :
         , nextIndex : Int
         , boats : List RenderBoat
         , guide : Maybe { from : Vec3, to : Vec3 }
-        , targets : List Target
         , balls : List Cannonball
         , impacts : List CombatImpact
         , time : Float
@@ -326,7 +327,6 @@ renderWorld cam scene width height =
                 ++ townEntities inView ctx width height scene.scenery draw scene.standards scene.course.towns
                 ++ treasureEntities inView ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (harbourEntities inView ctx width height scene.scenery draw scene.time scene.nextIndex scene.course) scene.course.waypoints
-                ++ List.concatMap (targetEntities inView draw scene.time) scene.targets
                 ++ List.concatMap (boatEntities ctx width height draw) scene.boats
                 ++ List.concatMap (standardAtSeaEntities ctx draw scene.time) scene.standards
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
@@ -476,7 +476,7 @@ renderShipyard map mesh time width height =
     canvas width
         height
         ([ Ocean.skyEntity ctx, Ocean.oceanEntity ctx ]
-            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing, isGhost = False, anchored = False }
+            ++ boatEntities ctx width height dummyDraw { mesh = mesh, state = state, sailTint = Nothing, isGhost = False, anchored = False, scale = 1 }
         )
 
 
@@ -528,7 +528,7 @@ boatEntities ctx width height draw rb =
                         |> rotX (degrees -s.pitch)
 
                 model =
-                    Mat4.mul world mesh.toBoat
+                    Mat4.mul (Mat4.scale3 rb.scale rb.scale rb.scale world) mesh.toBoat
 
                 tint =
                     case rb.sailTint of
@@ -1171,38 +1171,6 @@ dockIsland islands p =
         |> List.head
 
 
-targetEntities : (Vec3 -> Float -> Bool) -> Draw -> Float -> Target -> List WebGL.Entity
-targetEntities inView draw time t =
-    if t.sunk && t.sinkAge > 1.6 then
-        []
-
-    else
-        let
-            p =
-                Vec3.toRecord t.position
-        in
-        if not (inView (vec3 p.x (p.y + 0.5) p.z) 2.5) then
-            []
-
-        else
-            let
-                sink =
-                    if t.sunk then
-                        t.sinkAge * 1.6
-
-                    else
-                        0
-            in
-            draw.fitted "floatingTarget"
-                (BrickProps.fitWidth 1.6)
-                (Mat4.makeTranslate3 p.x (p.y - sink) p.z
-                    |> rotY (time * 0.4 + toFloat t.id)
-                    |> rotZ (sink * 0.5)
-                    |> Mat4.translate3 0 -0.4 0
-                )
-                plain
-
-
 {-| Islands generated procedurally as stepped 4-tier brick shells
 (`Sails.IslandMesh`) sized to each island's radius and height in the map's
 colours (`Sails.World.islandPalette`), dressed once per voyage
@@ -1620,8 +1588,8 @@ treasureEntities inView ctx width height scenery time found treasures =
             )
 
 
-goalArrowEntities : Ctx -> Draw -> Float -> List RenderBoat -> Maybe { from : Vec3, to : Vec3 } -> List StandardState -> List Target -> List WebGL.Entity
-goalArrowEntities ctx draw time boats guide standards targets =
+goalArrowEntities : Ctx -> Draw -> Float -> List RenderBoat -> Maybe { from : Vec3, to : Vec3 } -> List StandardState -> List Vec3 -> List WebGL.Entity
+goalArrowEntities ctx draw time boats guide standards enemies =
     case List.head boats of
         Just playerBoat ->
             let
@@ -1706,10 +1674,10 @@ goalArrowEntities ctx draw time boats guide standards targets =
                         Nothing ->
                             []
 
-                -- 3. Nearest Target / Enemy (Crimson Crosshair, r = 2.5)
+                -- 3. Nearest enemy ship (Crimson Crosshair, r = 2.5)
                 nearestTarget =
-                    targets
-                        |> List.map (\t -> ( Physics.horizontalDistance playerBoat.state.position t.position, t.position ))
+                    enemies
+                        |> List.map (\e -> ( Physics.horizontalDistance playerBoat.state.position e, e ))
                         |> List.sortBy Tuple.first
                         |> List.head
 

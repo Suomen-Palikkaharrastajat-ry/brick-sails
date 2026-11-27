@@ -10,7 +10,8 @@ module Pages.Sail exposing
 
 {-| The voyage: a 3-2-1 start, then dock at the harbours in order while a
 follow camera keeps the boat and the next harbour on screen. Cannons lob a ball
-at the nearest floating target in range; each hit takes 2 s off the time.
+at the nearest ship in range (a pirate, the ghost ship or a rival); sinking a
+pirate wins coins (`Sails.Coins`).
 
 In an online room the players are one crew (`Sails.Crew`): the host's start
 puts every ship, the host's too, back on the start line, cannons never aim at
@@ -62,7 +63,6 @@ import Sails.Types
         , LeaderboardEntry
         , SailingState
         , StandardState(..)
-        , Target
         , standardForCarrier
         )
 import Sails.Weather as Weather exposing (Weather)
@@ -86,7 +86,6 @@ type alias SailModel =
     , audioMuted : Bool
     , personalBest : Maybe LeaderboardEntry
     , multiplayer : Maybe RoomState
-    , targets : List Target
     , cannonballs : List Cannonball
     , impacts : List CombatImpact
     , cannonCooldown : Float
@@ -125,6 +124,9 @@ type alias SailModel =
     , anchored : Bool
     , showHelp : Bool
     , combatTurnTarget : Maybe Float
+    , -- Seconds since the boat last fired, 0 on every shot, running while
+      -- racing; the HUD's goal hints hide under 3 s (`HUD.hintVisible`).
+      sinceShot : Float
     , islandMeshes : IslandMesh.CourseMesh
     , cannons : List Muzzle
     }
@@ -151,6 +153,23 @@ type SailMsg
     | StartMultiplayerCountdown
     | UpdateMultiplayerRoom RoomState
     | DropAnchor
+
+
+{-| Radius (m) the boat bumps off another player's ship or the ghost ship
+at (plus its own, `Physics.boatRadius`); pirates have one per kind
+(`Pirates.collisionRadius`).
+-}
+shipBumpRadius : Float
+shipBumpRadius =
+    2.3
+
+
+{-| How close (m) a cannon ball must come to another player's ship or the
+ghost ship to hit it; pirates have one per kind (`Pirates.hitRadius`).
+-}
+shipHitRadius : Float
+shipHitRadius =
+    2.6
 
 
 cannonReload : Float
@@ -224,7 +243,6 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , audioMuted = audioMuted
     , personalBest = pb
     , multiplayer = maybeMulti
-    , targets = course.targets
     , cannonballs = []
     , impacts = []
     , cannonCooldown = 0
@@ -266,6 +284,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , anchored = False
     , showHelp = False
     , combatTurnTarget = Nothing
+    , sinceShot = HUD.hintReturnSeconds
     , islandMeshes = islandMeshes
     , cannons = []
     }
@@ -430,15 +449,12 @@ nextHarbour model =
             |> Maybe.map .position
 
 
-{-| What the cannons aim at: the floating targets and the pirate ships
-still afloat. Never a crewmate's ship.
+{-| What the cannons aim at: the pirate ships still afloat, the ghost ship
+when it can be fought and the other players' ships. Never a crewmate's ship.
 -}
 aimPoints : SailModel -> List Vec3
 aimPoints model =
     let
-        targets =
-            model.targets |> List.filter (not << .sunk) |> List.map .position
-
         pirates =
             afloatPirates model |> List.map (Tuple.second >> .position)
 
@@ -452,7 +468,7 @@ aimPoints model =
             else
                 []
     in
-    targets ++ pirates ++ remotes ++ ghost
+    pirates ++ remotes ++ ghost
 
 
 {-| The pirates still afloat, with where they are now.
@@ -464,7 +480,7 @@ afloatPirates model =
         |> List.map (\p -> ( p, onTheWaves model (Pirates.stateAt model.simTime p) ))
 
 
-{-| A pirate lifted onto the swell at its place, as the targets are.
+{-| A pirate lifted onto the swell at its place.
 -}
 onTheWaves : SailModel -> SailingState -> SailingState
 onTheWaves model ps =
@@ -547,7 +563,7 @@ horizontal a b =
 
 
 {-| Floating goal indicators around the boat showing bearings to harbour,
-flags at sea, pirates, and targets.
+flags at sea and pirates.
 -}
 buildHudGoals : SailModel -> List HUD.HudGoal
 buildHudGoals model =
@@ -629,18 +645,8 @@ buildHudGoals model =
                 |> List.sortBy Tuple.first
                 |> List.head
                 |> Maybe.map (\( _, ppos ) -> calcGoal HUD.PirateGoal ppos)
-
-        -- 4. Nearest target (within 180m)
-        targetGoal =
-            model.targets
-                |> List.filter (not << .sunk)
-                |> List.map (\t -> ( Physics.horizontalDistance shipPos t.position, t.position ))
-                |> List.filter (\( d, _ ) -> d < 180 && d > 4)
-                |> List.sortBy Tuple.first
-                |> List.head
-                |> Maybe.map (\( _, tpos ) -> calcGoal HUD.TargetGoal tpos)
     in
-    List.filterMap identity [ harbourGoal, standardGoal, pirateGoal, targetGoal ]
+    List.filterMap identity [ harbourGoal, standardGoal, pirateGoal ]
 
 
 update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
@@ -1052,6 +1058,7 @@ fireShot shoot aimDir m =
             , nextCannonId = m.nextCannonId + List.length balls
             , follow = newFollow
             , combatTurnTarget = Just targetHeading
+            , sinceShot = 0
           }
         , sfx (GameAudio.Impact 0.8)
         )
@@ -1128,18 +1135,18 @@ tick dt model =
             else
                 sailed
 
-        otherShipPositions =
-            List.map (\( _, ps ) -> ps.position) piratesNow
-                ++ (remotePlayers model |> List.map .position)
+        otherShips =
+            List.map (\( p, ps ) -> { position = ps.position, radius = Pirates.collisionRadius p.kind }) piratesNow
+                ++ (remotePlayers model |> List.map (\rp -> { position = rp.position, radius = shipBumpRadius }))
                 ++ (if GhostShip.canTarget model.ghostShip then
-                        [ model.ghostShip.state.position ]
+                        [ { position = model.ghostShip.state.position, radius = shipBumpRadius } ]
 
                     else
                         []
                    )
 
         bumpedDrifted =
-            Physics.bumpShips Pirates.collisionRadius otherShipPositions drifted
+            Physics.bumpShips otherShips drifted
                 |> Physics.keepInArena model.course.arena
 
         reefImpact =
@@ -1222,13 +1229,10 @@ tick dt model =
         ( flying, splashes ) =
             Physics.stepProjectiles conditions.sea dt time model.cannonballs
 
-        -- The boat's own balls go for targets, pirates, ghost ship and other players;
+        -- The boat's own balls go for pirates, ghost ship and other players;
         -- balls from others (pirates or other players) can hit this boat.
         ( ownFlying, othersFlying ) =
             List.partition (\b -> b.sourceSlot == mySlot model) flying
-
-        ( afterTargets, hitFlashes, ( targets, hits ) ) =
-            Physics.checkTargetHits ownFlying model.targets
 
         ( afterBoatHits, boatFlashes, boatHitCount ) =
             Physics.checkBoatHits state.position othersFlying
@@ -1247,22 +1251,22 @@ tick dt model =
 
         ghostTargets =
             if GhostShip.canTarget model.ghostShip then
-                [ { slot = GhostShip.ghostShipSlot, position = model.ghostShip.state.position } ]
+                [ { slot = GhostShip.ghostShipSlot, position = model.ghostShip.state.position, radius = shipHitRadius } ]
 
             else
                 []
 
         remoteTargets =
             remotePlayers model
-                |> List.map (\rp -> { slot = rp.slot, position = rp.position })
+                |> List.map (\rp -> { slot = rp.slot, position = rp.position, radius = shipHitRadius })
 
         shipsToCheck =
-            List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position }) piratesNow
+            List.map (\( p, ps ) -> { slot = Pirates.shipSlot p.id, position = ps.position, radius = Pirates.hitRadius p.kind }) piratesNow
                 ++ ghostTargets
                 ++ remoteTargets
 
         ( afterPirates, pirateFlashes, pirateSlotsHit ) =
-            Physics.checkShipHits afterTargets shipsToCheck
+            Physics.checkShipHits ownFlying shipsToCheck
 
         sunkNow =
             List.filter (\( p, _ ) -> List.member (Pirates.shipSlot p.id) pirateSlotsHit) piratesNow
@@ -1450,7 +1454,7 @@ tick dt model =
         boardingPirate =
             if racing && model.pirateCooldown <= 0 then
                 piratesNow
-                    |> List.filter (\( _, ps ) -> horizontal state.position ps.position <= Pirates.boardingRange)
+                    |> List.filter (\( p, ps ) -> horizontal state.position ps.position <= Pirates.boardingRange p.kind)
                     |> List.map Tuple.first
                     |> List.head
 
@@ -1465,7 +1469,7 @@ tick dt model =
                 0
 
             else
-                hits + List.length sunkNow
+                List.length sunkNow
 
         treasure =
             if racing then
@@ -1495,7 +1499,7 @@ tick dt model =
 
         progress =
             { progressAfterHarbours
-                | targetsHit = progressAfterHarbours.targetsHit + countedHits
+                | shipsSunk = progressAfterHarbours.shipsSunk + countedHits
                 , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
                 , coins = progressAfterHarbours.coins + sunkCoins + boardingCoins + treasureCoins
             }
@@ -1611,7 +1615,7 @@ tick dt model =
 
                 Nothing ->
                     Cmd.none
-            , if not (List.isEmpty hitFlashes && List.isEmpty pirateFlashes) then
+            , if not (List.isEmpty pirateFlashes) then
                 sfx (GameAudio.Impact 1.0)
 
               else if not (List.isEmpty splashes) then
@@ -1819,10 +1823,9 @@ tick dt model =
         , phase = phase
         , follow = follow
         , simTime = time
-        , targets = Physics.stepTargets conditions.sea dt time targets
         , weather = weather
         , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ hitFlashes ++ pirateFlashes ++ boatFlashes)
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ boatFlashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , standards = regalia.standards
         , pirateCooldown =
@@ -1832,6 +1835,12 @@ tick dt model =
             else
                 max 0 (model.pirateCooldown - dt)
         , cannonCooldown = newCooldown
+        , sinceShot =
+            if racing then
+                model.sinceShot + dt
+
+            else
+                model.sinceShot
         , nextCannonId = nextShotId
         , pirateGuns = pirateGuns
         , toast = toast
@@ -1977,10 +1986,12 @@ remoteBoat standards remoteShip p =
     , sailTint = Just (slotTint p.slot)
     , isGhost = False
     , anchored = False
+    , scale = 1
     }
 
 
-{-| A pirate ship as drawn: the pirates' boat with black sails.
+{-| A pirate ship as drawn: its kind's model (`Pirates.shipNameFor`) at its
+kind's size (`Pirates.shipScale`), with its faction's sails.
 -}
 pirateBoat : List StandardState -> (String -> Maybe ShipMesh) -> ( Pirate, SailingState ) -> RenderBoat
 pirateBoat standards meshFor ( pirate, state ) =
@@ -1995,6 +2006,7 @@ pirateBoat standards meshFor ( pirate, state ) =
     , sailTint = Just (Pirates.sailTint pirate)
     , isGhost = False
     , anchored = False
+    , scale = Pirates.shipScale pirate.kind
     }
 
 
@@ -2032,7 +2044,7 @@ viewRace model callbacks maybeRoom =
                 []
 
             else
-                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing, isGhost = False, anchored = model.anchored } ]
+                [ { mesh = callbacks.meshFor model.boat.name, state = model.state, sailTint = Nothing, isGhost = False, anchored = model.anchored, scale = 1 } ]
 
         ghostBoat =
             if model.ghostShip.active then
@@ -2085,7 +2097,6 @@ viewRace model callbacks maybeRoom =
                     model.progress.currentWaypointIndex
             , boats = boats
             , guide = nextHarbour model |> Maybe.map (\n -> { from = model.state.position, to = n })
-            , targets = model.targets
             , balls = model.cannonballs
             , impacts = model.impacts
             , time = model.simTime
@@ -2153,6 +2164,7 @@ viewRace model callbacks maybeRoom =
                 , isAnchored = model.anchored
                 , showHelp = model.showHelp
                 , goals = buildHudGoals model
+                , hintVisible = HUD.hintVisible { sinceShot = model.sinceShot, anchored = model.anchored }
                 , actions =
                     { onSteer = Steer
                     , onRaiseSail = RaiseSail

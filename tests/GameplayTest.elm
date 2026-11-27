@@ -926,6 +926,7 @@ suite =
                             , sailTint = Nothing
                             , isGhost = False
                             , anchored = sail0.anchored
+                            , scale = 1
                             }
 
                         anchoredBoat =
@@ -934,6 +935,7 @@ suite =
                             , sailTint = Nothing
                             , isGhost = False
                             , anchored = anchoredModel.anchored
+                            , scale = 1
                             }
                     in
                     Expect.all

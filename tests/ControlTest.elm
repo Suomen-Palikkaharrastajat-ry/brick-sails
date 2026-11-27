@@ -7,17 +7,22 @@ of sail logic.
 
 import Expect
 import Game.MapParams exposing (Biome(..), Season(..), WeatherKind(..))
+import Html.Attributes as Attr
 import I18n exposing (Language(..))
 import Math.Vector3 as Vec3 exposing (vec3)
+import Pages.Sail as Sail exposing (SailMsg(..))
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.HUD as HUD exposing (PointOfSail(..))
 import Sails.Hull as Hull
+import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.TiltPitch as TiltPitch
 import Sails.Types exposing (IslandRole(..), SailingState)
 import Sails.Wreck as Wreck
 import Test exposing (Test, describe, test)
+import Test.Html.Query as Query
+import Test.Html.Selector as Selector
 
 
 course : Sails.Types.Course
@@ -56,6 +61,58 @@ frames seconds steer =
 route : List Vec3.Vec3
 route =
     Physics.courseRoute course
+
+
+testId : String -> Selector.Selector
+testId id =
+    Selector.attribute (Attr.attribute "data-testid" id)
+
+
+{-| The race HUD of the default course with these goal hints, shown or
+faded out (`hintVisible`).
+-}
+hudConfig : Bool -> List HUD.HudGoal -> HUD.HudConfig ()
+hudConfig visible goals =
+    let
+        state =
+            Physics.initSailingState course
+    in
+    { progress = Physics.initProgress course
+    , course = course
+    , state = state
+    , cameraYaw = 0
+    , cannonReady = True
+    , touchShoot = False
+    , audioMuted = False
+    , tilt = { available = False, enabled = False }
+    , countdown = Nothing
+    , toast = Nothing
+    , sailLevel = Physics.defaultSailLevel
+    , wind = course.wind
+    , weather = Nothing
+    , flash = 0
+    , hull = Hull.fresh
+    , hazards = { rocks = False, pounding = False }
+    , stopped = False
+    , nextHarbourDistance = Nothing
+    , courseBearing = Nothing
+    , language = En
+    , canAnchor = False
+    , isAnchored = False
+    , showHelp = False
+    , goals = goals
+    , hintVisible = visible
+    , actions =
+        { onSteer = \_ _ -> ()
+        , onRaiseSail = ()
+        , onLowerSail = ()
+        , onToggleMute = ()
+        , onToggleHelp = ()
+        , onRestart = ()
+        , onExit = ()
+        , onDropAnchor = ()
+        }
+    }
 
 
 suite : Test
@@ -349,6 +406,90 @@ suite =
                     in
                     Expect.equal [ InIrons, CloseHauled, Reaching, Running ]
                         (List.map (\off -> HUD.pointOfSail course.wind (from + off)) [ 10, 60, 100, 170 ])
+            , test "the sail badge shows the sail icon and the bars, not the level's name" <|
+                \_ ->
+                    let
+                        badge language level =
+                            Query.fromHtml (HUD.viewSailBadge language False level 1.0)
+
+                        names language =
+                            List.map (\( name, _ ) -> T.sailLevelName language name) Physics.sailLevels
+                    in
+                    [ En, Fi ]
+                        |> List.concatMap (\language -> List.map (\level -> ( language, level )) (List.range 0 (List.length Physics.sailLevels - 1)))
+                        |> List.map
+                            (\( language, level ) ->
+                                Expect.all
+                                    ([ Query.has [ testId "sail-status", Selector.attribute (Attr.attribute "data-sail-level" (Tuple.first (Physics.sailLevel level))) ]
+                                     , Query.find [ testId "sail-bars" ] >> Query.children [] >> Query.count (Expect.equal 5)
+                                     , Query.find [ testId "sail-icon" ] >> Query.has [ Selector.tag "svg" ]
+                                     ]
+                                        ++ List.map (\name -> Query.hasNot [ Selector.text name ]) (names language)
+                                    )
+                                    (badge language level)
+                            )
+                        |> List.map (\e -> \() -> e)
+                        |> (\checks -> Expect.all checks ())
+            , test "the sail badge at anchor reads lowered in its title, still without the name on show" <|
+                \_ ->
+                    Query.fromHtml (HUD.viewSailBadge En True 3 1.0)
+                        |> Expect.all
+                            [ Query.has [ Selector.attribute (Attr.attribute "data-sail-level" "Down") ]
+                            , Query.has [ Selector.attribute (Attr.attribute "aria-label" (T.sailStatusLabel En ++ ": " ++ T.sailLevelName En "Down")) ]
+                            , Query.hasNot [ Selector.text (T.sailLevelName En "Down") ]
+                            ]
+            ]
+        , describe "Goal hints"
+            [ test "the hint is hidden right after a shot and while shooting" <|
+                \_ ->
+                    List.map (\t -> HUD.hintVisible { sinceShot = t, anchored = False }) [ 0, 0.4, 1.5, 2.9 ]
+                        |> Expect.equal [ False, False, False, False ]
+            , test "the hint is back after 3 s of sailing without a shot" <|
+                \_ ->
+                    List.map (\t -> HUD.hintVisible { sinceShot = t, anchored = False }) [ 3, 4, 60 ]
+                        |> Expect.equal [ True, True, True ]
+            , test "the hint shows at anchor, even just after a shot" <|
+                \_ ->
+                    List.map (\t -> HUD.hintVisible { sinceShot = t, anchored = True }) [ 0, 1, 5 ]
+                        |> Expect.equal [ True, True, True ]
+            , test "in a race: a shot resets the time since the last shot, which then runs with the race" <|
+                \_ ->
+                    let
+                        fresh =
+                            Sail.initSail En Boats.default course True Nothing Nothing { available = False, enabled = False } 800 600
+
+                        tick m =
+                            Tuple.first (Sail.update (Tick 20) m)
+
+                        shot =
+                            Tuple.first (Sail.update FireCannons fresh)
+
+                        later =
+                            List.foldl (\_ m -> tick m) shot (List.range 1 160)
+
+                        visible m =
+                            HUD.hintVisible { sinceShot = m.sinceShot, anchored = m.anchored }
+                    in
+                    Expect.equal ( ( True, False ), ( 0, True ) )
+                        ( ( visible fresh, visible shot )
+                        , ( shot.sinceShot, visible later && later.sinceShot > 3 )
+                        )
+            , test "the goal hints fade by opacity over 0.4 s and stay in place" <|
+                \_ ->
+                    let
+                        goals =
+                            [ { kind = HUD.HarbourGoal, angleDeg = 30, distanceM = 120 } ]
+
+                        sea visible =
+                            Query.fromHtml (HUD.viewHud (hudConfig visible goals))
+                                |> Query.find [ testId "hud-goals" ]
+                    in
+                    Expect.all
+                        [ \_ -> sea True |> Query.has [ Selector.style "opacity" "1", Selector.style "transition" "opacity 0.4s ease" ]
+                        , \_ -> sea False |> Query.has [ Selector.style "opacity" "0", Selector.style "transition" "opacity 0.4s ease" ]
+                        , \_ -> sea False |> Query.children [] |> Query.count (Expect.equal 1)
+                        ]
+                        ()
             ]
         , describe "Sail Tilt & Directional Cannons"
             [ test "tilting forward raises sails (Forward zone) and tilting backward lowers sails (Backward zone)" <|

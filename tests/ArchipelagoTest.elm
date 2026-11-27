@@ -21,6 +21,7 @@ import Sails.Boats as Boats
 import Sails.GhostShip as GhostShip
 import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
+import Sails.Pirates as Pirates
 import Sails.Types exposing (Course, Island, IslandRole(..))
 import Sails.Weather as Weather exposing (Spell(..))
 import Sails.World as World
@@ -337,15 +338,19 @@ suite =
                                 )
                                 courses
                         )
-            , test "targets float off every island's shore" <|
+            , test "a full fleet of pirates of every kind patrols off every island's shore" <|
                 \_ ->
                     everyMap
                         (\_ courses ->
                             List.all
                                 (\c ->
-                                    List.length c.targets
-                                        >= 4
-                                        && List.all (\t -> List.all (\i -> dist (flat t.position) ( i.x, i.z ) >= i.radius + 6 - 1.0e-6) c.islands) c.targets
+                                    let
+                                        ships =
+                                            Pirates.fleet 1 c
+                                    in
+                                    (List.length ships == Pirates.fleetSize)
+                                        && List.all (\k -> List.any (\p -> p.kind == k) ships) Pirates.allKinds
+                                        && List.all (\p -> List.all (\i -> dist ( p.centreX, p.centreZ ) ( i.x, i.z ) - p.radius >= i.radius + 4 - 1.0e-6) c.islands) ships
                                 )
                                 courses
                         )

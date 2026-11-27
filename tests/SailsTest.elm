@@ -530,7 +530,7 @@ suite =
                                 )
                                 (List.concatMap (\_ -> Boats.all) seatCourses)
                             )
-            , test "a clean autopilot run on any seat's course without hitting targets is not already 3 stars" <|
+            , test "a clean autopilot run on any seat's course without sinking a ship is not already 3 stars" <|
                 \_ ->
                     seatCourses
                         |> List.concatMap (\seatCourse -> List.map (\b -> (autopilot seatCourse b 200).elapsedSeconds) Boats.all)
@@ -581,14 +581,14 @@ suite =
                         , \_ -> Expect.equal 0 p2.currentWaypointIndex
                         ]
                         ()
-            , test "stars follow the coins against the course's coin target; hits take no time off" <|
+            , test "stars follow the coins against the course's coin target (the whole fleet of six sunk); hits take no time off" <|
                 \_ ->
                     let
                         target =
                             Coins.courseTarget course
                     in
                     Expect.all
-                        [ \_ -> Expect.equal (5 * List.length course.waypoints + 25 * List.length course.treasures + 30) target
+                        [ \_ -> Expect.equal (5 * List.length course.waypoints + 25 * List.length course.treasures + 60) target
                         , \_ -> Expect.equal 3 (Coins.starRating target target)
                         , \_ -> Expect.equal 2 (Coins.starRating target ((target + 1) // 2))
                         , \_ -> Expect.equal 1 (Coins.starRating target 0)
@@ -596,37 +596,42 @@ suite =
                         ()
             ]
         , describe "Cannons"
-            [ test "firing near a target lobs a ball that sinks it" <|
+            [ test "firing near a pirate ship lobs a ball that hits it" <|
                 \_ ->
                     let
-                        target =
-                            { id = 1, position = vec3 15 0 5, sunk = False, sinkAge = 0 }
+                        ship =
+                            { slot = 101, position = vec3 15 0 5, radius = 2.6 }
 
                         start =
                             Physics.initSailingState course
 
                         balls =
-                            Physics.fireCannons 1 { start | position = vec3 0 0 0 } [ target.position ] 1
+                            Physics.fireCannons 1 { start | position = vec3 0 0 0 } [ ship.position ] 1
 
-                        fly i ( bs, ts, hits ) =
+                        fly _ ( bs, hits ) =
                             let
                                 ( flying, _ ) =
                                     Physics.stepProjectiles 1 0.02 0 bs
 
-                                ( left, _, ( ts2, n ) ) =
-                                    Physics.checkTargetHits flying ts
+                                ( left, _, slots ) =
+                                    Physics.checkShipHits flying [ ship ]
                             in
-                            ( left, ts2, hits + n + 0 * i )
+                            ( left, hits ++ slots )
 
-                        ( _, finalTargets, totalHits ) =
-                            List.foldl fly ( balls, [ target ], 0 ) (List.range 1 150)
+                        ( _, slotsHit ) =
+                            List.foldl fly ( balls, [] ) (List.range 1 150)
                     in
                     Expect.all
                         [ \_ -> Expect.equal 1 (List.length balls)
-                        , \_ -> Expect.equal 1 totalHits
-                        , \_ -> Expect.equal [ True ] (List.map .sunk finalTargets)
+                        , \_ -> Expect.equal [ 101 ] slotsHit
                         ]
                         ()
+            , test "no floating targets: the course draws no target prop" <|
+                \_ ->
+                    Render.propSources course.map
+                        |> List.map Tuple.first
+                        |> List.member "floatingTarget"
+                        |> Expect.equal False
             , test "with nothing in range a broadside goes out both sides" <|
                 \_ ->
                     Physics.fireCannons 1 (Physics.initSailingState course) [ vec3 500 0 500 ] 1
@@ -833,6 +838,7 @@ suite =
                             , sailTint = Nothing
                             , isGhost = False
                             , anchored = False
+                            , scale = 1
                             }
 
                         roughBoat =
@@ -846,6 +852,7 @@ suite =
                             , sailTint = Nothing
                             , isGhost = False
                             , anchored = False
+                            , scale = 1
                             }
                     in
                     Expect.all

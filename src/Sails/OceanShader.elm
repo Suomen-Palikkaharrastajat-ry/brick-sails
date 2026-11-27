@@ -18,8 +18,8 @@ module Sails.OceanShader exposing
 on the swell of `Sails.Physics.seaElevation`, stepped studded brick island
 shells (`islandEntity`), and the brick sky (all three using the shared brick
 look of `Game.BrickLook`), the camera, sun and fog the brick-built props are
-drawn with (`propView`), and one flat-shaded shader for the course markers and
-the floating targets. The weather (`withWeather`) raises the sea, darkens the
+drawn with (`propView`), and one flat-shaded shader for the course markers.
+The weather (`withWeather`) raises the sea, darkens the
 sea, sky, islands and light under storm clouds, pulls the fog in and lights
 everything up in a lightning flash. The course (`withCourse`) sets the map's sea
 and sky colours (`Sails.World.SeaPalette`), where the sea is centred and the

@@ -77,7 +77,7 @@ here).
 -}
 piratesToSink : Int
 piratesToSink =
-    3
+    6
 
 
 {-| The coins of a full run of a course: every harbour docked, every chest

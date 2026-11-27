@@ -36,7 +36,7 @@ finishing =
         p =
             fresh.progress
     in
-    { fresh | progress = { p | finished = True, elapsedSeconds = 50, targetsHit = 2, coins = 40, currentWaypointIndex = p.totalWaypoints } }
+    { fresh | progress = { p | finished = True, elapsedSeconds = 50, shipsSunk = 2, coins = 40, currentWaypointIndex = p.totalWaypoints } }
 
 
 {-| One animation frame of `dt` seconds (`Tick` takes milliseconds).

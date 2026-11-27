@@ -1,14 +1,18 @@
 module Sails.HUD exposing
     ( GoalKind(..)
     , HudActions
+    , HudConfig
     , HudGoal
     , PointOfSail(..)
     , Side(..)
     , formatCounter
+    , hintReturnSeconds
+    , hintVisible
     , mapBadgeText
     , pointOfSail
     , showSteerButtons
     , viewHud
+    , viewSailBadge
     , viewWrecked
     )
 
@@ -43,6 +47,8 @@ import Sails.Hull as Hull exposing (Hull)
 import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, CourseProgress, SailingState, Wind)
+import Svg
+import Svg.Attributes as SA
 
 
 type Side
@@ -56,7 +62,6 @@ type GoalKind
     = HarbourGoal
     | StandardGoal
     | PirateGoal
-    | TargetGoal
 
 
 {-| A navigation goal indicating direction and distance to an objective.
@@ -80,7 +85,12 @@ type alias HudActions msg =
     }
 
 
-viewHud :
+{-| Everything the race HUD shows (`viewHud`): the run, the boat, the
+wind and weather, the controls' state, the goal hints round the boat and
+whether they show (`hintVisible`, see the function of that name), and the
+messages its buttons send.
+-}
+type alias HudConfig msg =
     { progress : CourseProgress
     , course : Course
     , state : SailingState
@@ -105,8 +115,13 @@ viewHud :
     , isAnchored : Bool
     , showHelp : Bool
     , goals : List HudGoal
+    , hintVisible : Bool
     , actions : HudActions msg
     }
+
+
+viewHud :
+    HudConfig msg
     -> Html msg
 viewHud cfg =
     div
@@ -144,18 +159,37 @@ viewHud cfg =
                 ]
                 [ anchorButton cfg
                 ]
-            , viewHudGoals cfg.goals
+            , viewHudGoals cfg.hintVisible cfg.goals
             , viewHelpModal cfg.showHelp cfg.actions.onToggleHelp
             ]
         ]
 
 
+{-| Seconds of sailing without a shot before the goal hints come back.
+-}
+hintReturnSeconds : Float
+hintReturnSeconds =
+    3
+
+
+{-| Whether the goal hints round the boat show: not while the player is
+shooting (`sinceShot`, the seconds since the last shot, under
+`hintReturnSeconds`), again once at anchor or after that long without a
+shot.
+-}
+hintVisible : { sinceShot : Float, anchored : Bool } -> Bool
+hintVisible { sinceShot, anchored } =
+    anchored || sinceShot >= hintReturnSeconds
+
+
 {-| Floating navigation goal badges orbiting near the player's ship.
 Each badge indicates an objective with an outward-pointing arrow, an icon describing its meaning,
-and the distance in meters.
+and the distance in meters. While the player shoots they fade out (`visible`
+False, see `hintVisible`) over 0.4 s and fade back in after; they stay in
+place while hidden, so nothing moves when they come back.
 -}
-viewHudGoals : List HudGoal -> Html msg
-viewHudGoals goals =
+viewHudGoals : Bool -> List HudGoal -> Html msg
+viewHudGoals visible goals =
     if List.isEmpty goals then
         text ""
 
@@ -163,6 +197,28 @@ viewHudGoals goals =
         div
             [ Attr.class "absolute inset-0 pointer-events-none overflow-hidden select-none"
             , Attr.attribute "data-testid" "hud-goals"
+            , Attr.attribute "data-visible"
+                (if visible then
+                    "true"
+
+                 else
+                    "false"
+                )
+            , Attr.attribute "aria-hidden"
+                (if visible then
+                    "false"
+
+                 else
+                    "true"
+                )
+            , Attr.style "opacity"
+                (if visible then
+                    "1"
+
+                 else
+                    "0"
+                )
+            , Attr.style "transition" "opacity 0.4s ease"
             ]
             (List.indexedMap viewHudGoal goals)
 
@@ -199,11 +255,6 @@ viewHudGoal index goal =
                 PirateGoal ->
                     ( "bg-rose-950/85 border-rose-400/80 text-rose-300 shadow-rose-950/60"
                     , FeatherIcons.crosshair
-                    )
-
-                TargetGoal ->
-                    ( "bg-sky-950/85 border-sky-400/80 text-sky-300 shadow-sky-950/60"
-                    , FeatherIcons.target
                     )
     in
     div
@@ -508,11 +559,13 @@ viewWindBadge language cameraYaw wind =
         ]
 
 
-{-| The sail setting beside the wind: a sail icon, the level's name (Down,
-Storm, Reefed, Full, Press, see `Sails.Physics.sailLevels`) and five rising
-bars, in the wind badge's style, lit as far as the sail is hoisted. `hoist`
-is the boat's eased sail share (0 lowered, 1 full, 1.2 pressed), so the bars
-follow the sail as it goes up or down. At anchor the sail shows lowered.
+{-| The sail setting beside the wind: a sail icon (`sailIcon`) and five
+rising bars, in the wind badge's style, lit as far as the sail is hoisted.
+The level's name (Down, Storm, Reefed, Full, Press, see
+`Sails.Physics.sailLevels`) is not shown, only told in the title and the
+aria-label and kept in `data-sail-level`. `hoist` is the boat's eased sail
+share (0 lowered, 1 full, 1.2 pressed), so the bars follow the sail as it
+goes up or down. At anchor the sail shows lowered.
 -}
 viewSailBadge : Language -> Bool -> Int -> Float -> Html msg
 viewSailBadge language isAnchored sailLevel hoist =
@@ -537,9 +590,23 @@ viewSailBadge language isAnchored sailLevel hoist =
         , Attr.title label
         , Attr.attribute "aria-label" label
         ]
-        [ FeatherIcons.triangle |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml []
-        , span [ Attr.class "uppercase tracking-wide leading-none" ] [ text (T.sailLevelName language name) ]
+        [ span [ Attr.class "inline-flex", Attr.attribute "data-testid" "sail-icon" ]
+            [ sailIcon |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
         , levelBars "sail-bars" lit
+        ]
+
+
+{-| A sail in Feather's line style (Feather has no sail icon; its `wind`,
+`navigation`, `anchor` and `flag` mean other things here): a mast, one tall
+triangular mainsail from its masthead to the boom and the hull's sheer
+under it. Drawn in the text colour, as the wind badge's arrow.
+-}
+sailIcon : FeatherIcons.Icon
+sailIcon =
+    FeatherIcons.customIcon
+        [ Svg.line [ SA.x1 "11", SA.y1 "2", SA.x2 "11", SA.y2 "18" ] []
+        , Svg.path [ SA.d "M11 3 L19 16 L11 16 Z" ] []
+        , Svg.path [ SA.d "M3 19 L21 19 L18 22 L6 22 Z" ] []
         ]
 
 

@@ -1,45 +1,57 @@
 module Sails.Pirates exposing
     ( Pirate
+    , ShipKind(..)
+    , allKinds
     , boardingCooldown
     , boardingRange
     , collisionRadius
     , fleet
     , fleetSize
     , harbourClearance
+    , hitRadius
     , isPirateSlot
+    , kindOf
     , patrolRoutes
+    , patrolSeparation
     , reach
     , reloadSeconds
     , sailTint
     , shipName
     , shipNameFor
+    , shipScale
     , shipSlot
     , stateAt
     )
 
-{-| Pirate and patrol ships: three faction NPC vessels that patrol the course.
+{-| Pirate and patrol ships: a fleet of faction NPC vessels of three sizes
+that patrol the course.
 
-Each ship sails round and round a small circle centred on the middle of one leg
-between two harbours, so it crosses the route twice a lap and the player meets
-it on the way. Each faction (Pirates, BlueCoats, RedCoats) has a patrol ship
-assigned to the leg closest to its island, with faction-specific sail tints and
-vessel models. Where on the circle each starts, which way round and how fast all
-come from a seed.
+Each ship sails round and round a small circle centred on a leg between two
+harbours (half way along it, or a quarter of the way from either end), so it
+crosses the route twice a lap and the player meets it on the way. The fleet
+has `fleetSize` ships, two for each faction (Pirates, BlueCoats, RedCoats),
+each faction's pair of two different kinds (`ShipKind`): a big `Frigate`, a
+middling `Corvette` and a small `Sloop`. A ship guards a patrol spot near
+its faction's island where the course has one, with faction-specific sail
+tints. Which spot, where on the circle each starts, which way round and how
+fast all come from a seed.
 
   - A circle is only used when it keeps `harbourClearance` metres clear of
-    every harbour's mooring circle and the start, clear of the islands, and
-    a few metres off the floating targets: a patrol ship never sits on a harbour,
-    so the course can always be finished.
+    every harbour's mooring circle and the start, and clear of the islands:
+    a patrol ship never sits on a harbour, so the course can always be
+    finished. Two ships' circles keep `patrolSeparation` metres apart
+    (centre to centre), so the ships never sail through each other.
   - A patrol ship is a ship of its own size: the boat cannot sail through it, and
-    bumps off it as it does off an island (`collisionRadius`).
-  - A patrol ship the boat comes within `boardingRange` of boards it: the hull
-    takes one cannon hit's damage (the crew fights the boarders off and wins
-    `Sails.Coins.pirateBoarded` coins), then no ship can board again for
-    `boardingCooldown` seconds.
+    bumps off it as it does off an island (`collisionRadius`, by kind).
+  - A patrol ship the boat comes within `boardingRange` of (by kind) boards
+    it: the hull takes one cannon hit's damage (the crew fights the boarders
+    off and wins `Sails.Coins.pirateBoarded` coins), then no ship can board
+    again for `boardingCooldown` seconds.
   - Patrol ships shoot back. A ship within `reach` of the boat fires a ball at
     it every `reloadSeconds`; a ball that hits takes one cannon hit's damage.
-  - A cannon ball that hits a patrol ship sinks it for the rest of the run,
-    counts as a target hit and wins `Sails.Coins.pirateSunk` coins.
+  - A cannon ball that comes within a ship's `hitRadius` (by kind) sinks it
+    for the rest of the run, counts as a ship sunk and wins
+    `Sails.Coins.pirateSunk` coins.
 
 -}
 
@@ -49,10 +61,33 @@ import Sails.Physics as Physics
 import Sails.Types exposing (Course, Faction(..), SailingState)
 
 
+{-| The three sizes of patrol ship, each drawn with one of the NPC models of
+`Sails.NpcShips` at its own scale (`shipScale`):
+
+  - `Frigate`: large, the three-masted frigate (`npc:frigate`) at 1.2 times
+    the boats' brick scale, about 11.8 m long.
+  - `Corvette`: medium, the same frigate model at 0.85, about 8.3 m long.
+  - `Sloop`: small, the single-masted sloop (`npc:sloop`) at 0.75, about
+    6.3 m long.
+
+-}
+type ShipKind
+    = Frigate
+    | Corvette
+    | Sloop
+
+
+{-| Every kind of patrol ship, largest first.
+-}
+allKinds : List ShipKind
+allKinds =
+    [ Frigate, Corvette, Sloop ]
+
+
 {-| A pirate's patrol: its id, the centre and radius of its circle, the
 seconds a lap takes, where on the circle it is at time 0 (a share of a
 lap), which way round it sails (1 clockwise seen from above, -1 the other
-way) and its faction.
+way), its faction and its kind of ship.
 -}
 type alias Pirate =
     { id : Int
@@ -63,23 +98,82 @@ type alias Pirate =
     , phase : Float
     , direction : Float
     , faction : Faction
+    , kind : ShipKind
     }
 
 
-{-| How many pirates a race has (fewer if the course has fewer legs with
-room for a patrol).
+{-| How many pirates a race has (fewer if the course has fewer patrol spots
+clear of the harbours, the islands and each other).
 -}
 fleetSize : Int
 fleetSize =
-    3
+    List.length fleetOrder
 
 
-{-| Radius (m) of a pirate ship for collisions with the boat: the boat
-bumps off it at this distance from the pirate's centre.
+{-| The ships of a full fleet, in the order they are placed: two for each
+faction, each pair of two different kinds, so the first three already have
+one of each kind.
 -}
-collisionRadius : Float
-collisionRadius =
-    2.3
+fleetOrder : List ( Faction, ShipKind )
+fleetOrder =
+    [ ( Pirates, Frigate )
+    , ( BlueCoats, Sloop )
+    , ( RedCoats, Corvette )
+    , ( Pirates, Sloop )
+    , ( BlueCoats, Corvette )
+    , ( RedCoats, Frigate )
+    ]
+
+
+{-| The kind of ship a pirate sails.
+-}
+kindOf : Pirate -> ShipKind
+kindOf pirate =
+    pirate.kind
+
+
+{-| How many times the boats' brick scale (`Sails.ShipMesh.studScale`) a
+kind of ship is drawn at.
+-}
+shipScale : ShipKind -> Float
+shipScale kind =
+    case kind of
+        Frigate ->
+            1.2
+
+        Corvette ->
+            0.85
+
+        Sloop ->
+            0.75
+
+
+{-| Radius (m) of a kind of pirate ship for collisions with the boat: the
+boat bumps off it at this distance plus its own radius
+(`Sails.Physics.boatRadius`) from the pirate's centre. A circle a little
+under half the hull's drawn length (the frigate model is 9.8 m long at
+scale 1, the sloop 8.4 m), scaled with the ship.
+-}
+collisionRadius : ShipKind -> Float
+collisionRadius kind =
+    case kind of
+        Frigate ->
+            2.8
+
+        Corvette ->
+            2.0
+
+        Sloop ->
+            1.5
+
+
+{-| How close (m) a cannon ball must come to a kind of ship to hit it: its
+`collisionRadius` and 0.6 m more for the rig above the deck (2.6 m for
+the corvette, the size every patrol ship used to have).
+-}
+hitRadius : ShipKind -> Float
+hitRadius kind =
+    collisionRadius kind + 0.6
 
 
 {-| How close (m) the boat must be for a pirate to fire at it.
@@ -97,8 +191,8 @@ reloadSeconds pirate =
     4.5 + 0.8 * toFloat (modBy 3 pirate.id)
 
 
-{-| The built-in boat a pirate is drawn as (with black sails). Kept for
-backwards compatibility; use `shipNameFor` for faction-specific vessels.
+{-| The built-in boat a sunk pirate's wreck is broken from (see
+`Sails.Wreck`); `shipNameFor` names the model a pirate is drawn with.
 -}
 shipName : String
 shipName =
@@ -125,21 +219,21 @@ sailTint pirate =
             vec3 0.82 0.16 0.12
 
 
-{-| Model a faction's vessel is drawn with (see `Sails.NpcShips`): Pirates
-and RedCoats sail three-masted frigates, while BlueCoats patrol in nimble
-sloops.
+{-| Model a pirate's vessel is drawn with (see `Sails.NpcShips`), by its
+kind: frigates and corvettes are three-masted frigates (at different
+scales, `shipScale`), sloops are sloops.
 -}
 shipNameFor : Pirate -> String
 shipNameFor pirate =
-    case pirate.faction of
-        Pirates ->
+    case pirate.kind of
+        Frigate ->
             NpcShips.frigateName
 
-        BlueCoats ->
+        Corvette ->
+            NpcShips.frigateName
+
+        Sloop ->
             NpcShips.sloopName
-
-        RedCoats ->
-            NpcShips.frigateName
 
 
 {-| Metres a pirate's patrol keeps clear of every harbour's mooring circle.
@@ -149,11 +243,13 @@ harbourClearance =
     8
 
 
-{-| How close (m) a pirate comes before it boards the boat.
+{-| How close (m) a kind of pirate comes before it boards the boat: just
+past where the boat bumps off it (`Sails.Physics.boatRadius` plus
+`collisionRadius`), so a boat run alongside is always boarded.
 -}
-boardingRange : Float
-boardingRange =
-    5
+boardingRange : ShipKind -> Float
+boardingRange kind =
+    Physics.boatRadius + collisionRadius kind + 0.7
 
 
 {-| Seconds after a boarding before a pirate can board again.
@@ -174,6 +270,23 @@ shipSlot id =
 patrolRadius : Float
 patrolRadius =
     9
+
+
+{-| Metres between the centres of two pirates' patrol circles at the least:
+both circles and the largest hull either side, with room to spare, so two
+pirates never sail into each other.
+-}
+patrolSeparation : Float
+patrolSeparation =
+    2 * patrolRadius + 2 * collisionRadius Frigate + 0.4
+
+
+{-| Shares of the way along a leg between harbours where a patrol circle
+may sit, the middle first.
+-}
+legShares : List Float
+legShares =
+    [ 0.5, 0.25, 0.75 ]
 
 
 {-| Whether a cannon slot (see `shipSlot`) belongs to a pirate.
@@ -237,8 +350,12 @@ closestFaction x z course =
         RedCoats
 
 
-{-| Every patrol circle the course has room for, one per leg between
-harbours (no lap timing yet: id, centre, radius and faction only), in course order.
+{-| Every patrol circle the course has room for: on each leg between
+harbours, half way along and a quarter of the way from either end
+(`legShares`), when clear of the harbours, the start and the islands (no
+lap timing yet: id, centre, radius and faction only; the kind is set by
+`fleet`), in course order. Circles of one leg may lie closer together than
+`patrolSeparation`; `fleet` never picks two of those.
 -}
 patrolRoutes : Course -> List Pirate
 patrolRoutes course =
@@ -249,28 +366,33 @@ patrolRoutes course =
         legs =
             List.map2 Tuple.pair harbours (List.drop 1 harbours)
 
-        route i ( a, b ) =
+        spot legIndex ( k, share ) ( a, b ) =
             let
-                mid =
-                    Vec3.scale 0.5 (Vec3.add a b)
+                at =
+                    Vec3.add a (Vec3.scale share (Vec3.sub b a))
                         |> Vec3.toRecord
             in
-            { id = i
-            , centreX = mid.x
-            , centreZ = mid.z
+            { id = legIndex * List.length legShares + k
+            , centreX = at.x
+            , centreZ = at.z
             , radius = patrolRadius
             , lapSeconds = 12
             , phase = 0
             , direction = 1
-            , faction = closestFaction mid.x mid.z course
+            , faction = closestFaction at.x at.z course
+            , kind = Frigate
             }
+
+        leg i ab =
+            List.indexedMap (\k share -> spot i ( k, share ) ab) legShares
     in
-    List.indexedMap route legs
+    List.indexedMap leg legs
+        |> List.concat
         |> List.filter (isClear course)
 
 
-{-| Whether a patrol circle stays clear of the harbours, the start, the
-islands and the targets.
+{-| Whether a patrol circle stays clear of the harbours, the start and the
+islands.
 -}
 isClear : Course -> Pirate -> Bool
 isClear course p =
@@ -284,34 +406,29 @@ isClear course p =
                     Vec3.toRecord pos
             in
             fromCentre r.x r.z - p.radius
-
-        offTarget pos =
-            let
-                r =
-                    Vec3.toRecord pos
-            in
-            abs (fromCentre r.x r.z - p.radius) >= 4
     in
     List.all (\w -> gap w.position >= w.radius + harbourClearance) course.waypoints
         && (gap course.startPosition >= Physics.harbourRadius + harbourClearance)
         && List.all (\i -> fromCentre i.x i.z - p.radius >= i.radius + 4) course.islands
-        && List.all (.position >> offTarget) course.targets
 
 
-{-| The patrol fleet of a race with this seed: 3 ships, one for each
-faction (Pirates, BlueCoats, RedCoats), each guarding the patrol route
-closest to its stronghold island.
+{-| Whether two patrol circles keep `patrolSeparation` apart.
+-}
+apart : Pirate -> Pirate -> Bool
+apart a b =
+    sqrt ((a.centreX - b.centreX) ^ 2 + (a.centreZ - b.centreZ) ^ 2) >= patrolSeparation
+
+
+{-| The patrol fleet of a race with this seed: up to `fleetSize` ships, two
+for each faction (Pirates, BlueCoats, RedCoats) of two different kinds
+(`fleetOrder`), each on a patrol spot near its stronghold island where
+there is one left, else on any spot left, every one `patrolSeparation`
+from the others.
 -}
 fleet : Int -> Course -> List Pirate
 fleet seed course =
     let
-        routes =
-            patrolRoutes course
-
-        factions =
-            [ Pirates, BlueCoats, RedCoats ]
-
-        pickFaction f ( chosen, available, s ) =
+        pick ( f, kind ) ( chosen, available, s ) =
             let
                 ( r, s1 ) =
                     random s
@@ -334,40 +451,52 @@ fleet seed course =
 
                     else
                         matching
+
+                i =
+                    min (List.length candidates - 1) (floor (r * toFloat (List.length candidates)))
             in
-            if List.isEmpty candidates then
-                ( chosen, available, s4 )
+            case List.drop i candidates of
+                route :: _ ->
+                    ( { route
+                        | faction = f
+                        , kind = kind
+                        , phase = phase
+                        , direction =
+                            if way < 0.5 then
+                                1
 
-            else
-                let
-                    i =
-                        min (List.length candidates - 1) (floor (r * toFloat (List.length candidates)))
-                in
-                case List.drop i candidates of
-                    route :: _ ->
-                        ( { route
-                            | faction = f
-                            , phase = phase
-                            , direction =
-                                if way < 0.5 then
-                                    1
+                            else
+                                -1
+                        , lapSeconds = baseLapSeconds kind + 3 * pace
+                      }
+                        :: chosen
+                    , List.filter (apart route) available
+                    , s4
+                    )
 
-                                else
-                                    -1
-                            , lapSeconds = 11 + 3 * pace
-                          }
-                            :: chosen
-                        , List.filter (\rt -> rt.id /= route.id) available
-                        , s4
-                        )
-
-                    [] ->
-                        ( chosen, available, s4 )
+                [] ->
+                    ( chosen, available, s4 )
 
         ( picked, _, _ ) =
-            List.foldl pickFaction ( [], routes, clamp 1 (modulus - 1) seed ) factions
+            List.foldl pick ( [], patrolRoutes course, clamp 1 (modulus - 1) seed ) fleetOrder
     in
     List.sortBy .id picked
+
+
+{-| The shortest lap (s) of a kind of ship round its circle: the small
+sloops sail fastest, the big frigates slowest.
+-}
+baseLapSeconds : ShipKind -> Float
+baseLapSeconds kind =
+    case kind of
+        Frigate ->
+            12
+
+        Corvette ->
+            11
+
+        Sloop ->
+            10
 
 
 {-| Where pirate `p` is, and which way it sails, at race time `t` (s), on
