@@ -613,7 +613,7 @@ suite =
                         fly i ( bs, ts, hits ) =
                             let
                                 ( flying, _ ) =
-                                    Physics.stepProjectiles 0.02 0 bs
+                                    Physics.stepProjectiles 1 0.02 0 bs
 
                                 ( left, _, ( ts2, n ) ) =
                                     Physics.checkTargetHits flying ts

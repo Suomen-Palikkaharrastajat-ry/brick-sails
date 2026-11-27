@@ -58,6 +58,7 @@ module Sails.Physics exposing
     , sailLevels
     , sailLoad
     , seaElevation
+    , shipVelocity
     , shorePoint
     , starRating
     , steerResponse
@@ -1409,8 +1410,12 @@ fireDirectional slot state sideSign aimPoints startId =
 {-| Fire towards a specific world-space aim direction (from tap or click on the sea).
 Determines whether port or starboard broadside is closer to the tapped direction,
 computes the optimal heading for the ship to align its broadside with the shot,
-shoots in that exact direction (or directly at a target near that line of fire),
 and returns the fired balls, the camera focus bias, and the target ship heading.
+With a target near the line of fire, the ball is lobbed straight at it and the
+ship turns to bring that broadside round. Otherwise the ball leaves at 90
+degrees to the current heading on the tapped side, and the returned heading is
+the current one, so the ship holds its course and the hull stays square to
+the ball in flight.
 -}
 fireTowards : Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
 fireTowards slot state aimVec aimPoints startId =
@@ -1508,16 +1513,50 @@ fireTowards slot state aimVec aimPoints startId =
 
         Nothing ->
             let
+                -- Broadside: 90 degrees to the boat's heading, on the side the
+                -- player tapped (starboard is (cos h, -sin h), as in
+                -- findBroadsideTarget).
+                headingRad =
+                    degrees state.heading
+
+                ( sideX, sideZ ) =
+                    if sideSign > 0 then
+                        ( cos headingRad, 0 - sin headingRad )
+
+                    else
+                        ( 0 - cos headingRad, sin headingRad )
+
+                -- The ball leaves the muzzle square to the hull and keeps
+                -- the ship's way on, so in the ship's frame it still flies
+                -- at 90 degrees and does not drift aft of a fast boat.
                 vel =
-                    vec3 (unitX * 22.0) 5.5 (unitZ * 22.0)
+                    Vec3.add (vec3 (sideX * 22.0) 5.5 (sideZ * 22.0)) (shipVelocity state)
             in
-            ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias, targetHeading )
+            -- Keep the current heading: turning the ship towards
+            -- `targetHeading` after the ball has left would swing the hull
+            -- away from the ball's line, so in flight it would no longer
+            -- be at 90 degrees to the boat.
+            ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias, state.heading )
 
 
-{-| Move cannonballs; the ones that reach the water become splashes.
+{-| The ship's horizontal velocity (m/s): its speed along its heading, as
+`stepSailing` moves it (the course current is not included).
 -}
-stepProjectiles : Float -> Float -> List Cannonball -> ( List Cannonball, List CombatImpact )
-stepProjectiles dt time balls =
+shipVelocity : SailingState -> Vec3
+shipVelocity state =
+    let
+        rad =
+            degrees state.heading
+    in
+    vec3 (sin rad * state.speed) 0 (cos rad * state.speed)
+
+
+{-| Move cannonballs; the ones that reach the water become splashes. `sea`
+is the sea state of the weather (see `seaElevation`), so a ball splashes on
+the same swell the sea is drawn with.
+-}
+stepProjectiles : Float -> Float -> Float -> List Cannonball -> ( List Cannonball, List CombatImpact )
+stepProjectiles sea dt time balls =
     let
         stepOne ball ( alive, splashes ) =
             let
@@ -1540,7 +1579,7 @@ stepProjectiles dt time balls =
                     p.z + v.z * dt
 
                 water =
-                    waterElevation nx nz time
+                    seaElevation sea nx nz time
             in
             if ball.age + dt > 4.0 then
                 ( alive, splashes )

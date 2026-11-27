@@ -1918,8 +1918,38 @@ ballEntity draw ball =
         v =
             Vec3.toRecord ball.velocity
 
+        -- The round brick is a cylinder: it flies nose-on, its axis along the
+        -- line of flight, and spins about that axis as it goes.
+        flight =
+            if Vec3.length ball.velocity > 0.001 then
+                Vec3.normalize ball.velocity
+
+            else
+                vec3 0 1 0
+
+        sideAxis =
+            if abs (Vec3.getY flight) > 0.98 then
+                vec3 1 0 0
+
+            else
+                Vec3.normalize (Vec3.cross (vec3 0 1 0) flight)
+
+        flightBasis =
+            Mat4.makeBasis (Vec3.cross flight sideAxis) flight sideAxis
+
+        -- Read right to left: centre the 0.6 m tall brick on its own axis,
+        -- spin it about that (local Y) axis, lay the axis along the line of
+        -- flight, then move it to the ball. The spin must be multiplied on
+        -- the right (`Mat4.rotate`), in the brick's own frame: on the left it
+        -- would turn the ball's world position about the world origin.
         ballEntities =
-            draw.fitted "cannonball" (BrickProps.fitHeight 0.6) (Mat4.makeTranslate3 p.x (p.y - 0.3) p.z) plain
+            draw.fitted "cannonball"
+                (BrickProps.fitHeight 0.6)
+                (Mat4.mul (Mat4.makeTranslate3 p.x p.y p.z) flightBasis
+                    |> Mat4.rotate (ball.age * 9) (vec3 0 1 0)
+                    |> Mat4.translate3 0 -0.3 0
+                )
+                plain
 
         smokeEntities =
             if ball.age < 0.4 then

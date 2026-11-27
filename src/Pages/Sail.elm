@@ -1007,10 +1007,19 @@ fireInAimDirection aimDir m =
             ( balls, _, targetHeading ) =
                 Physics.fireTowards (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
 
+            -- World bearing of the shot, in the same convention as heading:
+            -- the way the ball actually flies (its horizontal velocity),
+            -- falling back to the aim direction if nothing was fired.
+            -- The camera rides with the ship, so this is the ball's
+            -- velocity relative to the ship (the ship's own velocity,
+            -- which an untargeted ball carries, taken off).
             aimRec =
-                Vec3.toRecord aimDir
+                balls
+                    |> List.head
+                    |> Maybe.map (\b -> Vec3.sub b.velocity (Physics.shipVelocity m.state))
+                    |> Maybe.withDefault aimDir
+                    |> Vec3.toRecord
 
-            -- World bearing of the shot, in the same convention as heading.
             shotBearing =
                 atan2 aimRec.x aimRec.z * 180.0 / pi
 
@@ -1191,7 +1200,7 @@ tick dt model =
                 ( model.progress, Nothing )
 
         ( flying, splashes ) =
-            Physics.stepProjectiles dt time model.cannonballs
+            Physics.stepProjectiles conditions.sea dt time model.cannonballs
 
         -- The boat's own balls go for targets, pirates, ghost ship and other players;
         -- balls from others (pirates or other players) can hit this boat.
