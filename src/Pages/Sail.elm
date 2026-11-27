@@ -47,7 +47,7 @@ import Sails.IslandMesh as IslandMesh
 import Sails.Physics as Physics
 import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
-import Sails.ShipMesh exposing (ShipMesh)
+import Sails.ShipMesh exposing (Muzzle, ShipMesh)
 import Sails.TiltPitch as TiltPitch
 import Sails.Types
     exposing
@@ -124,6 +124,7 @@ type alias SailModel =
     , showHelp : Bool
     , combatTurnTarget : Maybe Float
     , islandMeshes : IslandMesh.CourseMesh
+    , cannons : List Muzzle
     }
 
 
@@ -268,6 +269,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , showHelp = False
     , combatTurnTarget = Nothing
     , islandMeshes = islandMeshes
+    , cannons = []
     }
 
 
@@ -1005,7 +1007,7 @@ fireInAimDirection aimDir m =
     if m.cannonCooldown <= 0 && m.phase == Racing && not (Hull.wrecked m.hull) && not m.progress.finished then
         let
             ( balls, _, targetHeading ) =
-                Physics.fireTowards (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
+                Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId
 
             -- World bearing of the shot, in the same convention as heading:
             -- the way the ball actually flies (its horizontal velocity),

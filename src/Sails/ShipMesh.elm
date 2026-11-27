@@ -1,5 +1,6 @@
 module Sails.ShipMesh exposing
-    ( PartProgress
+    ( Muzzle
+    , PartProgress
     , ShipMesh
     , ShipPart
     , build
@@ -53,6 +54,8 @@ import Set exposing (Set)
   - `lengthMeters`, `heightMeters`: size on the water, for cameras.
   - `deckStuds`: the free studs on top of the hull, in boat space (metres),
     where an anchor chain can be hooked on.
+  - `cannons`: the muzzles of the cannons built on the boat, in boat space
+    (metres); empty for a boat with no cannons (see `cannonMuzzles`).
 
 -}
 type alias ShipMesh =
@@ -66,6 +69,17 @@ type alias ShipMesh =
     , lengthMeters : Float
     , heightMeters : Float
     , deckStuds : List Vec3
+    , cannons : List Muzzle
+    }
+
+
+{-| A cannon's muzzle in boat space (metres, bow along +Z) and the side it
+fires to: +1 starboard (boat-space x > 0, which `Sails.Render`'s heading turn
+puts at (cos h, -sin h), the game's starboard), -1 port.
+-}
+type alias Muzzle =
+    { position : Vec3
+    , side : Float
     }
 
 
@@ -267,6 +281,7 @@ build isSail doc rawCache =
     , lengthMeters = lengthMeters
     , heightMeters = size.y * scale
     , deckStuds = deckStudPoints toBoat placements body
+    , cannons = cannonMuzzles toBoat placements
     , linear = linear
     , parts = parts
     }
@@ -318,6 +333,52 @@ deckStudPoints toBoat allPlacements hullPlacements =
         |> List.map (.worldPosition >> toBoatPoint)
 
 
+{-| The muzzles of the boat's cannons, in boat space (metres). A cannon is a
+part the shipyard counts as one (`Sails.Ingest.classifyPart`: the name has
+32828, cannon or shooting in it). On 32828 (plate 1 x 1 round with bar, the
+shipyard's cannon) the muzzle is the open end of the bar, at (30, 2, 0) in
+the part's own LDraw units; any other cannon part fires from its origin. The
+point goes through the part's placement, the LDraw-to-scene flip and
+`toBoat`, as the deck studs do (see `deckStudPoints`).
+-}
+cannonMuzzles : Mat4 -> List Placement -> List Muzzle
+cannonMuzzles toBoat placements =
+    let
+        isCannon name =
+            let
+                n =
+                    String.toLower name
+            in
+            String.contains "32828" n || String.contains "cannon" n || String.contains "shooting" n
+
+        localMuzzle name =
+            if String.contains "32828" (String.toLower name) then
+                vec3 30 2 0
+
+            else
+                vec3 0 0 0
+
+        muzzle placement =
+            let
+                boatPoint =
+                    Mat4.transform placement.matrix (localMuzzle placement.part)
+                        |> Mat4.transform (Mat4.makeScale3 1 -1 -1)
+                        |> Mat4.transform toBoat
+            in
+            { position = boatPoint
+            , side =
+                if Vec3.getX boatPoint >= 0 then
+                    1
+
+                else
+                    -1
+            }
+    in
+    placements
+        |> List.filter (.part >> isCannon)
+        |> List.map muzzle
+
+
 {-| Flatten a scenery model (see `Sails.Scenery`) whose parts are all in the
 cache, at a fixed scale in metres per LDraw unit. Its origin stays where
 the model has it, on the ground; it has no sails.
@@ -357,6 +418,7 @@ buildScenery metersPerLdu doc rawCache =
     , lengthMeters = max size.x size.z * metersPerLdu
     , heightMeters = size.y * metersPerLdu
     , deckStuds = []
+    , cannons = []
     , linear = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , parts = Array.empty
     }

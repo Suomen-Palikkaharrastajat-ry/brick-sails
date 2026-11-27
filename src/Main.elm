@@ -749,8 +749,16 @@ update msg model =
             case model.sailModel of
                 Just sModel ->
                     let
+                        -- The ship's built cannons, so shots leave from
+                        -- their muzzles; the mesh may arrive after the
+                        -- voyage starts, so it is looked up on every message.
+                        cannons =
+                            Dict.get sModel.boat.name model.meshes
+                                |> Maybe.map .cannons
+                                |> Maybe.withDefault []
+
                         ( nextSail, sCmd ) =
-                            Sail.update sMsg sModel
+                            Sail.update sMsg { sModel | cannons = cannons }
 
                         justFinished =
                             nextSail.progress.finished && not sModel.progress.finished

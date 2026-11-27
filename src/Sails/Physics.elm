@@ -34,6 +34,7 @@ module Sails.Physics exposing
     , fireCannons
     , fireDirectional
     , fireTowards
+    , fireTowardsFrom
     , grassHeight
     , harbourRadius
     , harbourThrottle
@@ -45,6 +46,7 @@ module Sails.Physics exposing
     , isDeepDraft
     , keelBurdenBoat
     , keepInArena
+    , muzzleWorld
     , nearestCoursePoint
     , overpower
     , reachedTreasure
@@ -1256,10 +1258,14 @@ findBroadsideTarget state aimPoints =
 -}
 fireBroadside : Int -> SailingState -> Vec3 -> Int -> Cannonball
 fireBroadside slot state aim id =
-    let
-        origin =
-            Vec3.add state.position (vec3 0 1.0 0)
+    lobFrom (Vec3.add state.position (vec3 0 1.0 0)) slot aim id
 
+
+{-| One ball lobbed from `origin` so it lands on `aim`.
+-}
+lobFrom : Vec3 -> Int -> Vec3 -> Int -> Cannonball
+lobFrom origin slot aim id =
+    let
         o =
             Vec3.toRecord origin
 
@@ -1418,10 +1424,61 @@ the current one, so the ship holds its course and the hull stays square to
 the ball in flight.
 -}
 fireTowards : Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
-fireTowards slot state aimVec aimPoints startId =
+fireTowards =
+    fireTowardsFrom []
+
+
+{-| A cannon muzzle (see `Sails.ShipMesh.Muzzle`) in world space: the boat
+point turned by the heading about the hull centre and moved to the boat's
+position, as `Sails.Render` places the hull (heel and pitch are left out).
+-}
+muzzleWorld : SailingState -> { position : Vec3, side : Float } -> Vec3
+muzzleWorld state muzzle =
+    let
+        m =
+            Vec3.toRecord muzzle.position
+
+        rad =
+            degrees state.heading
+    in
+    Vec3.add state.position
+        (vec3 (m.x * cos rad + m.z * sin rad) m.y (m.z * cos rad - m.x * sin rad))
+
+
+{-| `fireTowards` for a ship with built cannons: `muzzles` are its cannons'
+muzzles in boat space (`Sails.ShipMesh.cannons`). The ball leaves from the
+muzzle on the side it is fired to that is nearest the middle of the hull fore
+and aft, in world space (see `muzzleWorld`); a targeted lob is aimed from
+that muzzle. With no muzzle on that side (or no cannons at all) it leaves
+from the hull centre, as `fireTowards` does.
+-}
+fireTowardsFrom : List { position : Vec3, side : Float } -> Int -> SailingState -> Vec3 -> List Vec3 -> Int -> ( List Cannonball, Float, Float )
+fireTowardsFrom muzzles slot state aimVec aimPoints startId =
     let
         origin =
             Vec3.add state.position (vec3 0 1.0 0)
+
+        muzzleOn side =
+            muzzles
+                |> List.filter (\mz -> mz.side == side)
+                |> List.sortBy (\mz -> abs (Vec3.getZ mz.position))
+                |> List.head
+                |> Maybe.map (muzzleWorld state)
+                |> Maybe.withDefault origin
+
+        sideOf p =
+            let
+                pr =
+                    Vec3.toRecord p
+
+                rad =
+                    degrees state.heading
+            in
+            if (pr.x - o.x) * cos rad - (pr.z - o.z) * sin rad >= 0 then
+                1.0
+
+            else
+                -1.0
 
         o =
             Vec3.toRecord origin
@@ -1509,7 +1566,7 @@ fireTowards slot state aimVec aimPoints startId =
     in
     case targetInDirection of
         Just ( _, aim ) ->
-            ( [ fireBroadside slot state aim startId ], camBias, targetHeading )
+            ( [ lobFrom (muzzleOn (sideOf aim)) slot aim startId ], camBias, targetHeading )
 
         Nothing ->
             let
@@ -1536,7 +1593,7 @@ fireTowards slot state aimVec aimPoints startId =
             -- `targetHeading` after the ball has left would swing the hull
             -- away from the ball's line, so in flight it would no longer
             -- be at 90 degrees to the boat.
-            ( [ { id = startId, sourceSlot = slot, position = origin, velocity = vel, age = 0 } ], camBias, state.heading )
+            ( [ { id = startId, sourceSlot = slot, position = muzzleOn sideSign, velocity = vel, age = 0 } ], camBias, state.heading )
 
 
 {-| The ship's horizontal velocity (m/s): its speed along its heading, as

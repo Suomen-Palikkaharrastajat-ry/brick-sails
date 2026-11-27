@@ -159,6 +159,106 @@ suite =
                             |> List.map .velocity
                 in
                 Expect.equal (shot s0) (shot { s0 | speed = 8 })
+        , test "a ship with a starboard cannon fires a starboard shot from that cannon's muzzle" <|
+            \_ ->
+                let
+                    s =
+                        stateAt 30
+
+                    -- Built directly, not from a model: a muzzle 1.2 m to
+                    -- starboard, 0.8 m up and 0.5 m aft, plus a port gun.
+                    starboardGun =
+                        { position = vec3 1.2 0.8 -0.5, side = 1 }
+
+                    portGun =
+                        { position = vec3 -1.2 0.8 0.3, side = -1 }
+
+                    ( balls, _, _ ) =
+                        Physics.fireTowardsFrom [ portGun, starboardGun ] 0 s (vec3 (cos (degrees 30)) 0 -(sin (degrees 30))) [] 0
+
+                    p =
+                        Vec3.toRecord s.position
+
+                    rad =
+                        degrees 30
+
+                    expected =
+                        { x = p.x + 1.2 * cos rad - 0.5 * sin rad
+                        , y = p.y + 0.8
+                        , z = p.z - 0.5 * cos rad - 1.2 * sin rad
+                        }
+
+                    ( start, vel ) =
+                        balls
+                            |> List.head
+                            |> Maybe.map (\b -> ( Vec3.toRecord b.position, Vec3.toRecord b.velocity ))
+                            |> Maybe.withDefault ( { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 } )
+
+                    still =
+                        Physics.fireTowards 0 s (vec3 (cos rad) 0 -(sin rad)) [] 0
+                            |> (\( bs, _, _ ) -> bs)
+                            |> List.head
+                            |> Maybe.map (.velocity >> Vec3.toRecord)
+                            |> Maybe.withDefault { x = 0, y = 0, z = 0 }
+                in
+                Expect.all
+                    [ \_ -> Expect.within (Expect.Absolute 1.0e-6) expected.x start.x
+                    , \_ -> Expect.within (Expect.Absolute 1.0e-6) expected.y start.y
+                    , \_ -> Expect.within (Expect.Absolute 1.0e-6) expected.z start.z
+                    , \_ -> Expect.equal still vel
+                    ]
+                    ()
+        , test "a targeted lob from a cannon is aimed from the muzzle and still lands on the target" <|
+            \_ ->
+                let
+                    s =
+                        stateAt 0
+
+                    p =
+                        Vec3.toRecord s.position
+
+                    target =
+                        vec3 (p.x + 10) p.y (p.z + 10)
+
+                    gun =
+                        { position = vec3 1 0.8 0, side = 1 }
+
+                    ball =
+                        Physics.fireTowardsFrom [ gun ] 0 s (vec3 1 0 1) [ target ] 0
+                            |> (\( bs, _, _ ) -> bs)
+                            |> List.head
+
+                    o =
+                        ball |> Maybe.map (.position >> Vec3.toRecord) |> Maybe.withDefault { x = 0, y = 0, z = 0 }
+
+                    v =
+                        ball |> Maybe.map (.velocity >> Vec3.toRecord) |> Maybe.withDefault { x = 0, y = 0, z = 0 }
+                in
+                Expect.all
+                    [ \_ -> Expect.within (Expect.Absolute 1.0e-6) (p.x + 1) o.x
+                    , \_ -> Expect.within (Expect.Absolute 1.0e-6) (p.y + 0.8) o.y
+
+                    -- The horizontal line from the muzzle runs to the target.
+                    , \_ -> Expect.within (Expect.Absolute 1.0e-6) ((p.x + 10 - o.x) / (p.z + 10 - o.z)) (v.x / v.z)
+                    ]
+                    ()
+        , test "a ship with no cannons fires from the hull centre as before" <|
+            \_ ->
+                let
+                    s =
+                        stateAt 30
+
+                    ( balls, _, _ ) =
+                        Physics.fireTowardsFrom [] 0 s (vec3 1 0 0) [] 0
+
+                    ( before, _, _ ) =
+                        Physics.fireTowards 0 s (vec3 1 0 0) [] 0
+                in
+                Expect.all
+                    [ \_ -> Expect.equal (List.map .position before) (List.map .position balls)
+                    , \_ -> Expect.equal [ Vec3.add s.position (vec3 0 1 0) ] (List.map .position balls)
+                    ]
+                    ()
         , test "a ball splashes on the storm sea it is drawn on" <|
             \_ ->
                 let
