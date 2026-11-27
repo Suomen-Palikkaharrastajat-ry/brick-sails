@@ -15,7 +15,8 @@ module Sails.HUD exposing
 {-| Touch-first race HUD, a glanceable dashboard as in Brick Racer.
 
 Top left: the course title with its map code under it, small (the map
-code means the same map in Brick Racer), the race timer as a counter of digit tiles (`mm:ss.d`), the
+code means the same map in Brick Racer), the race timer as a counter of digit tiles (`mm:ss.d`)
+with the gold coins won beside it (the score, `Sails.Coins`), the
 boat's speed in knots with the metres to the next harbour (for a few
 seconds after docking, that harbour's time in their place, and "Mooring…"
 while the boat moors), harbour progress, the hull's
@@ -343,7 +344,10 @@ viewStatus { progress, course, state, cameraYaw, wind, weather, hull, hazards, n
     in
     div [ Attr.class (panel ++ " px-3 py-2 flex flex-col gap-1 min-w-0") ]
         [ viewMapBadge language course
-        , viewCounter (formatCounter progress.elapsedSeconds)
+        , div [ Attr.class "flex items-center gap-2" ]
+            [ viewCounter (formatCounter progress.elapsedSeconds)
+            , viewCoins language progress.coins
+            ]
         , viewMetrics language progress state nextHarbourDistance canAnchor
         , viewHealth language hull
         , viewHazards language hazards
@@ -360,18 +364,6 @@ viewStatus { progress, course, state, cameraYaw, wind, weather, hull, hazards, n
                 ]
                 [ FeatherIcons.arrowUp |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml [] ]
             , span [ Attr.class (Tuple.second powerLabel), Attr.attribute "data-testid" "point-of-sail" ] [ text (Tuple.first powerLabel) ]
-            , if List.isEmpty progress.treasureFound then
-                text ""
-
-              else
-                span [ Attr.class "text-amber-300", Attr.attribute "data-testid" "treasure" ]
-                    [ text (T.treasureLabel language (List.length progress.treasureFound) (round progress.treasureBonus)) ]
-            , if progress.targetsHit > 0 then
-                span [ Attr.class "text-rose-300" ]
-                    [ text (T.targetsLabel language progress.targetsHit (round (Physics.bonusPerHit * toFloat progress.targetsHit))) ]
-
-              else
-                text ""
             ]
         , viewHeel language state.heel
         , case weather of
@@ -597,6 +589,52 @@ formatCounter seconds =
             String.padLeft 2 '0' (String.fromInt n)
     in
     pad2 (tenths // 600) ++ ":" ++ pad2 (modBy 60 (tenths // 10)) ++ "." ++ String.fromInt (modBy 10 tenths)
+
+
+{-| The coins won so far, the run's score (`Sails.Coins`): a gold 1x1
+round plate seen from above, with its stud, and the count.
+-}
+viewCoins : Language -> Int -> Html msg
+viewCoins language coins =
+    div
+        [ Attr.class "flex items-center gap-1"
+        , Attr.attribute "data-testid" "coins"
+        , Attr.title (T.coinsLabel language)
+        , Attr.attribute "aria-label" (T.coinsLabel language ++ ": " ++ String.fromInt coins)
+        ]
+        [ coinIcon
+        , span
+            [ Attr.class "font-mono font-black leading-tight"
+            , Attr.style "color" "#f5c542"
+            , Attr.style "font-size" "1.05rem"
+            , Attr.style "text-shadow" "0 1px 2px rgba(0, 0, 0, 0.6)"
+            ]
+            [ text (String.fromInt coins) ]
+        ]
+
+
+{-| A gold 1x1 round plate from above: the plate's rim and its stud.
+-}
+coinIcon : Html msg
+coinIcon =
+    span
+        [ Attr.class "inline-flex items-center justify-center rounded-full"
+        , Attr.attribute "aria-hidden" "true"
+        , Attr.style "width" "1.1rem"
+        , Attr.style "height" "1.1rem"
+        , Attr.style "background" "radial-gradient(circle at 35% 30%, #ffe8a3, #d9a520 55%, #a8761a)"
+        , Attr.style "border" "1px solid #7a5512"
+        , Attr.style "box-shadow" "0 1px 2px rgba(0, 0, 0, 0.5)"
+        ]
+        [ span
+            [ Attr.class "inline-block rounded-full"
+            , Attr.style "width" "0.6rem"
+            , Attr.style "height" "0.6rem"
+            , Attr.style "background" "radial-gradient(circle at 35% 30%, #fff1c4, #e3b33a 60%, #b8861f)"
+            , Attr.style "border" "1px solid rgba(122, 85, 18, 0.7)"
+            ]
+            []
+        ]
 
 
 {-| The race timer as a mechanical counter: one dark tile per digit, as in

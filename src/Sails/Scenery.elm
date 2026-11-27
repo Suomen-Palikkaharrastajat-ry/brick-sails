@@ -4,7 +4,6 @@ module Sails.Scenery exposing
     , blueCoatStandard
     , chest
     , fort
-    , houses
     , isScenery
     , key
     , metersPerLdu
@@ -19,10 +18,11 @@ module Sails.Scenery exposing
     , wreck
     )
 
-{-| The brick-built scenery of the treasure islands: a row of pastel colonial
-houses, a harbour pier and the pirates' treasure chest on the islands, and
-the palm trees, the fort's watchtower, the coral reefs, the pirate wreck and
-the pirate flags on the finish gate around them.
+{-| The brick-built scenery of the treasure islands: a harbour pier, a sea
+arch and the pirates' treasure chest, and the palm tree, the fort's
+watchtower, the coral reefs, the pirate wreck and the pirate flags on the
+finish gate around them. The towns' houses and the islands' trees are in
+`Sails.IslandDecor`.
 
 Like the boats in `Sails.Boats`, every piece is a real brick model: the
 LDraw text lists the catalog bricks, plates, slopes and round bricks it is
@@ -49,8 +49,10 @@ type alias Piece =
     }
 
 
-{-| Scale of the scenery: a brick is 1.2 m tall and a stud 1 m apart, so a
-house is about the size of a boat's sail on the course.
+{-| The one scale of everything built on the islands (houses, trees,
+landmarks): 0.035 m per LDU, so a stud is 0.7 m apart (20 LDU) and a brick
+0.84 m tall (24 LDU). A three-brick house with its roof stands about 4 m
+tall and a catalog pine about 5 m.
 -}
 metersPerLdu : Float
 metersPerLdu =
@@ -59,7 +61,7 @@ metersPerLdu =
 
 all : List Piece
 all =
-    [ houses, pier, chest, seaArch ]
+    [ pier, chest, seaArch ]
 
 
 {-| Key of a piece in `Main`'s documents and meshes, apart from the boats.
@@ -79,11 +81,6 @@ upright =
     "1 0 0 0 1 0 0 0 1"
 
 
-turned : String
-turned =
-    "-1 0 0 0 1 0 0 0 -1"
-
-
 alongZ : String
 alongZ =
     "0 0 1 0 1 0 -1 0 0"
@@ -100,100 +97,6 @@ line colour ( x, y, z ) matrix part =
         , matrix
         , part
         ]
-
-
-{-| One house: a 4 x 4 stud block of 2 x 4 bricks `layers` high, and a gable roof of 2 x 4 slopes.
--}
-house : Float -> Int -> Int -> Int -> List String
-house x layers wall roof =
-    let
-        layerY k =
-            -24 * toFloat (k + 1)
-
-        walls =
-            List.range 0 (layers - 1)
-                |> List.concatMap
-                    (\k ->
-                        [ line wall ( x, layerY k, -20 ) upright "3001.dat"
-                        , line wall ( x, layerY k, 20 ) upright "3001.dat"
-                        ]
-                    )
-
-        top =
-            layerY layers
-
-        roofs =
-            [ line roof ( x, top, -10 ) upright "3037.dat"
-            , line roof ( x, top, 10 ) turned "3037.dat"
-            ]
-    in
-    walls ++ roofs
-
-
-{-| A grand colonial town hall with a four-layer main hall, flat balustrade roof,
-and a central clock tower and spire.
--}
-townHall : Float -> List String
-townHall x =
-    let
-        layerY k =
-            -24 * toFloat (k + 1)
-
-        mainWalls =
-            List.range 0 3
-                |> List.concatMap
-                    (\k ->
-                        [ line 18 ( x, layerY k, -20 ) upright "3001.dat"
-                        , line 18 ( x, layerY k, 20 ) upright "3001.dat"
-                        ]
-                    )
-
-        mainRoof =
-            [ line 4 ( x, layerY 4, -20 ) upright "3020.dat"
-            , line 4 ( x, layerY 4, 20 ) upright "3020.dat"
-            ]
-
-        tower =
-            [ line 15 ( x, layerY 5, 0 ) upright "3003.dat"
-            , line 15 ( x, layerY 6, 0 ) upright "3003.dat"
-            ]
-    in
-    mainWalls ++ mainRoof ++ tower
-
-
-{-| A colonial Caribbean brick town: five buildings side by side along a cobblestone quay.
--}
-houses : Piece
-houses =
-    { name = "houses"
-    , ldraw =
-        String.join "\n"
-            ([ "0 FILE houses.ldr"
-             , "0 Name: Brick Sails island houses"
-             , "0 Author: Brick Sails"
-             , "0 BFC CERTIFY CCW"
-             , "0 // Cobblestone quay walkway"
-             , line 71 ( -80, -8, -60 ) upright "3034.dat"
-             , line 71 ( 80, -8, -60 ) upright "3034.dat"
-             , "0 // Waterfront Tavern"
-             ]
-                ++ house -160 3 320 72
-                ++ [ "0 // Colonial Apothecary" ]
-                ++ house -80 3 118 4
-                ++ [ "0 // Governor's Town Hall and Belfry" ]
-                ++ townHall 0
-                ++ [ "0 // Colonial Residence" ]
-                ++ house 80 3 77 1
-                ++ [ "0 // Customs Warehouse" ]
-                ++ house 160 4 28 70
-                ++ [ "0 // Quayside Lanterns"
-                   , line 0 ( -70, -32, -50 ) upright "3062b.dat"
-                   , line 14 ( -70, -40, -50 ) upright "6141.dat"
-                   , line 0 ( 70, -32, -50 ) upright "3062b.dat"
-                   , line 14 ( 70, -40, -50 ) upright "6141.dat"
-                   ]
-            )
-    }
 
 
 {-| A wooden harbour pier, four studs wide, with round brick pilings, mooring bollards,

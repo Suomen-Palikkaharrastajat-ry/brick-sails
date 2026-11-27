@@ -13,6 +13,9 @@ module Sails.I18n exposing
     , buildOwnShip
     , byChance
     , citadelName
+    , coinsGained
+    , coinsLabel
+    , coinsScoreLabel
     , controlsHint
     , copyLink
     , copyRoomLink
@@ -112,11 +115,9 @@ module Sails.I18n exposing
     , startRace
     , steerLabel
     , subtitle
-    , targetsLabel
     , title
     , toCode
     , townName
-    , treasureLabel
     , treasureStat
     , treasureToast
     , turnLabel
@@ -391,18 +392,53 @@ stars n =
     String.repeat n "★" ++ String.repeat (3 - n) "☆"
 
 
-{-| Best time line of the Shipyard, with its stars.
+{-| Best coins line of the Shipyard, with its stars.
 -}
-personalBestLine : Language -> String -> Int -> String
-personalBestLine lang time starCount =
-    pick lang "Paras " "Best " ++ time ++ " · " ++ stars starCount
+personalBestLine : Language -> Int -> Int -> String
+personalBestLine lang coins starCount =
+    pick lang "Paras " "Best " ++ coinCount lang coins ++ " · " ++ stars starCount
 
 
-{-| Goal line of the Shipyard while the course has no best time yet.
+{-| Goal line of the Shipyard while the course has no best run yet: the
+coins for 3 stars.
 -}
-bestLine : Language -> String -> String
+bestLine : Language -> Int -> String
 bestLine lang target =
-    pick lang "3 tähteä alle " "3 stars under " ++ target
+    pick lang "3 tähteä: " "3 stars at " ++ coinCount lang target
+
+
+{-| A number of gold coins, such as "25 kolikkoa" or "25 coins".
+-}
+coinCount : Language -> Int -> String
+coinCount lang n =
+    String.fromInt n
+        ++ (if n == 1 then
+                pick lang " kolikko" " coin"
+
+            else
+                pick lang " kolikkoa" " coins"
+           )
+
+
+{-| Coins just won, after a toast: "+10 kolikkoa" or "+10 coins".
+-}
+coinsGained : Language -> Int -> String
+coinsGained lang n =
+    "+" ++ coinCount lang n
+
+
+{-| Name of the coin count of the status panel (its tooltip).
+-}
+coinsLabel : Language -> String
+coinsLabel lang =
+    pick lang "Kultakolikot" "Gold coins"
+
+
+{-| Label of the score, the coins won, on the finish screen.
+-}
+coinsScoreLabel : Language -> String
+coinsScoreLabel lang =
+    pick lang "Kultaa saaliina" "Gold won"
 
 
 controlsHint : Language -> Bool -> String
@@ -571,18 +607,6 @@ windDirection lang =
     pick lang "Tuulen suunta" "Wind direction"
 
 
-treasureLabel : Language -> Int -> Int -> String
-treasureLabel lang count bonus =
-    pick lang "Aarteet " "Treasure " ++ String.fromInt count ++ " (-" ++ String.fromInt bonus ++ "s)"
-
-
-{-| Targets hit so far, with the seconds they take off.
--}
-targetsLabel : Language -> Int -> Int -> String
-targetsLabel lang count bonus =
-    pick lang "Osumat " "Targets " ++ String.fromInt count ++ " (-" ++ String.fromInt bonus ++ "s)"
-
-
 {-| Shown name of the weather (`Sails.Weather.label` gives the English one).
 -}
 weatherName : Language -> String -> String
@@ -678,8 +702,8 @@ goBanner lang =
 countdownHint : Language -> String
 countdownHint lang =
     pick lang
-        "Purjehdi tuulen mukana jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Mene lähelle maalitaulua ja ammu: −2 s."
-        "Sail with the wind to each harbour in turn: slow down inside the glowing ring to moor. Get close to a target and shoot for -2 s."
+        "Purjehdi tuulen mukana jokaiseen satamaan vuorollaan: hidasta hehkuvan renkaan sisällä ja kiinnity. Upota merirosvoja, löydä aarteita ja kerää kultakolikoita."
+        "Sail with the wind to each harbour in turn: slow down inside the glowing ring to moor. Sink pirates, find treasure and win gold coins."
 
 
 {-| The sail buttons: raise (True) or lower (False).
@@ -872,11 +896,11 @@ mainMenuButton lang =
     pick lang "Valikkoon" "Main menu"
 
 
-{-| Label of the final time on the finish screen.
+{-| Label of the time sailed on the finish screen (shown, not ranked).
 -}
 finalTimeLabel : Language -> String
 finalTimeLabel lang =
-    pick lang "Loppuaika" "Final time"
+    pick lang "Aika" "Time"
 
 
 {-| Finish screen stat: time spent sailing.
@@ -904,9 +928,11 @@ treasureStat lang =
 -- TOASTS
 
 
+{-| A treasure chest taken aboard, with its coins.
+-}
 treasureToast : Language -> Int -> String
-treasureToast lang bonus =
-    pick lang "Aarre! −" "Treasure! −" ++ String.fromInt bonus ++ " s"
+treasureToast lang coins =
+    pick lang "Aarre! " "Treasure! " ++ coinsGained lang coins
 
 
 finishToast : Language -> String
@@ -980,13 +1006,13 @@ standardRepatriatedToast : Faction -> Lang -> String
 standardRepatriatedToast faction lang =
     case faction of
         Pirates ->
-            pick lang "Merirosvojen lippu kotiutettu! −15 s!" "Pirate Standard repatriated! −15 s bonus!"
+            pick lang "Merirosvojen lippu kotiutettu!" "Pirate Standard repatriated!"
 
         BlueCoats ->
-            pick lang "Kuvernöörin vaakuna kotiutettu! −15 s!" "Governor's Crest repatriated! −15 s bonus!"
+            pick lang "Kuvernöörin vaakuna kotiutettu!" "Governor's Crest repatriated!"
 
         RedCoats ->
-            pick lang "Kuninkaallinen sotalippu kotiutettu! −15 s!" "Royal Ensign repatriated! −15 s bonus!"
+            pick lang "Kuninkaallinen sotalippu kotiutettu!" "Royal Ensign repatriated!"
 
 
 {-| A warning when a deep keel scrapes a shallow coral reef.
@@ -1007,7 +1033,7 @@ ghostShipAppearedToast lang =
 -}
 ghostShipBanishedToast : Lang -> String
 ghostShipBanishedToast lang =
-    pick lang "Aavelaiva karkotettu!" "Ghost Ship banished! -5 s bonus!"
+    pick lang "Aavelaiva karkotettu!" "Ghost Ship banished!"
 
 
 {-| A pirate ship came alongside and boarded the boat.
@@ -1018,12 +1044,12 @@ piratesBoardedToast lang =
     factionBoardingToast Pirates lang
 
 
-{-| A cannon ball sank a pirate ship, with the seconds it takes off.
+{-| A cannon ball sank a pirate ship, with the coins it won.
 Kept for backwards compatibility.
 -}
 pirateSunkToast : Language -> Int -> String
-pirateSunkToast lang bonus =
-    factionSunkToast Pirates lang ++ " −" ++ String.fromInt bonus ++ " s"
+pirateSunkToast lang coins =
+    factionSunkToast Pirates lang ++ " " ++ coinsGained lang coins
 
 
 {-| Alias for pirateSunkToast. Kept for backwards compatibility.
@@ -1038,9 +1064,11 @@ harbourToast lang n total =
     pick lang "Satama " "Harbour " ++ String.fromInt n ++ "/" ++ String.fromInt total
 
 
-hitToast : Language -> Int -> String
-hitToast lang bonus =
-    pick lang "Osuma! −" "Hit! −" ++ String.fromInt bonus ++ " s"
+{-| A cannon ball hit a floating target (it wins no coins).
+-}
+hitToast : Language -> String
+hitToast lang =
+    pick lang "Osuma!" "Hit!"
 
 
 hullDamagedToast : Language -> Int -> String
@@ -1072,9 +1100,11 @@ starsAria lang n =
     String.fromInt n ++ pick lang " tähteä" " stars"
 
 
-nextGoal : Language -> String -> String
+{-| The coins for 3 stars, on the finish screen.
+-}
+nextGoal : Language -> Int -> String
 nextGoal lang target =
-    pick lang "3 tähteä ajalla " "3 stars at " ++ target
+    pick lang "3 tähteä: " "3 stars at " ++ coinCount lang target
 
 
 newPersonalBest : Language -> String
@@ -1082,11 +1112,11 @@ newPersonalBest lang =
     pick lang "Uusi oma ennätys!" "New personal best!"
 
 
-{-| The best time so far, on the finish screen.
+{-| The best coins so far, on the finish screen.
 -}
-personalBestShort : Language -> String -> String
-personalBestShort lang time =
-    pick lang "Paras: " "Best: " ++ time
+personalBestShort : Language -> Int -> String
+personalBestShort lang coins =
+    pick lang "Paras: " "Best: " ++ coinCount lang coins
 
 
 
@@ -1329,8 +1359,11 @@ allPhrases =
     , ( "loadingBricks", \l -> loadingBricks l 1 2 )
     , ( "muteLabel muted", \l -> muteLabel l True )
     , ( "muteLabel unmuted", \l -> muteLabel l False )
-    , ( "personalBestLine", \l -> personalBestLine l "1:00.00" 2 )
-    , ( "bestLine", \l -> bestLine l "1:00.00" )
+    , ( "personalBestLine", \l -> personalBestLine l 60 2 )
+    , ( "bestLine", \l -> bestLine l 75 )
+    , ( "coinsGained", \l -> coinsGained l 10 )
+    , ( "coinsLabel", coinsLabel )
+    , ( "coinsScoreLabel", coinsScoreLabel )
     , ( "controlsHint tilt", \l -> controlsHint l True )
     , ( "controlsHint buttons", \l -> controlsHint l False )
     , ( "speedLabel", speedLabel )
@@ -1357,8 +1390,6 @@ allPhrases =
     , ( "harbourAria", harbourAria )
     , ( "harbourCount", \l -> harbourCount l 1 7 )
     , ( "windDirection", windDirection )
-    , ( "treasureLabel", \l -> treasureLabel l 1 5 )
-    , ( "targetsLabel", \l -> targetsLabel l 1 2 )
     , ( "weather Squall", \l -> weatherName l "Squall" )
     , ( "weather Thunderstorm", \l -> weatherName l "Thunderstorm" )
     , ( "weather Calm", \l -> weatherName l "Calm before the storm" )
@@ -1431,18 +1462,18 @@ allPhrases =
     , ( "sailingStat", sailingStat )
     , ( "hitsStat", hitsStat )
     , ( "treasureStat", treasureStat )
-    , ( "treasureToast", \l -> treasureToast l 5 )
+    , ( "treasureToast", \l -> treasureToast l 25 )
     , ( "finishToast", finishToast )
     , ( "harbourToast", \l -> harbourToast l 1 7 )
-    , ( "hitToast", \l -> hitToast l 2 )
+    , ( "hitToast", hitToast )
     , ( "hullDamagedToast", \l -> hullDamagedToast l 80 )
     , ( "headline 3", \l -> headline l 3 )
     , ( "headline 2", \l -> headline l 2 )
     , ( "headline 1", \l -> headline l 1 )
     , ( "starsAria", \l -> starsAria l 2 )
-    , ( "nextGoal", \l -> nextGoal l "1:00.00" )
+    , ( "nextGoal", \l -> nextGoal l 75 )
     , ( "newPersonalBest", newPersonalBest )
-    , ( "personalBestShort", \l -> personalBestShort l "1:00.00" )
+    , ( "personalBestShort", \l -> personalBestShort l 60 )
     , ( "loadingShips", \l -> loadingShips l [ 2 ] )
     , ( "copyRoomLink", copyRoomLink )
     , ( "copyLink", copyLink )

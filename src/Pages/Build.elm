@@ -2094,7 +2094,7 @@ viewReviewDrawer model =
                     Just
                         { severity = EvalWarning
                         , title = tr lang "Unarmed vessel — no cannons on deck" "Aseistamaton alus — ei tykkejä kannella"
-                        , detail = Just (tr lang "Add a cannon (32828) to shoot sea targets for time bonuses." "Lisää tykki (32828) ampuaksesi maalitauluja aikabonuksiksi.")
+                        , detail = Just (tr lang "Add a cannon (32828) to sink pirate ships for gold coins." "Lisää tykki (32828) upottaaksesi merirosvolaivoja kultakolikoiksi.")
                         , addParts = Just [ "32828.dat" ]
                         }
 

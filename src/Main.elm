@@ -43,7 +43,6 @@ import Browser.Dom as Dom
 import Browser.Events
 import Dict exposing (Dict)
 import Game.BrickProps as BrickProps
-import Game.Leaderboard as Leaderboard exposing (Leaderboard)
 import Game.MapParams as MapParams exposing (Biome, MapParams, Pick(..), Season, Selection, WeatherKind)
 import Game.Multiplayer as Multiplayer
 import Game.PartLoading as PartLoading
@@ -65,7 +64,7 @@ import Sails.Editor as Editor
 import Sails.Handling as Handling
 import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
-import Sails.Physics as Physics
+import Sails.NpcShips as NpcShips
 import Sails.Records as Records
 import Sails.Render as Render
 import Sails.Room as SailsRoom
@@ -114,7 +113,7 @@ type alias Model =
     , viewMode : ViewMode
     , sailModel : Maybe Sail.SailModel
     , audioMuted : Bool
-    , leaderboard : Leaderboard
+    , leaderboard : Records.Board
     , tilt : { available : Bool, enabled : Bool }
     , shipyardTime : Float
     , viewportWidth : Int
@@ -174,7 +173,7 @@ init : Flags -> ( Model, Cmd Msg )
 init flags =
     let
         board =
-            Records.tidy (Leaderboard.fromJson flags.savedLeaderboardJson)
+            Records.tidy (Records.fromJson flags.savedLeaderboardJson)
 
         previous =
             Records.lastMap board
@@ -197,6 +196,7 @@ init flags =
             , partCache = Resolve.initCache
             , documents =
                 (Boats.all |> List.map (\b -> ( b.name, Document.parse b.ldraw )))
+                    ++ (NpcShips.all |> List.map (\( name, ldraw ) -> ( name, Document.parse ldraw )))
                     ++ (Scenery.all |> List.map (\piece -> ( Scenery.key piece, Document.parse piece.ldraw )))
                     |> Dict.fromList
             , meshes = Dict.empty
@@ -373,7 +373,7 @@ nextRandomSeed seed =
 
 personalBest : Model -> Maybe Sails.Types.LeaderboardEntry
 personalBest model =
-    Leaderboard.bestForCourse model.course.id model.leaderboard
+    Records.bestForCourse model.course.id model.leaderboard
 
 
 newSail : Maybe Multiplayer.RoomState -> Model -> Sail.SailModel
@@ -985,6 +985,10 @@ sailRule name model =
         -- Another player's build: sails are found like on "Your ship".
         ShipMesh.sailByPartName Ingest.isSailPart
 
+    else if NpcShips.isNpcShip name then
+        -- The computer's frigates and sloops: their white bricks are sails.
+        ShipMesh.sailByColour NpcShips.sailColour
+
     else
         sailRuleForBoat name model
 
@@ -1037,17 +1041,18 @@ recordFinish : Sail.SailModel -> Model -> Cmd Msg -> ( Model, Cmd Msg )
 recordFinish sail model cmd =
     let
         board =
-            Leaderboard.recordRun
+            Records.recordRun
                 { courseId = model.course.id
                 , player = "You"
-                , timeSeconds = Physics.finalTime sail.progress
+                , coins = sail.progress.coins
+                , timeSeconds = sail.progress.elapsedSeconds
                 , isoDate = ""
                 , vehicleName = sail.boat.name
                 }
                 model.leaderboard
     in
     ( { model | leaderboard = Records.tidy board, lastMap = Just model.course.map }
-    , Cmd.batch [ cmd, GamePorts.saveLeaderboard (Leaderboard.toJson (Records.tidy board)) ]
+    , Cmd.batch [ cmd, GamePorts.saveLeaderboard (Records.toJson (Records.tidy board)) ]
     )
 
 

@@ -5,13 +5,13 @@ the per-map leaderboard (`Sails.Records`).
 -}
 
 import Expect
-import Game.Leaderboard as Leaderboard
 import Game.MapParams as MapParams
 import LDraw.Document as Document
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Ingest as Ingest
 import Sails.Records as Records
+import Sails.Types exposing (LeaderboardEntry)
 import Test exposing (Test, describe, test)
 
 
@@ -20,9 +20,9 @@ boreal =
     { biome = MapParams.Boreal, season = MapParams.Winter, weather = MapParams.Snow, seed = 48213 }
 
 
-entry : String -> Float -> Leaderboard.LeaderboardEntry
+entry : String -> Float -> LeaderboardEntry
 entry courseId time =
-    { courseId = courseId, player = "You", timeSeconds = time, isoDate = "", vehicleName = "Sloop" }
+    { courseId = courseId, player = "You", coins = 0, timeSeconds = time, isoDate = "", vehicleName = "Sloop" }
 
 
 suite : Test
@@ -94,9 +94,9 @@ suite =
                         ()
             , test "the previous map is the one sailed last" <|
                 \_ ->
-                    Leaderboard.empty
-                        |> Leaderboard.recordRun (entry "g1:fell-summer-clear-3" 100)
-                        |> Leaderboard.recordRun (entry "g1:boreal-winter-snow-48213" 120)
+                    Records.empty
+                        |> Records.recordRun (entry "g1:fell-summer-clear-3" 100)
+                        |> Records.recordRun (entry "g1:boreal-winter-snow-48213" 120)
                         |> Records.lastMap
                         |> Expect.equal (Just boreal)
             , test "no previous map before the first generated run" <|

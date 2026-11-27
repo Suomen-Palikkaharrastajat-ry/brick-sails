@@ -281,7 +281,7 @@ suite =
                         , Just (Vec3.vec3 0.82 0.16 0.12)
                         )
                         ( tintOf Pirates, tintOf BlueCoats, tintOf RedCoats )
-            , test "BlueCoats patrol in Cutters while Pirates and RedCoats sail Schooners" <|
+            , test "BlueCoats patrol in sloops while Pirates and RedCoats sail frigates" <|
                 \_ ->
                     let
                         fleet =
@@ -294,7 +294,7 @@ suite =
                                 |> Maybe.map Pirates.shipNameFor
                     in
                     Expect.equal
-                        ( Just "Schooner", Just "Cutter", Just "Schooner" )
+                        ( Just "npc:frigate", Just "npc:sloop", Just "npc:frigate" )
                         ( shipOf Pirates, shipOf BlueCoats, shipOf RedCoats )
             , test "each faction is assigned the patrol near its island" <|
                 \_ ->

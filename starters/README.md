@@ -1,6 +1,6 @@
 # Starter hulls
 
-Four alternative boat hulls a player can start a Brick Sails build from. Each
+Six alternative boat hulls a player can start a Brick Sails build from. Each
 hull has a bow, a flat plate deck with studs to build on, and a keel. There is
 no mast or sail: the player adds those. The ship editor (`Pages.Build`,
 "Build a ship on a hull" in the shipyard) starts every ship from one of them.
@@ -11,10 +11,18 @@ no mast or sail: the player adds those. The ship editor (`Pages.Build`,
 | `sails/wide-sturdy.mpd` | Wide Sturdy Hull | 8 | -40..40 / -12..72 / -70..50 (80 x 84 x 120) | Micro 4 x 6 stud beamy galleon with twin bow slopes, broad deck and central keel |
 | `sails/long-cruiser.mpd` | Long Cruiser Hull | 8 | -20..20 / -12..72 / -80..80 (40 x 84 x 160) | Sleek 2 x 8 stud micro clipper with wing-plate bow cutwater, long deck and keel |
 | `sails/round-bow.mpd` | Round Bow Hull | 7 | -20..20 / -12..72 / -60..60 (40 x 84 x 120) | Micro 2 x 6 stud round-nosed cog with round brick stem, flush deck and keel |
+| `sails/sloop-hull.mpd` | Sloop Hull | 39 | -52..52 / -94..24 / -160..80 (104 x 118 x 240) | Hull of the NPC sloop (`src/Sails/NpcShips.elm`): 4 x 9 studs, raked bow, bowsprit, gunport band, raised quarterdeck with helm |
+| `sails/frigate-hull.mpd` | Frigate Hull | 49 | -52..52 / -84..24 / -180..100 (104 x 108 x 280) | Hull of the NPC frigate: 4 x 11 studs, raked bow, bowsprit, forecastle, waist and quarterdeck, gunport band |
 
 Bounds are from the real catalog geometry, in LDraw axes like
 `Sails.Boats`: -Y is up, the bow points to -Z, the hull bricks' tops are at
 y = 0, the deck plates on top of them at y = -8 and the keel hangs below y = 24.
+
+The sloop and frigate hulls are the hulls of the computer's ships: their hull
+submodels (`npc-sloop-hull.ldr`, `npc-frigate-hull.ldr`) are the same, part
+for part, as in `src/Sails/NpcShips.elm`, so the NPC ship is the hull plus the
+masts, sails, flags and cannons the player can add. They are bigger than the
+small hulls (39 and 49 parts) and have no keel below y = 24.
 
 ## Layout of a file
 

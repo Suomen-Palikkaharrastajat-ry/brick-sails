@@ -304,7 +304,6 @@ suite =
                         , \_ -> Expect.equal True banishedShip.banished
                         , \_ -> Expect.equal False banishedShip.active
                         , \_ -> Expect.equal False (GhostShip.canTarget banishedShip)
-                        , \_ -> Expect.equal 5.0 GhostShip.ghostShipBonusSeconds
                         ]
                         ()
             , test "once banished, remains banished even if storm continues" <|
@@ -354,26 +353,14 @@ suite =
                         , \_ -> Expect.equal True (List.all isTransGreenBrick pieces)
                         ]
                         ()
-            , test "final time accounts for ghost ship bonus in CourseProgress" <|
+            , test "the score is coins only: no time bonus, a fresh run has none" <|
                 \_ ->
                     let
-                        base =
-                            Physics.initProgress Archipelago.defaultCourse
-
                         progress : CourseProgress
                         progress =
-                            { base
-                                | elapsedSeconds = 60.0
-                                , targetsHit = 2
-                                , treasureBonus = GhostShip.ghostShipBonusSeconds
-                                , finished = True
-                            }
-
-                        -- 60.0 - (2 * 2.0 targets) - 5.0 ghost ship bonus = 51.0
-                        expectedTime =
-                            51.0
+                            Physics.initProgress Archipelago.defaultCourse
                     in
-                    Expect.equal expectedTime (Physics.finalTime progress)
+                    Expect.equal ( 0, 0 ) ( progress.coins, progress.targetsHit )
             ]
         , describe "Localization Phrases"
             [ test "reef scrape toast" <|
@@ -394,7 +381,7 @@ suite =
                 \_ ->
                     Expect.all
                         [ \_ -> Expect.equal "Aavelaiva karkotettu!" (T.ghostShipBanishedToast Fi)
-                        , \_ -> Expect.equal "Ghost Ship banished! -5 s bonus!" (T.ghostShipBanishedToast En)
+                        , \_ -> Expect.equal "Ghost Ship banished!" (T.ghostShipBanishedToast En)
                         ]
                         ()
             ]

@@ -14,6 +14,7 @@ import Math.Vector3 as Vec3
 import Pages.Sail as Sail
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
+import Sails.Coins as Coins
 import Sails.OceanShader as Ocean
 import Sails.Physics as Physics
 import Sails.Render as Render
@@ -725,14 +726,12 @@ suite =
                             let
                                 ( progress, found ) =
                                     treasureHunt seatCourse 200
-
-                                withTreasure =
-                                    { progress | treasureFound = found, treasureBonus = List.sum (List.map .bonusSeconds seatCourse.treasures) }
                             in
                             Expect.all
                                 [ \_ -> Expect.equal (List.map .id seatCourse.treasures) found
                                 , \_ -> Expect.equal True progress.finished
-                                , \_ -> Expect.within (Expect.Absolute 1.0e-6) (Physics.finalTime progress - 6) (Physics.finalTime withTreasure)
+                                , -- Every harbour docked at earned its coins.
+                                  \_ -> Expect.equal (Coins.harbourDocked * List.length seatCourse.waypoints) progress.coins
                                 ]
                                 ()
                         )

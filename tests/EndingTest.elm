@@ -28,7 +28,7 @@ fresh =
 
 
 {-| The run as the last harbour is reached: finished after 50 s of sailing
-with two hits.
+with two hits and 40 coins.
 -}
 finishing : SailModel
 finishing =
@@ -36,7 +36,7 @@ finishing =
         p =
             fresh.progress
     in
-    { fresh | progress = { p | finished = True, elapsedSeconds = 50, targetsHit = 2, currentWaypointIndex = p.totalWaypoints } }
+    { fresh | progress = { p | finished = True, elapsedSeconds = 50, targetsHit = 2, coins = 40, currentWaypointIndex = p.totalWaypoints } }
 
 
 {-| One animation frame of `dt` seconds (`Tick` takes milliseconds).
@@ -94,7 +94,7 @@ suite =
                         tick (1 / 60) finishing
                 in
                 Expect.equal
-                    ( Just 0, Just (Physics.finalTime finishing.progress), 14 )
+                    ( Just 0, Just 40, 14 )
                     ( Maybe.map .timer m.ending, Maybe.map .score m.ending, List.length m.debris )
         , test "three bursts go off in the first second and a half, then no more" <|
             \_ ->
@@ -106,15 +106,15 @@ suite =
             \_ ->
                 let
                     ending =
-                        Ending.start { targetSeconds = 60, personalBest = Nothing } finishing.progress
+                        Ending.start { coinTarget = 40, personalBest = Nothing } finishing.progress
                 in
                 Expect.equal [ 0, 1, 2, 3, 3 ]
                     (List.map (\t -> Ending.starsShown { ending | timer = t }) [ 0.2, 0.5, 0.8, 1.2, 5 ])
-        , test "a time over the personal best is not a new record" <|
+        , test "fewer coins than the personal best is not a new record" <|
             \_ ->
                 Expect.equal ( True, False )
-                    ( (Ending.start { targetSeconds = 60, personalBest = Just 99 } finishing.progress).isNewRecord
-                    , (Ending.start { targetSeconds = 60, personalBest = Just 10 } finishing.progress).isNewRecord
+                    ( (Ending.start { coinTarget = 60, personalBest = Just 10 } finishing.progress).isNewRecord
+                    , (Ending.start { coinTarget = 60, personalBest = Just 99 } finishing.progress).isNewRecord
                     )
         , test "sailing again starts a fresh run with no ending" <|
             \_ ->
@@ -123,11 +123,13 @@ suite =
                         Sail.update RestartCourse (ticks 30 (1 / 60) finishing)
                 in
                 Expect.equal ( Nothing, False, 0 ) ( again.ending, again.progress.finished, List.length again.debris )
-        , test "the finish screen shows the headline, the time and menu choice" <|
+        , test "the finish screen shows the headline, the coins, the time and menu choice" <|
             \_ ->
                 resultsFor (ticks 90 (1 / 60) finishing)
                     |> Expect.all
                         [ Query.has [ Selector.text "SATAMASSA!" ]
+                        , Query.find [ testId "ending-coins" ] >> Query.has [ Selector.text "40" ]
+                        , Query.find [ testId "ending-time" ] >> Query.has [ Selector.text "00:50.00" ]
                         , Query.find [ testId "ending-menu" ] >> Query.has [ Selector.text "Palaa päävalikkoon" ]
                         ]
         , test "the menu button goes back to the main menu" <|

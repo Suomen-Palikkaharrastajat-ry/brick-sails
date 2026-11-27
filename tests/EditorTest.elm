@@ -53,10 +53,10 @@ suite =
                     |> List.filter (\p -> Connectivity.knownCatalogPart p.file == Nothing)
                     |> List.map .file
                     |> Expect.equal []
-        , test "there are four hulls, each found again in its own document" <|
+        , test "there are six hulls, each found again in its own document" <|
             \_ ->
                 Expect.all
-                    [ \bs -> Expect.equal 4 (List.length bs)
+                    [ \bs -> Expect.equal 6 (List.length bs)
                     , \bs -> Expect.equal (List.map .id bs) (List.filterMap (\b -> Editor.baseOf b.document |> Maybe.map .id) bs)
                     ]
                     Editor.bases

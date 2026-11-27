@@ -17,6 +17,7 @@ import Pages.Results as Results
 import Pages.Sail as Sail exposing (SailModel, SailMsg(..))
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
+import Sails.Coins as Coins
 import Sails.Crew as Crew
 import Sails.Ending as Ending
 import Sails.I18n as T
@@ -104,7 +105,7 @@ resultsText crew =
         , progress = progress
         , boatName = Boats.default.name
         , personalBest = Nothing
-        , ending = Ending.start { targetSeconds = Archipelago.defaultCourse.targetSeconds, personalBest = Nothing } progress
+        , ending = Ending.start { coinTarget = Coins.courseTarget Archipelago.defaultCourse, personalBest = Nothing } progress
         , crew = crew
         , language = En
         , actions = { onSailAgain = (), onNewMap = (), onBackToMenu = () }

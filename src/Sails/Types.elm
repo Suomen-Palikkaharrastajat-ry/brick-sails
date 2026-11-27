@@ -70,7 +70,7 @@ type alias Waypoint =
     }
 
 
-{-| A floating target the player can shoot for a time bonus.
+{-| A floating target the player can shoot (a hit is counted; it wins no coins).
 -}
 type alias Target =
     { id : Int
@@ -217,8 +217,9 @@ type alias Town =
 
 
 {-| A pirate treasure chest on an island's beach, at `position`, facing
-out along `bearing`. Sailing close enough collects it for `bonusSeconds`
-off the race time.
+out along `bearing`. Sailing close enough collects its coins
+(`Sails.Coins.treasureChest`). `bonusSeconds` is left from the time-based
+scoring and no longer counts.
 -}
 type alias Treasure =
     { id : Int
@@ -367,9 +368,9 @@ type alias SailingState =
 
 
 {-| Progress through the course. `treasureFound` lists the ids of the
-treasure collected, `treasureBonus` the seconds it takes off the time.
-`berthSeconds` counts how long the boat has been moored, slow enough, at
-the harbour it is docking at.
+treasure collected, `coins` the gold coins earned so far, the run's score
+(see `Sails.Coins`). `berthSeconds` counts how long the boat has been
+moored, slow enough, at the harbour it is docking at.
 -}
 type alias CourseProgress =
     { currentWaypointIndex : Int
@@ -379,7 +380,7 @@ type alias CourseProgress =
     , finished : Bool
     , targetsHit : Int
     , treasureFound : List Int
-    , treasureBonus : Float
+    , coins : Int
     , berthSeconds : Float
     }
 
@@ -391,11 +392,13 @@ type ViewMode
     | ViewSailing
 
 
-{-| Leaderboard run entry.
+{-| Leaderboard run entry (`Sails.Records`): ranked by `coins`, the time is
+kept to show and to break ties.
 -}
 type alias LeaderboardEntry =
     { courseId : String
     , player : String
+    , coins : Int
     , timeSeconds : Float
     , isoDate : String
     , vehicleName : String

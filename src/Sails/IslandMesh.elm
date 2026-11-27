@@ -1,8 +1,10 @@
 module Sails.IslandMesh exposing
     ( CourseMesh
+    , IslandMeshes
     , IslandVertex
     , build
     , forCourse
+    , proxyTriangles
     , triangles
     )
 
@@ -28,10 +30,22 @@ draws studded 16 x 16 baseplates across horizontal shelves and horizontal brick
 mortar courses along the cliffs in roughly 180-270 triangles per island instead
 of a fixed-size 28,024-triangle LDraw baseplate assembly.
 
+The island's dressing is planned here too, once per voyage
+(`Sails.IslandDressing.plans` of the course's map, the same on every seat):
+`forCourse` keeps each island's items for `Sails.Render` to draw in real
+bricks when the island is near the camera, and bakes the far look of all of
+them (`Sails.IslandDecor.proxyOf`: a few boxes and roof prisms per tree and
+house, in their colours) together with the shell into one `far` mesh, so an
+island far off costs a single draw call.
+
 -}
 
 import Game.BrickLook as BrickLook
+import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Sails.Archipelago as Archipelago
+import Sails.IslandDecor as Decor exposing (Shape(..))
+import Sails.IslandDressing as Dressing exposing (Item)
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, Island, IslandRole(..))
 import Sails.World as World exposing (IslandPalette)
@@ -54,7 +68,18 @@ type alias IslandVertex =
 voyage so zero WebGL buffers are rebuilt per frame.
 -}
 type alias CourseMesh =
-    List ( Island, WebGL.Mesh IslandVertex )
+    List IslandMeshes
+
+
+{-| One island's meshes: the bare `shell`, the `far` mesh (the shell with the
+far proxies of its dressing baked in) and the dressing's items.
+-}
+type alias IslandMeshes =
+    { island : Island
+    , shell : WebGL.Mesh IslandVertex
+    , far : WebGL.Mesh IslandVertex
+    , items : List Item
+    }
 
 
 type alias Profile =
@@ -87,8 +112,141 @@ forCourse course =
     let
         palette =
             World.islandPalette course.map
+
+        plans =
+            Dressing.plans (Archipelago.generate course.map)
+
+        itemsOf isl =
+            plans
+                |> List.filter (\p -> p.island == isl)
+                |> List.head
+                |> Maybe.map .items
+                |> Maybe.withDefault []
     in
-    List.map (\isl -> ( isl, build palette isl )) course.islands
+    List.map
+        (\isl ->
+            let
+                shellTris =
+                    triangles palette isl
+
+                items =
+                    itemsOf isl
+            in
+            { island = isl
+            , shell = WebGL.triangles shellTris
+            , far = WebGL.triangles (shellTris ++ proxyTriangles isl items)
+            , items = items
+            }
+        )
+        course.islands
+
+
+{-| The far proxies of an island's items (small props have none), in the
+island-local space of `triangles`, facing outwards.
+-}
+proxyTriangles : Island -> List Item -> List ( IslandVertex, IslandVertex, IslandVertex )
+proxyTriangles isl items =
+    items
+        |> List.filter (\it -> not it.small)
+        |> List.concatMap
+            (\it ->
+                let
+                    m =
+                        Mat4.makeTranslate3 (it.spot.x - isl.x) it.spot.y (it.spot.z - isl.z)
+                            |> Mat4.rotate (degrees it.spot.bearing) (vec3 0 1 0)
+
+                    paint c =
+                        if c == 16 then
+                            BrickLook.colour it.tint
+
+                        else
+                            BrickLook.colour c
+
+                    place ( a, b, c ) colour =
+                        flatTri (Mat4.transform m a) (Mat4.transform m b) (Mat4.transform m c) colour 0
+                in
+                List.concatMap
+                    (\shape ->
+                        let
+                            ( tris, colour ) =
+                                shapeTriangles shape
+                        in
+                        List.map (\t -> place t (paint colour)) tris
+                    )
+                    (Decor.proxyOf it.prop)
+            )
+
+
+{-| A proxy shape's triangles, wound counter-clockwise seen from outside, and
+its LDraw colour. Boxes have no bottom.
+-}
+shapeTriangles : Shape -> ( List ( Vec3, Vec3, Vec3 ), Int )
+shapeTriangles shape =
+    case shape of
+        Box b ->
+            let
+                c =
+                    vec3 b.x b.y b.z
+
+                face n hn u hu v hv =
+                    let
+                        o =
+                            Vec3.add c (Vec3.scale hn n)
+
+                        at su sv =
+                            Vec3.add o (Vec3.add (Vec3.scale (su * hu) u) (Vec3.scale (sv * hv) v))
+                    in
+                    [ ( at -1 -1, at 1 -1, at 1 1 ), ( at -1 -1, at 1 1, at -1 1 ) ]
+
+                ex =
+                    vec3 1 0 0
+
+                ey =
+                    vec3 0 1 0
+
+                ez =
+                    vec3 0 0 1
+            in
+            ( face ex b.hx ey b.hy ez b.hz
+                ++ face (Vec3.negate ex) b.hx ez b.hz ey b.hy
+                ++ face ey b.hy ez b.hz ex b.hx
+                ++ face ez b.hz ex b.hx ey b.hy
+                ++ face (Vec3.negate ez) b.hz ey b.hy ex b.hx
+            , b.colour
+            )
+
+        Roof r ->
+            let
+                p x y z =
+                    vec3 (r.x + x) (r.y + y) (r.z + z)
+
+                fl =
+                    p -r.hx 0 -r.hz
+
+                fr =
+                    p r.hx 0 -r.hz
+
+                bl =
+                    p -r.hx 0 r.hz
+
+                br =
+                    p r.hx 0 r.hz
+
+                tl =
+                    p -r.hx r.h 0
+
+                tr =
+                    p r.hx r.h 0
+            in
+            ( [ ( fl, tl, tr )
+              , ( fl, tr, fr ) -- slope towards -Z
+              , ( br, tr, tl )
+              , ( br, tl, bl ) -- slope towards +Z
+              , ( fl, bl, tl ) -- gable end at -X
+              , ( fr, tr, br ) -- gable end at +X
+              ]
+            , r.colour
+            )
 
 
 {-| Compile one island's procedural stepped shell into a `WebGL.Mesh`.

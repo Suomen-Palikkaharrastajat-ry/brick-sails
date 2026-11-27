@@ -37,6 +37,7 @@ import Pages.Results as Results
 import Ports
 import Sails.Archipelago as Archipelago
 import Sails.CameraRig as CameraRig exposing (Follow)
+import Sails.Coins as Coins exposing (FlyingCoin)
 import Sails.Crew as Crew exposing (Crew)
 import Sails.Ending as Ending exposing (Ending)
 import Sails.GhostShip as GhostShip exposing (GhostShip)
@@ -107,6 +108,7 @@ type alias SailModel =
     , rockTimer : Float
     , seaStrain : Float
     , debris : List Wreck.Piece
+    , flyingCoins : List FlyingCoin
     , ending : Maybe Ending
     , pirates : List Pirate
     , piratesSunk : List Int
@@ -249,6 +251,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , rockTimer = 0
     , seaStrain = 0
     , debris = []
+    , flyingCoins = []
     , ending = Nothing
     , pirates = Pirates.fleet (pirateSeed course maybeMulti 0) course
     , piratesSunk = []
@@ -777,7 +780,7 @@ update msg model =
                                     Just ( T.finishToast model.language, 2.5 )
 
                                 else
-                                    Just ( T.harbourToast model.language (i + 1) newProgress.totalWaypoints, 2.0 )
+                                    Just ( T.harbourToast model.language (i + 1) newProgress.totalWaypoints ++ " · " ++ T.coinsGained model.language Coins.harbourDocked, 2.0 )
 
                             Nothing ->
                                 Nothing
@@ -786,8 +789,8 @@ update msg model =
                         if newProgress.finished then
                             Just
                                 (Ending.start
-                                    { targetSeconds = model.course.targetSeconds
-                                    , personalBest = Maybe.map .timeSeconds model.personalBest
+                                    { coinTarget = Coins.courseTarget model.course
+                                    , personalBest = Maybe.map .coins model.personalBest
                                     }
                                     newProgress
                                 )
@@ -1193,7 +1196,16 @@ tick dt model =
                 if Physics.canDropAnchor model.course.waypoints model.progress state then
                     -- In interactive sailing, docking requires the anchor icon to drop anchor.
                     -- Time in berth accumulates for the mooring indicator, but the waypoint does not advance until anchor is dropped:
-                    ( { p | currentWaypointIndex = model.progress.currentWaypointIndex, berthSeconds = min (Physics.dockSeconds - 0.05) p.berthSeconds }, Nothing )
+                    -- Nor does it earn the harbour's coins before then.
+                    ( { p
+                        | currentWaypointIndex = model.progress.currentWaypointIndex
+                        , splits = model.progress.splits
+                        , finished = model.progress.finished
+                        , coins = model.progress.coins
+                        , berthSeconds = min (Physics.dockSeconds - 0.05) p.berthSeconds
+                      }
+                    , Nothing
+                    )
 
                 else
                     ( p, passedWp )
@@ -1304,7 +1316,6 @@ tick dt model =
             if justWrecked then
                 { standards = droppedPirateStandards
                 , carriedStandard = Nothing
-                , bonus = 0.0
                 , toast = Maybe.map (\f -> ( T.standardDroppedToast f model.language, 1.8 )) model.state.carriedStandard
                 , repatriated = False
                 }
@@ -1342,7 +1353,6 @@ tick dt model =
                                 in
                                 { standards = updatedStandards
                                 , carriedStandard = Just f
-                                , bonus = 0.0
                                 , toast = Just ( T.standardSeizedToast f model.language, 2.0 )
                                 , repatriated = False
                                 }
@@ -1380,7 +1390,6 @@ tick dt model =
                                         in
                                         { standards = updatedStandards
                                         , carriedStandard = Just enemyFaction
-                                        , bonus = 0.0
                                         , toast = Just ( T.standardSeizedToast enemyFaction model.language, 2.0 )
                                         , repatriated = False
                                         }
@@ -1388,7 +1397,6 @@ tick dt model =
                                     Nothing ->
                                         { standards = droppedPirateStandards
                                         , carriedStandard = Nothing
-                                        , bonus = 0.0
                                         , toast = Nothing
                                         , repatriated = False
                                         }
@@ -1412,7 +1420,6 @@ tick dt model =
                             in
                             { standards = updatedStandards
                             , carriedStandard = Nothing
-                            , bonus = Physics.repatriationBonusSeconds
                             , toast = Just ( T.standardRepatriatedToast carriedEnemy model.language, 2.5 )
                             , repatriated = True
                             }
@@ -1420,7 +1427,6 @@ tick dt model =
                         else
                             { standards = droppedPirateStandards
                             , carriedStandard = Just carriedEnemy
-                            , bonus = 0.0
                             , toast = Nothing
                             , repatriated = False
                             }
@@ -1428,7 +1434,6 @@ tick dt model =
             else
                 { standards = droppedPirateStandards
                 , carriedStandard = model.state.carriedStandard
-                , bonus = 0.0
                 , toast = Nothing
                 , repatriated = False
                 }
@@ -1463,29 +1468,57 @@ tick dt model =
             else
                 []
 
-        treasureBonus =
-            List.sum (List.map .bonusSeconds treasure)
-
-        ghostBonus =
-            if ghostBanished then
-                GhostShip.ghostShipBonusSeconds
+        -- The coins of this frame (`Sails.Coins`); the harbour's coins
+        -- are already in `progressAfterHarbours`.
+        sunkCoins =
+            if model.progress.finished then
+                0
 
             else
-                0.0
+                Coins.pirateSunk * List.length sunkNow
+
+        boardingCoins =
+            if boarding then
+                Coins.pirateBoarded
+
+            else
+                0
+
+        treasureCoins =
+            Coins.treasureChest * List.length treasure
 
         progress =
             { progressAfterHarbours
                 | targetsHit = progressAfterHarbours.targetsHit + countedHits
                 , treasureFound = progressAfterHarbours.treasureFound ++ List.map .id treasure
-                , treasureBonus = progressAfterHarbours.treasureBonus + treasureBonus + regalia.bonus + ghostBonus
+                , coins = progressAfterHarbours.coins + sunkCoins + boardingCoins + treasureCoins
             }
+
+        -- Coins flying: a burst out of each ship sunk, a pop over the boat
+        -- for a boarding fought off or a chest taken aboard.
+        coinSeed =
+            round (time * 60)
+
+        newCoins =
+            (if sunkCoins > 0 then
+                List.concatMap (\( p, ps ) -> Coins.burst (coinSeed + p.id) ps.position) sunkNow
+
+             else
+                []
+            )
+                ++ (if boardingCoins + treasureCoins > 0 then
+                        Coins.pop coinSeed (Physics.shipVelocity state) state.position
+
+                    else
+                        []
+                   )
 
         treasureToast =
             if List.isEmpty treasure then
                 Nothing
 
             else
-                Just ( T.treasureToast model.language (round treasureBonus), 1.6 )
+                Just ( T.treasureToast model.language treasureCoins, 1.6 )
 
         passToast =
             case passed of
@@ -1494,14 +1527,14 @@ tick dt model =
                         Just ( T.finishToast model.language, 1.5 )
 
                     else
-                        Just ( T.harbourToast model.language (i + 1) progress.totalWaypoints, 1.0 )
+                        Just ( T.harbourToast model.language (i + 1) progress.totalWaypoints ++ " · " ++ T.coinsGained model.language Coins.harbourDocked, 1.0 )
 
                 Nothing ->
                     Nothing
 
         hitToast =
             if countedHits > 0 then
-                Just ( T.hitToast model.language (round (Physics.bonusPerHit * toFloat countedHits)), 1.0 )
+                Just ( T.hitToast model.language, 1.0 )
 
             else
                 Nothing
@@ -1513,16 +1546,12 @@ tick dt model =
             else
                 case boardingPirate of
                     Just pirate ->
-                        Just ( T.factionBoardingToast pirate.faction model.language, 1.4 )
+                        Just ( T.factionBoardingToast pirate.faction model.language ++ " " ++ T.coinsGained model.language boardingCoins, 1.4 )
 
                     Nothing ->
                         case sunkNow of
                             ( sunkPirate, _ ) :: _ ->
-                                let
-                                    bonus =
-                                        round (Physics.bonusPerHit * toFloat (List.length sunkNow))
-                                in
-                                Just ( T.factionSunkToast sunkPirate.faction model.language ++ " −" ++ String.fromInt bonus ++ " s", 1.4 )
+                                Just ( T.factionSunkToast sunkPirate.faction model.language ++ " " ++ T.coinsGained model.language sunkCoins, 1.4 )
 
                             [] ->
                                 if knocked then
@@ -1692,8 +1721,8 @@ tick dt model =
                     Nothing ->
                         Just
                             (Ending.start
-                                { targetSeconds = model.course.targetSeconds
-                                , personalBest = Maybe.map .timeSeconds model.personalBest
+                                { coinTarget = Coins.courseTarget model.course
+                                , personalBest = Maybe.map .coins model.personalBest
                                 }
                                 progress
                             )
@@ -1818,6 +1847,7 @@ tick dt model =
                 ++ List.concatMap (\( _, ps ) -> Wreck.breakUp Wreck.PirateShip ps) sunkNow
                 ++ ghostDebris
                 ++ celebration
+        , flyingCoins = Coins.step dt model.flyingCoins ++ newCoins
         , ending = ending
         , crewClock = crewClock
         , moorings = moorings
@@ -2062,6 +2092,7 @@ viewRace model callbacks maybeRoom =
             , props = callbacks.props
             , islandMeshes = model.islandMeshes
             , debris = model.debris
+            , coins = model.flyingCoins
             , shipMeshOf = shipMeshOf
             , standards = model.standards
             }

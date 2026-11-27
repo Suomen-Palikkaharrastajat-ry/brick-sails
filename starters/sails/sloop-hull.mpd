@@ -1,0 +1,61 @@
+0 FILE sloop-hull.ldr
+0 Sloop Hull
+0 Name: Sloop Hull
+0 Author: Brick Sails
+0 !LICENSE Licensed under CC BY 4.0 : see CAreadme.txt
+0 // Description: Microscale 4 x 9 stud sloop hull (12 studs with the bowsprit): raked bow, gunport band, flat deck and raised quarterdeck with helm. The NPC sloop is this hull with one mast, square sails and four cannons.
+0 // Parts: 39 (all inside the grouped submodel npc-sloop-hull.ldr, the hull of the NPC sloop in src/Sails/NpcShips.elm)
+0 // Hull only: no mast or sail (add them in the editor)
+0 // Bounds LDU: x -52..52, y -94..24, z -160..80 (size 104 x 118 x 240)
+0 // Front / bow towards -Z, -Y up. The whole base is one submodel reference: move it as one piece.
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 npc-sloop-hull.ldr
+0 NOFILE
+0 FILE npc-sloop-hull.ldr
+0 NPC Sloop hull (grouped)
+0 Name: npc-sloop-hull.ldr
+0 Author: Brick Sails
+0 // Keel layer: 2 x 4 bricks and an inverted slope forefoot
+1 28 -20 0 -50 1 0 0 0 1 0 0 0 1 3660b.dat
+1 28 -20 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 28 -20 0 60 1 0 0 0 1 0 0 0 1 3003.dat
+1 28 20 0 -50 1 0 0 0 1 0 0 0 1 3660b.dat
+1 28 20 0 0 0 0 1 0 1 0 -1 0 0 3001.dat
+1 28 20 0 60 1 0 0 0 1 0 0 0 1 3003.dat
+0 // Upper hull: raked bow, tan sides with dark gunports
+1 28 -20 -24 -70 1 0 0 0 1 0 0 0 1 3660b.dat
+1 28 -20 -24 -50 1 0 0 0 1 0 0 0 1 3004.dat
+1 28 20 -24 -70 1 0 0 0 1 0 0 0 1 3660b.dat
+1 28 20 -24 -50 1 0 0 0 1 0 0 0 1 3004.dat
+1 19 0 -24 -20 1 0 0 0 1 0 0 0 1 3003.dat
+1 19 0 -24 40 0 0 1 0 1 0 -1 0 0 3001.dat
+1 19 30 -24 -30 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 30 -24 -10 0 0 -1 0 1 0 1 0 0 87087.dat
+1 72 48 -14 -10 0 -1 0 1 0 0 0 0 1 6141.dat
+1 19 30 -24 10 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 30 -24 30 0 0 -1 0 1 0 1 0 0 87087.dat
+1 72 48 -14 30 0 -1 0 1 0 0 0 0 1 6141.dat
+1 19 30 -24 50 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 30 -24 70 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 -30 -24 -30 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 -30 -24 -10 0 0 1 0 1 0 -1 0 0 87087.dat
+1 72 -48 -14 -10 0 1 0 -1 0 0 0 0 1 6141.dat
+1 19 -30 -24 10 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 -30 -24 30 0 0 1 0 1 0 -1 0 0 87087.dat
+1 72 -48 -14 30 0 1 0 -1 0 0 0 0 1 6141.dat
+1 19 -30 -24 50 1 0 0 0 1 0 0 0 1 3005.dat
+1 19 -30 -24 70 1 0 0 0 1 0 0 0 1 3005.dat
+0 // Deck
+1 70 -20 -32 -60 0 0 1 0 1 0 -1 0 0 3020.dat
+1 70 -20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat
+1 70 20 -32 -60 0 0 1 0 1 0 -1 0 0 3020.dat
+1 70 20 -32 10 0 0 1 0 1 0 -1 0 0 3021.dat
+0 // Raised quarterdeck with helm and stern lanterns
+1 28 0 -48 60 1 0 0 0 1 0 0 0 1 3001.dat
+1 0 0 -56 50 1 0 0 0 1 0 0 0 1 3829c01.dat
+1 19 0 -56 70 1 0 0 0 1 0 0 0 1 3069b.dat
+1 14 30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat
+1 14 -30 -56 70 1 0 0 0 1 0 0 0 1 6141.dat
+0 // Bowsprit
+1 308 0 -40 -90 1 0 0 0 1 0 0 0 1 15573.dat
+1 308 0 -48 -120 0 0 1 0 1 0 -1 0 0 3710.dat
+0 NOFILE

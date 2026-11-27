@@ -3,7 +3,6 @@ module Sails.Physics exposing
     , angleDiff
     , beachHeight
     , boatDraft
-    , bonusPerHit
     , bumpShips
     , canClearReef
     , canDropAnchor
@@ -28,7 +27,6 @@ module Sails.Physics exposing
     , factionForSlot
     , factionHarbourPoint
     , factionTown
-    , finalTime
     , findBroadsideTarget
     , fireBroadside
     , fireCannons
@@ -52,7 +50,6 @@ module Sails.Physics exposing
     , reachedTreasure
     , reefDraftLimit
     , reefsOf
-    , repatriationBonusSeconds
     , rockImpact
     , roughSeaStrain
     , sailDrive
@@ -62,7 +59,6 @@ module Sails.Physics exposing
     , seaElevation
     , shipVelocity
     , shorePoint
-    , starRating
     , steerResponse
     , stepBoat
     , stepImpacts
@@ -89,6 +85,7 @@ and no capsizing.
 -}
 
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Sails.Coins as Coins
 import Sails.Types
     exposing
         ( Boat
@@ -212,7 +209,7 @@ initProgress course =
     , finished = False
     , targetsHit = 0
     , treasureFound = []
-    , treasureBonus = 0
+    , coins = 0
     , berthSeconds = 0
     }
 
@@ -995,8 +992,8 @@ steerResponse boat speedRatio input =
 {-| Count time and dock at the next harbour. The boat docks once it has
 been inside the harbour's radius at `dockSpeed` or slower for `dockSeconds`
 in all: sailing too fast inside the radius pauses the count, leaving the
-radius starts it again. Returns the index of the harbour just docked at, if
-any.
+radius starts it again. Docking earns `Sails.Coins.harbourDocked` coins.
+Returns the index of the harbour just docked at, if any.
 -}
 stepProgress : Float -> SailingState -> List Waypoint -> CourseProgress -> ( CourseProgress, Maybe Int )
 stepProgress dt state waypoints progress =
@@ -1034,6 +1031,7 @@ stepProgress dt state waypoints progress =
                             , splits = progress.splits ++ [ elapsed ]
                             , finished = next >= progress.totalWaypoints
                             , berthSeconds = 0
+                            , coins = progress.coins + Coins.harbourDocked
                           }
                         , Just progress.currentWaypointIndex
                         )
@@ -1084,8 +1082,9 @@ canDropAnchor waypoints progress state =
                 False
 
 
-{-| Drop anchor at the current harbour. Moors immediately, recording the split
-and advancing to the next harbour.
+{-| Drop anchor at the current harbour. Moors immediately, recording the split,
+earning the harbour's coins (`Sails.Coins.harbourDocked`) and advancing to
+the next harbour.
 -}
 dropAnchorProgress : CourseProgress -> ( CourseProgress, Maybe Int )
 dropAnchorProgress progress =
@@ -1102,6 +1101,7 @@ dropAnchorProgress progress =
             , splits = progress.splits ++ [ progress.elapsedSeconds ]
             , finished = next >= progress.totalWaypoints
             , berthSeconds = 0
+            , coins = progress.coins + Coins.harbourDocked
           }
         , Just progress.currentWaypointIndex
         )
@@ -1119,20 +1119,6 @@ horizontalDistance a b =
     sqrt ((pa.x - pb.x) ^ 2 + (pa.z - pb.z) ^ 2)
 
 
-{-| Seconds taken off the time for each target hit.
--}
-bonusPerHit : Float
-bonusPerHit =
-    2.0
-
-
-{-| Race time minus the target and treasure bonuses.
--}
-finalTime : CourseProgress -> Float
-finalTime progress =
-    max 0 (progress.elapsedSeconds - bonusPerHit * toFloat progress.targetsHit - progress.treasureBonus)
-
-
 {-| How close the boat must sail to a chest to take it aboard.
 -}
 treasureReach : Float
@@ -1148,20 +1134,6 @@ reachedTreasure state treasures found =
     List.filter
         (\t -> not (List.member t.id found) && horizontalDistance state.position t.position <= treasureReach)
         treasures
-
-
-{-| 3 stars at or under the target time, 2 within 30 % of it, otherwise 1.
--}
-starRating : Float -> Float -> Int
-starRating targetSeconds time =
-    if time <= targetSeconds then
-        3
-
-    else if time <= targetSeconds * 1.3 then
-        2
-
-    else
-        1
 
 
 
@@ -1917,13 +1889,6 @@ canRepatriateStandard boatPos boatSpeed course homeFaction carried =
 
         Nothing ->
             False
-
-
-{-| Bonus seconds awarded when an enemy standard is repatriated to home citadel.
--}
-repatriationBonusSeconds : Float
-repatriationBonusSeconds =
-    15.0
 
 
 

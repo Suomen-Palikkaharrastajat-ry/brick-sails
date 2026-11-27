@@ -13,8 +13,9 @@ module Sails.Render exposing
     )
 
 {-| Draws the sailing world: the map's sea and sky, its islands dressed for
-the biome (palms, pines or leafy trees, rocks, farms) with the fort,
-lighthouse or cairn on the hub island, the harbour piers, the pirate arch
+the biome and season (groves of trees, towns of houses along their paths,
+rocks, farms; `Sails.IslandDressing`) with the fort, lighthouse or cairn on
+the hub island, the harbour piers, the pirate arch
 over the final harbour, the decoration on the water (coral reefs, a wreck,
 sea arches), floating targets, cannonballs, the towns and the treasure on
 the islands, the toy boats, and the weather (spray, rain or snow, and
@@ -57,6 +58,9 @@ import Render.Instanced as Instanced
 import Render.Mesh exposing (Vertex)
 import Render.Scene exposing (Scene)
 import Render.Shader as Shader
+import Sails.Coins as Coins exposing (FlyingCoin)
+import Sails.IslandDecor as IslandDecor
+import Sails.IslandDressing as IslandDressing
 import Sails.IslandMesh as IslandMesh
 import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
 import Sails.Physics as Physics
@@ -81,7 +85,7 @@ import Sails.Types
         , isAtCitadel
         )
 import Sails.Weather as Weather exposing (Conditions)
-import Sails.World as World exposing (HubLandmark(..), Tree(..))
+import Sails.World as World exposing (HubLandmark(..))
 import Sails.Wreck as Wreck
 import WebGL
 import WebGL.Settings.Blend as Blend
@@ -102,18 +106,17 @@ type alias Props =
 {-| Every prop model the course uses for the given map, by name: load them with
 `Game.BrickProps.refresh`. Island terrain shells are generated procedurally by
 `Sails.IslandMesh`, so no `island-*` LDraw prop models are registered here.
+The island dressing's trees, houses and small props (`Sails.IslandDecor`)
+are constants for the map's season, so this list costs next to nothing to
+make on every part fetch.
 -}
 propSources : MapParams -> List ( String, String )
-propSources _ =
+propSources map =
     [ ( "buoy", BrickModels.buoy )
     , ( "beacon", BrickModels.beacon )
     , ( "floatingTarget", BrickModels.floatingTarget )
     , ( "fort", Scenery.fort )
-    , ( "palmTree", Scenery.palmTree )
-    , ( "pineTree", BrickModels.pineTree )
-    , ( "leafyTree", BrickModels.leafyTree )
     , ( "rock", BrickModels.rock )
-    , ( "lighthouse", BrickModels.lighthouse )
     , ( "barn", BrickModels.barn )
     , ( "hayBale", BrickModels.hayBale )
     , ( "reef", Scenery.reef )
@@ -128,11 +131,13 @@ propSources _ =
     , ( "plateRound", BrickModels.singlePart "6141.dat" )
     , ( "plateOpenRound", BrickModels.singlePart "85861.dat" )
     , ( "plate1x1", BrickModels.singlePart "3024.dat" )
+    , ( "coin", BrickModels.singlePart "4073.dat" )
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     , ( "92338-f1.dat", BrickModels.singlePart "92338-f1.dat" )
     , ( "finishArch", finishArchModel )
     ]
+        ++ IslandDecor.propSources (IslandDecor.lookFor map).snow
 
 
 {-| Geometry detail options passed to `Game.BrickProps.refreshWith`: terrain
@@ -148,6 +153,16 @@ propDetailOptions name =
         , studs = Geometry.NoStuds
         , includeHollows = False
         , includeLines = False
+        , includeConditionals = False
+        }
+
+    else if String.startsWith "dec:" name then
+        -- Island dressing stands on the ground: no undersides.
+        { flipYZ = True
+        , trackInherit = True
+        , studs = Geometry.FullStuds
+        , includeHollows = False
+        , includeLines = True
         , includeConditionals = False
         }
 
@@ -252,6 +267,7 @@ renderWorld :
         , props : Props
         , islandMeshes : IslandMesh.CourseMesh
         , debris : List Wreck.Piece
+        , coins : List FlyingCoin
         , shipMeshOf : Wreck.Source -> Maybe ShipMesh
         , standards : List StandardState
         }
@@ -303,7 +319,7 @@ renderWorld cam scene width height =
             [ Ocean.skyEntity ctx
             , Ocean.oceanEntity ctx
             ]
-                ++ islandEntities inView ctx draw scene.course scene.islandMeshes
+                ++ islandEntities inView ctx draw scene.props scene.course scene.islandMeshes
                 ++ decorEntities inView ctx width height scene.scenery draw scene.course
                 ++ seabirdFlockEntities inView draw scene.time scene.course
                 ++ lighthouseBeamEntity ctx scene.time scene.course
@@ -316,6 +332,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (debrisEntities ctx width height draw scene.shipMeshOf) scene.debris
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
+                ++ List.concatMap (coinEntity draw) scene.coins
                 ++ List.concatMap (sprayEntities ctx draw scene.time) (List.take 1 scene.boats)
                 ++ List.concatMap (wakeEntities ctx draw scene.time) scene.boats
                 ++ boltEntities ctx scene.weather
@@ -1188,269 +1205,95 @@ targetEntities inView draw time t =
 
 {-| Islands generated procedurally as stepped 4-tier brick shells
 (`Sails.IslandMesh`) sized to each island's radius and height in the map's
-colours (`Sails.World.islandPalette`), dressed for the biome
-(`Sails.World.dressing`): trees on the grass (clear of the towns, the harbour
-piers and the treasure), rocks, a barn and hay on farm islands, and the fort,
-lighthouse or cairn on the hub. Skerries are bare rock.
-The beach and the grass are at `Physics.beachHeight` and
-`Physics.grassHeight`, where the towns and the chest stand.
+colours (`Sails.World.islandPalette`), dressed once per voyage
+(`Sails.IslandDressing`): groves of the biome's trees, the towns' houses and
+halls along their paths, rocks, a farm, undergrowth and the hub's fort,
+lighthouse or cairn.
+
+An island near the camera (its shore within `nearDressing`) is drawn in real
+catalog bricks, one prop per item at the islands' one brick scale, each culled
+against the view; its small props (bushes, flowers, lamps) only within
+`Sails.IslandDressing.smallPropRange`, and brick edges only on props close
+by. An island farther off is a single draw call: its shell with the far
+proxies of its dressing baked in (`IslandMesh.IslandMeshes.far`), plus the
+hub's landmark in real bricks, which is seen from across the course. Until
+an island's props have loaded it shows the far mesh.
+
 -}
 islandEntities :
     (Vec3 -> Float -> Bool)
     -> Ctx
     -> Draw
+    -> Props
     -> Course
     -> IslandMesh.CourseMesh
     -> List WebGL.Entity
-islandEntities inView ctx draw course islandMeshes =
-    let
-        look =
-            World.dressing course.map
-
-        treeProp =
-            case look.tree of
-                Palm ->
-                    Just "palmTree"
-
-                Pine ->
-                    Just "pineTree"
-
-                Leafy ->
-                    Just "leafyTree"
-
-                NoTree ->
-                    Nothing
-    in
-    List.indexedMap
-        (\i isl ->
-            if not (inView (vec3 isl.x (0.45 * isl.height) isl.z) (max 28 (1.1 * isl.radius + isl.height + 12))) then
+islandEntities inView ctx draw props _ islandMeshes =
+    List.concatMap
+        (\entry ->
+            let
+                isl =
+                    entry.island
+            in
+            if not (inView (vec3 isl.x (0.45 * isl.height) isl.z) (1.1 * isl.radius + 0.6 * isl.height + 12)) then
                 []
 
             else
                 let
-                    grassY =
-                        -0.6 + 0.58 * isl.height
+                    shoreDistance =
+                        max 0 (Vec3.distance ctx.eye (vec3 isl.x 0 isl.z) - isl.radius)
 
-                    treeCount =
-                        case isl.role of
-                            Skerry ->
-                                0
+                    loaded =
+                        List.all (\it -> Dict.member it.prop props) entry.items
 
-                            TreasureIsle ->
-                                2
+                    near =
+                        shoreDistance < nearDressing && loaded
 
-                            _ ->
-                                if look.landmark == Cairn then
-                                    1 + modBy 2 i
+                    landmarks =
+                        List.filter (\it -> isLandmark it.prop) entry.items
 
-                                else
-                                    3 + modBy 2 i
+                    drawItem it =
+                        let
+                            s =
+                                it.spot
 
-                    -- Compass bearings from the island's centre of its town's
-                    -- houses and pier, of the piers of harbours docking at it and
-                    -- of buried treasure, kept clear of trees.
-                    occupied =
-                        List.filterMap
-                            (\town ->
-                                if town.island == isl then
-                                    Just town.bearing
+                            centre =
+                                vec3 s.x (s.y + 0.5 * it.height) s.z
+                        in
+                        if it.small && Vec3.distance ctx.eye centre > IslandDressing.smallPropRange then
+                            []
 
-                                else
-                                    Nothing
-                            )
-                            course.towns
-                            ++ List.filterMap
-                                (\t ->
-                                    let
-                                        tp =
-                                            Vec3.toRecord t.position
-                                    in
-                                    if (tp.x - isl.x) ^ 2 + (tp.z - isl.z) ^ 2 < isl.radius ^ 2 then
-                                        Just (180 / pi * atan2 (tp.x - isl.x) (tp.z - isl.z))
-
-                                    else
-                                        Nothing
+                        else if inView centre (max it.reach (0.6 * it.height)) then
+                            draw.prop it.prop
+                                (Mat4.makeTranslate3 s.x s.y s.z
+                                    |> rotY (degrees s.bearing)
+                                    |> Mat4.scale3 Scenery.metersPerLdu Scenery.metersPerLdu Scenery.metersPerLdu
                                 )
-                                course.treasures
-                            ++ List.filterMap
-                                (\wp ->
-                                    let
-                                        wpp =
-                                            Vec3.toRecord wp.position
-                                    in
-                                    if dockIsland course.islands wpp == Just isl then
-                                        Just (180 / pi * atan2 (wpp.x - isl.x) (wpp.z - isl.z))
-
-                                    else
-                                        Nothing
-                                )
-                                course.waypoints
-
-                    -- The angle `a` of slot k (as used below), as a compass bearing.
-                    slotAngle k =
-                        120 + 40 * toFloat k + 17 * toFloat i
-
-                    clear k =
-                        let
-                            bearing =
-                                90 - slotAngle k
-
-                            apart b =
-                                abs (toFloat (modBy 360 (round (bearing - b) + 540)) - 180)
-                        in
-                        List.all (\b -> apart b > 48) occupied
-
-                    grassPoint k share =
-                        let
-                            a =
-                                degrees (slotAngle k)
-                        in
-                        vec3 (isl.x + share * isl.radius * cos a) grassY (isl.z + share * isl.radius * sin a)
-
-                    onGrass k share =
-                        let
-                            a =
-                                degrees (slotAngle k)
-                        in
-                        Mat4.makeTranslate (grassPoint k share)
-                            |> rotY (a + toFloat k)
-
-                    tree prop k =
-                        let
-                            tall =
-                                modBy 2 (k + i) == 0
-
-                            height =
-                                min 9
-                                    (if tall then
-                                        0.9 * isl.height
-
-                                     else
-                                        0.75 * isl.height
-                                    )
-                        in
-                        if inView (Vec3.add (grassPoint k 0.7) (vec3 0 (0.5 * height) 0)) 6.5 then
-                            draw.fitted prop
-                                (BrickProps.fitHeight height)
-                                (onGrass k 0.7)
-                                plain
+                                (tint3 (BrickLook.colour it.tint))
 
                         else
                             []
-
-                    trees =
-                        case treeProp of
-                            Just prop ->
-                                List.concatMap (tree prop) (List.filter clear (List.range 0 (treeCount - 1)))
-
-                            Nothing ->
-                                []
-
-                    -- Slots 5 and 6 (past the trees) for rocks and farm buildings.
-                    extras =
-                        case isl.role of
-                            HarbourIsle ->
-                                (if look.rocks && clear 5 && inView (Vec3.add (grassPoint 5 0.55) (vec3 0 1.2 0)) 3.5 then
-                                    draw.fitted "rock" (BrickProps.fitHeight 2.4) (onGrass 5 0.55) plain
-
-                                 else
-                                    []
-                                )
-                                    ++ (if look.farm && clear 6 then
-                                            (if inView (Vec3.add (grassPoint 6 0.45) (vec3 0 2.25 0)) 5.5 then
-                                                draw.fitted "barn" (BrickProps.fitHeight 4.5) (onGrass 6 0.45) plain
-
-                                             else
-                                                []
-                                            )
-                                                ++ (if inView (Vec3.add (grassPoint 6 0.75) (vec3 0 0.6 0)) 2.5 then
-                                                        draw.fitted "hayBale" (BrickProps.fitHeight 1.2) (onGrass 6 0.75) plain
-
-                                                    else
-                                                        []
-                                                   )
-
-                                        else
-                                            []
-                                       )
-
-                            _ ->
-                                []
-
-                    landmark =
-                        if isl.role == Hub then
-                            let
-                                pos =
-                                    landmarkPos isl
-
-                                at =
-                                    Mat4.makeTranslate pos
-                            in
-                            case look.landmark of
-                                Fort ->
-                                    if inView (Vec3.add pos (vec3 0 5.3 0)) 8.0 then
-                                        draw.fitted "fort" (BrickProps.fitHeight 10.6) at plain
-
-                                    else
-                                        []
-
-                                Lighthouse ->
-                                    if inView (Vec3.add pos (vec3 0 5.3 0)) 8.0 then
-                                        draw.fitted "lighthouse" (BrickProps.fitHeight 10.6) at plain
-
-                                    else
-                                        []
-
-                                Cairn ->
-                                    if inView (Vec3.add pos (vec3 0 3.0 0)) 5.0 then
-                                        List.concatMap
-                                            (\k ->
-                                                draw.fitted "rock"
-                                                    (BrickProps.fitHeight (2.4 - 0.5 * toFloat k))
-                                                    (Mat4.mul at (Mat4.makeTranslate3 0 (1.9 * toFloat k) 0) |> rotY (toFloat k))
-                                                    plain
-                                            )
-                                            [ 0, 1, 2 ]
-
-                                    else
-                                        []
-
-                        else
-                            []
-
-                    islandBase =
-                        case findIslandMesh isl islandMeshes of
-                            Just mesh ->
-                                if inView (vec3 isl.x (0.4 * isl.height) isl.z) (1.1 * isl.radius + 0.6 * isl.height + 2.0) then
-                                    [ Ocean.islandEntity ctx isl mesh ]
-
-                                else
-                                    []
-
-                            Nothing ->
-                                []
                 in
-                islandBase
-                    ++ trees
-                    ++ extras
-                    ++ landmark
+                if near then
+                    Ocean.islandEntity ctx isl entry.shell :: List.concatMap drawItem entry.items
+
+                else
+                    Ocean.islandEntity ctx isl entry.far :: List.concatMap drawItem landmarks
         )
-        course.islands
-        |> List.concat
+        islandMeshes
 
 
-findIslandMesh : Island -> IslandMesh.CourseMesh -> Maybe (WebGL.Mesh IslandMesh.IslandVertex)
-findIslandMesh isl meshes =
-    case meshes of
-        ( entryIsl, mesh ) :: rest ->
-            if entryIsl == isl then
-                Just mesh
+{-| Islands whose shore is this near the camera (metres) are dressed in real
+bricks; the rest show their baked far mesh.
+-}
+nearDressing : Float
+nearDressing =
+    110
 
-            else
-                findIslandMesh isl rest
 
-        [] ->
-            Nothing
+isLandmark : String -> Bool
+isLandmark prop =
+    prop == "fort" || prop == "dec:lighthouse" || prop == "dec:cairn"
 
 
 {-| The hub island of a course, where the landmark, its beam and the
@@ -1479,16 +1322,32 @@ lighthouseBeamEntity ctx time course =
         ( Just _, Cairn ) ->
             []
 
-        ( Just isl, _ ) ->
+        ( Just isl, landmark ) ->
             let
                 model =
-                    Mat4.makeTranslate3 (isl.x + 0.2 * isl.radius) (-0.6 + 0.94 * isl.height + 9.5) (isl.z + 0.1 * isl.radius)
+                    Mat4.makeTranslate (Vec3.add (landmarkPos isl) (vec3 0 (beamHeight landmark) 0))
                         |> rotY (time * 0.75)
             in
             [ ocean ctx model (vec3 1.0 0.72 0.32) lighthouseBeamMesh ]
 
         ( Nothing, _ ) ->
             []
+
+
+{-| Height of the landmark's light above its foot, in metres at the real
+brick scale: the fort's torch or the lighthouse lamp.
+-}
+beamHeight : HubLandmark -> Float
+beamHeight landmark =
+    case landmark of
+        Fort ->
+            212 * Scenery.metersPerLdu
+
+        Lighthouse ->
+            IslandDecor.lighthouseLamp
+
+        Cairn ->
+            0
 
 
 {-| Decoration out on the water, clear of the route and the islands
@@ -1633,9 +1492,10 @@ pierInView inView ctx width height scenery isl bearing =
         []
 
 
-{-| Each town: its houses on the grass, its pier from the beach out to
-the water's edge, and the faction standard at the end of the pier on the
-island shore (drawn only if still safe at the citadel).
+{-| Each town: its pier from the beach out to the water's edge, and the
+faction standard at the end of the pier on the island shore (drawn only if
+still safe at the citadel). The town's houses are part of the island's
+dressing (`islandEntities`).
 -}
 townEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Town -> List WebGL.Entity
 townEntities inView ctx width height scenery draw standards towns =
@@ -1647,16 +1507,6 @@ townEntities inView ctx width height scenery draw standards towns =
 
                 edge =
                     Vec3.toRecord (Physics.shorePoint isl town.bearing 1)
-
-                housesPos =
-                    Physics.shorePoint isl town.bearing 0.6 |> Vec3.setY (Physics.grassHeight isl)
-
-                housesEntities =
-                    if inView (Vec3.add housesPos (vec3 0 3.5 0)) 9.5 then
-                        sceneryEntities ctx width height scenery Scenery.houses housesPos town.bearing
-
-                    else
-                        []
 
                 standardProp =
                     case town.faction of
@@ -1697,8 +1547,7 @@ townEntities inView ctx width height scenery draw standards towns =
                         Nothing ->
                             []
             in
-            housesEntities
-                ++ pierInView inView ctx width height scenery isl town.bearing
+            pierInView inView ctx width height scenery isl town.bearing
                 ++ standardEntities
         )
         towns
@@ -2014,6 +1863,42 @@ impactEntity draw imp =
                 )
     in
     List.concatMap puff (List.range 0 5)
+
+
+{-| A gold coin in flight (`Sails.Coins`): the catalog's 1x1 round plate
+(4073, drawn through its 6141 geometry) in Pearl Gold (LDraw 297), spinning
+about its upright and tipped over so its face flashes as it turns. It fades
+over the last quarter of its flight.
+-}
+coinEntity : Draw -> FlyingCoin -> List WebGL.Entity
+coinEntity draw coin =
+    let
+        p =
+            Vec3.toRecord coin.position
+
+        turn =
+            coin.phase + coin.spin * coin.age
+
+        fade =
+            clamp 0 1 ((Coins.lifetime - coin.age) / (0.25 * Coins.lifetime))
+
+        gold =
+            BrickLook.colour coinColour
+    in
+    draw.fitted "coin"
+        (BrickProps.fitWidth 0.7)
+        (Mat4.makeTranslate3 p.x p.y p.z
+            |> rotY turn
+            |> rotX (0.9 + 0.5 * sin (2 * turn))
+        )
+        (vec4 (Vec3.getX gold) (Vec3.getY gold) (Vec3.getZ gold) fade)
+
+
+{-| LDraw Pearl Gold, the coins' colour.
+-}
+coinColour : Int
+coinColour =
+    297
 
 
 

@@ -22,6 +22,7 @@ import Sails.Analyze as Analyze exposing (Seaworthiness(..))
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.CameraRig as CameraRig
+import Sails.Coins as Coins
 import Sails.Handling as Handling
 import Sails.Ingest as Ingest
 import Sails.IslandMesh as IslandMesh
@@ -580,20 +581,17 @@ suite =
                         , \_ -> Expect.equal 0 p2.currentWaypointIndex
                         ]
                         ()
-            , test "each target hit takes time off and stars follow the target time" <|
+            , test "stars follow the coins against the course's coin target; hits take no time off" <|
                 \_ ->
                     let
-                        progress0 =
-                            Physics.initProgress course
-
-                        run =
-                            { progress0 | elapsedSeconds = course.targetSeconds + 4, targetsHit = 2, finished = True }
+                        target =
+                            Coins.courseTarget course
                     in
                     Expect.all
-                        [ \_ -> Expect.within (Expect.Absolute 0.001) (course.targetSeconds + 4 - 2 * Physics.bonusPerHit) (Physics.finalTime run)
-                        , \_ -> Expect.equal 3 (Physics.starRating course.targetSeconds (Physics.finalTime run))
-                        , \_ -> Expect.equal 2 (Physics.starRating course.targetSeconds (course.targetSeconds * 1.2))
-                        , \_ -> Expect.equal 1 (Physics.starRating course.targetSeconds (course.targetSeconds * 2))
+                        [ \_ -> Expect.equal (5 * List.length course.waypoints + 25 * List.length course.treasures + 30) target
+                        , \_ -> Expect.equal 3 (Coins.starRating target target)
+                        , \_ -> Expect.equal 2 (Coins.starRating target ((target + 1) // 2))
+                        , \_ -> Expect.equal 1 (Coins.starRating target 0)
                         ]
                         ()
             ]
@@ -946,8 +944,8 @@ suite =
                                 |> List.map (\n -> ( n, Loaded certifiedBox ))
                                 |> Dict.fromList
 
-                        certifiedHouses =
-                            ShipMesh.buildScenery Scenery.metersPerLdu (Document.parse Scenery.houses.ldraw) sceneryCache
+                        certifiedPier =
+                            ShipMesh.buildScenery Scenery.metersPerLdu (Document.parse Scenery.pier.ldraw) sceneryCache
 
                         certifiedIsland =
                             BrickProps.build (World.islandModel (World.islandPalette Archipelago.defaultMap)) sceneryCache
@@ -957,7 +955,7 @@ suite =
                         , \_ -> Expect.equal True certifiedShip.sails.bfcCertified
                         , \_ -> Expect.equal False uncertifiedShip.scene.bfcCertified
                         , \_ -> Expect.equal False uncertifiedShip.sails.bfcCertified
-                        , \_ -> Expect.equal True certifiedHouses.scene.bfcCertified
+                        , \_ -> Expect.equal True certifiedPier.scene.bfcCertified
                         , \_ -> Expect.equal True certifiedIsland.scene.bfcCertified
                         ]
                         ()

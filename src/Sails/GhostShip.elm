@@ -3,7 +3,6 @@ module Sails.GhostShip exposing
     , PatrolLoop
     , canTarget
     , collisionRadius
-    , ghostShipBonusSeconds
     , ghostShipSlot
     , init
     , isStormActive
@@ -20,8 +19,8 @@ the outer mist and stormy atmospheric fringes.
 Materializes when stormy weather is active (squall > 0.25 or thunder > 0.25),
 renders with an ethereal glowing trans-green spectral tint, and can be targeted
 by player cannons. When hit, it is banished for the remainder of the voyage,
-bursting into sparkling trans-green brick debris, awarding -5.0s bonus time,
-and triggering a celebratory toast.
+bursting into sparkling trans-green brick debris and triggering a
+celebratory toast. It earns no coins (see `Sails.Coins`).
 
 -}
 
@@ -71,13 +70,6 @@ player slots (0..8) and pirate patrol slots (100..105).
 ghostShipSlot : Int
 ghostShipSlot =
     999
-
-
-{-| Seconds awarded as bonus time when the ghost ship is banished.
--}
-ghostShipBonusSeconds : Float
-ghostShipBonusSeconds =
-    5.0
 
 
 {-| Collision and hit detection radius (m) for cannonball impacts.

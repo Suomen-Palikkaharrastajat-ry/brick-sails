@@ -100,8 +100,8 @@ suite =
                         , \_ -> Expect.equal "Seized the Governor's Golden Crest! Head for home port!" (T.standardSeizedToast BlueCoats En)
                         , \_ -> Expect.equal "Kuvernöörin vaakuna putosi aaltoihin!" (T.standardDroppedToast BlueCoats Fi)
                         , \_ -> Expect.equal "Governor's Crest lost at sea!" (T.standardDroppedToast BlueCoats En)
-                        , \_ -> Expect.equal "Kuvernöörin vaakuna kotiutettu! −15 s!" (T.standardRepatriatedToast BlueCoats Fi)
-                        , \_ -> Expect.equal "Governor's Crest repatriated! −15 s bonus!" (T.standardRepatriatedToast BlueCoats En)
+                        , \_ -> Expect.equal "Kuvernöörin vaakuna kotiutettu!" (T.standardRepatriatedToast BlueCoats Fi)
+                        , \_ -> Expect.equal "Governor's Crest repatriated!" (T.standardRepatriatedToast BlueCoats En)
                         ]
                         ()
             ]

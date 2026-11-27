@@ -223,7 +223,10 @@ type alias Base =
     }
 
 
-{-| The four starter hulls, in shipyard order.
+{-| The six starter hulls, in shipyard order: the four small hulls, then the
+hulls of the computer's ships (`Sails.NpcShips`), the sloop and the frigate.
+Each NPC hull's submodel has the same name and parts as in the NPC ship, so
+the NPC ship itself is a build on that hull (`baseOf`).
 -}
 bases : List Base
 bases =
@@ -234,7 +237,7 @@ bases =
 
 baseOrder : Dict String Int
 baseOrder =
-    Dict.fromList [ ( "narrow-racer", 0 ), ( "wide-sturdy", 1 ), ( "long-cruiser", 2 ), ( "round-bow", 3 ) ]
+    Dict.fromList [ ( "narrow-racer", 0 ), ( "wide-sturdy", 1 ), ( "long-cruiser", 2 ), ( "round-bow", 3 ), ( "sloop-hull", 4 ), ( "frigate-hull", 5 ) ]
 
 
 finnishNames : Dict String String
@@ -244,6 +247,8 @@ finnishNames =
         , ( "wide-sturdy", "Leveä vakaa runko" )
         , ( "long-cruiser", "Pitkä matkarunko" )
         , ( "round-bow", "Pyöreäkeulainen runko" )
+        , ( "sloop-hull", "Slupin runko" )
+        , ( "frigate-hull", "Fregatin runko" )
         ]
 
 

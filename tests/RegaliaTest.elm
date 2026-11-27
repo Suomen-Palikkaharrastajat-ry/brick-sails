@@ -6,9 +6,11 @@ aging/resetting, and repatriation at home citadels.
 -}
 
 import Expect
+import I18n
 import Math.Vector3 as Vec3 exposing (vec3)
 import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
+import Sails.I18n as T
 import Sails.Physics as Physics
 import Sails.Types
     exposing
@@ -267,8 +269,10 @@ suite =
                     in
                     Physics.canRepatriateStandard piratesHarbour 1.5 course Pirates Nothing
                         |> Expect.equal False
-            , test "repatriation bonus is exactly 15 seconds" <|
+            , test "repatriation takes no time off: the toast names no seconds" <|
                 \_ ->
-                    Expect.equal 15.0 Physics.repatriationBonusSeconds
+                    T.standardRepatriatedToast Pirates I18n.En
+                        |> String.contains " s"
+                        |> Expect.equal False
             ]
         ]

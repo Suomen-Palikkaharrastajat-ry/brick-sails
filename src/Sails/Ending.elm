@@ -11,8 +11,9 @@ module Sails.Ending exposing
 {-| The end of a voyage, as Brick Racer's finish celebration: once the boat
 docks at the last harbour, bricks burst into the air over it a few times
 (`burstTimes`), the result card comes up with its stars popping in one by one
-(`starsShown`), the headline, the final time and the new-record badge, and
-the two ways on: sail again or back to the main menu.
+(`starsShown`), the headline, the coins won (the score, see `Sails.Coins`),
+the time sailed and the new-record badge, and the two ways on: sail again or
+back to the main menu.
 
 Everything here follows from the finished run and the time since it ended,
 so an ending looks the same each time.
@@ -20,38 +21,42 @@ so an ending looks the same each time.
 -}
 
 import Math.Vector3 as Vec3 exposing (vec3)
-import Sails.Physics as Physics
+import Sails.Coins as Coins
 import Sails.Types exposing (CourseProgress, SailingState)
 import Sails.Wreck as Wreck
 
 
-{-| A finished voyage: seconds since it ended, its final time, its stars (1
-to 3) and whether it beat the personal best held when the run started.
+{-| A finished voyage: seconds since it ended, its score (the coins it
+won), the time it took (shown, not ranked), its stars (1 to 3) and whether
+it beat the personal best held when the run started.
 -}
 type alias Ending =
     { timer : Float
-    , score : Float
+    , score : Int
+    , seconds : Float
     , stars : Int
     , isNewRecord : Bool
     }
 
 
-{-| The ending of a run that has just finished on a course with this target
-time, against the personal best (seconds) held when it started.
+{-| The ending of a run that has just finished on a course with this coin
+target (`Sails.Coins.courseTarget`), against the personal best (coins) held
+when it started. Only more coins beat it.
 -}
-start : { targetSeconds : Float, personalBest : Maybe Float } -> CourseProgress -> Ending
-start { targetSeconds, personalBest } progress =
+start : { coinTarget : Int, personalBest : Maybe Int } -> CourseProgress -> Ending
+start { coinTarget, personalBest } progress =
     let
         score =
-            Physics.finalTime progress
+            progress.coins
     in
     { timer = 0
     , score = score
-    , stars = Physics.starRating targetSeconds score
+    , seconds = progress.elapsedSeconds
+    , stars = Coins.starRating coinTarget score
     , isNewRecord =
         case personalBest of
             Just best ->
-                score < best
+                score > best
 
             Nothing ->
                 True

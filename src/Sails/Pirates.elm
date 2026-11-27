@@ -33,16 +33,18 @@ come from a seed.
   - A patrol ship is a ship of its own size: the boat cannot sail through it, and
     bumps off it as it does off an island (`collisionRadius`).
   - A patrol ship the boat comes within `boardingRange` of boards it: the hull
-    takes one cannon hit's damage, then no ship can board again for
+    takes one cannon hit's damage (the crew fights the boarders off and wins
+    `Sails.Coins.pirateBoarded` coins), then no ship can board again for
     `boardingCooldown` seconds.
   - Patrol ships shoot back. A ship within `reach` of the boat fires a ball at
     it every `reloadSeconds`; a ball that hits takes one cannon hit's damage.
-  - A cannon ball that hits a patrol ship sinks it for the rest of the run, and
-    counts as a target hit (the same time bonus).
+  - A cannon ball that hits a patrol ship sinks it for the rest of the run,
+    counts as a target hit and wins `Sails.Coins.pirateSunk` coins.
 
 -}
 
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Sails.NpcShips as NpcShips
 import Sails.Physics as Physics
 import Sails.Types exposing (Course, Faction(..), SailingState)
 
@@ -123,20 +125,21 @@ sailTint pirate =
             vec3 0.82 0.16 0.12
 
 
-{-| Vessel type for each faction: Pirates and RedCoats sail schooners, while
-BlueCoats patrol in nimble cutters.
+{-| Model a faction's vessel is drawn with (see `Sails.NpcShips`): Pirates
+and RedCoats sail three-masted frigates, while BlueCoats patrol in nimble
+sloops.
 -}
 shipNameFor : Pirate -> String
 shipNameFor pirate =
     case pirate.faction of
         Pirates ->
-            "Schooner"
+            NpcShips.frigateName
 
         BlueCoats ->
-            "Cutter"
+            NpcShips.sloopName
 
         RedCoats ->
-            "Schooner"
+            NpcShips.frigateName
 
 
 {-| Metres a pirate's patrol keeps clear of every harbour's mooring circle.
