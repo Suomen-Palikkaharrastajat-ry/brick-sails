@@ -28,6 +28,7 @@ import Json.Encode as Encode
   - `Shipwrecked`: the player's ship breaks up.
   - `Bump`: scraping a rock or reef.
   - `Coins`: coins earned, by how many.
+  - `DebrisCollected`: floating debris fished out to patch the hull.
   - `Bell`: a harbour or buoy passed. `Finish`: the voyage is done.
   - `Horn`: the race starts.
   - `AnchorDrop`, `AnchorWeigh`, `Thunder`, `GhostAppear`, `GhostBanish`.
@@ -46,6 +47,7 @@ type Sound
     | Shipwrecked
     | Bump
     | Coins Int
+    | DebrisCollected
     | Bell
     | Finish
     | Horn
@@ -99,6 +101,9 @@ encode sound =
                 [ ( "type", Encode.string "coins" )
                 , ( "count", Encode.int count )
                 ]
+
+        DebrisCollected ->
+            kind "debrisCollected"
 
         Bell ->
             kind "bell"

@@ -4,10 +4,18 @@ module Sails.Wreck exposing
     , Source(..)
     , breakUp
     , burst
+    , collect
+    , collectRadius
+    , collectable
+    , floatSeconds
     , partSlot
     , pieceCount
+    , salvage
+    , shrinkSeconds
+    , size
     , sourceScale
     , step
+    , unsalvageable
     )
 
 {-| A wrecked boat breaking up into its own bricks.
@@ -24,12 +32,24 @@ than `pieceCount` gives an even sample of them (`partSlot`). The bright
 bursts of the finish and the ghost ship's are generic bricks (`Brick`). The pieces tumble through the air,
 splash down and float, bobbing on the swell and slowly spreading out.
 
+Floating pieces do not stay forever: after `floatSeconds` on the water a
+piece has shrunk away (`size`, over its last `shrinkSeconds`) and `step`
+drops it, so the list of loose pieces stays bounded. Until then the
+player's boat can fish it out of the water by sailing within
+`collectRadius` of it (`collect`), which patches the hull
+(`Sails.Hull.debrisRepair`, see `salvage`). Only pieces marked
+`salvageable` when they were spawned can be fished out: those of a burst
+(a sunk pirate ship, a shot-down pier or town pier) are, while a pier the
+boat rams itself and the finish's confetti are made `unsalvageable`, so the
+boat cannot patch itself from its own ramming or the celebration.
+
 The pieces come from the boat's position and heading alone, so a wreck
 looks the same every time it is replayed: there is no randomness.
 
 -}
 
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Sails.Hull as Hull exposing (Hull)
 import Sails.Physics as Physics
 import Sails.Types exposing (SailingState)
 
@@ -78,8 +98,10 @@ type Look
 
 
 {-| One loose piece: where it is and how fast it moves, its spin (yaw and
-tumble, in radians, and their rates), what it looks like, and whether it has
-landed on the water.
+tumble, in radians, and their rates), what it looks like, whether it has
+landed on the water, for how many seconds it has floated there, and
+whether the boat can fish it out to patch its hull (`salvageable`, set when
+the piece is spawned: `burst` pieces are, `unsalvageable` ones are not).
 -}
 type alias Piece =
     { position : Vec3
@@ -89,6 +111,8 @@ type alias Piece =
     , spin : Float
     , look : Look
     , afloat : Bool
+    , afloatFor : Float
+    , salvageable : Bool
     }
 
 
@@ -194,9 +218,20 @@ burst source position heading speed =
                     _ ->
                         ShipPart source i
             , afloat = False
+            , afloatFor = 0
+            , salvageable = True
             }
     in
     List.map piece (List.range 0 (pieceCount - 1))
+
+
+{-| Mark pieces as ones the boat cannot fish out to patch its hull (see
+`salvageable`): the bricks of a pier the boat rams itself, or the finish's
+confetti. They still drift and expire like any other piece.
+-}
+unsalvageable : List Piece -> List Piece
+unsalvageable =
+    List.map (\piece -> { piece | salvageable = False })
 
 
 frac : Float -> Float
@@ -204,12 +239,122 @@ frac x =
     x - toFloat (floor x)
 
 
+{-| Seconds a piece floats on the water before it has shrunk away and is
+dropped (see `step`).
+-}
+floatSeconds : Float
+floatSeconds =
+    20
+
+
+{-| Over its last this many seconds afloat a piece shrinks to nothing
+(see `size`).
+-}
+shrinkSeconds : Float
+shrinkSeconds =
+    2
+
+
+{-| How near, in metres (world units) across the water, the player's boat
+must come to a floating piece to pick it up (see `collect`). About a boat
+length and a half, so steering through a patch of debris gathers it.
+-}
+collectRadius : Float
+collectRadius =
+    6
+
+
+{-| The scale a piece is drawn at: 1 until its last `shrinkSeconds` afloat,
+then down to 0 at `floatSeconds`.
+-}
+size : Piece -> Float
+size piece =
+    if piece.afloat then
+        clamp 0 1 ((floatSeconds - piece.afloatFor) / shrinkSeconds)
+
+    else
+        1
+
+
+{-| Whether the boat at `boat` can pick up the piece: it must be
+`salvageable`, floating on the water (not still flying off what broke up)
+and within `collectRadius`, measured across the water (the swell's height
+does not count). A piece that has floated `floatSeconds` is never seen
+here: `step` has already dropped it.
+-}
+collectable : Vec3 -> Piece -> Bool
+collectable boat piece =
+    let
+        b =
+            Vec3.toRecord boat
+
+        p =
+            Vec3.toRecord piece.position
+
+        dx =
+            p.x - b.x
+
+        dz =
+            p.z - b.z
+
+        near =
+            dx * dx + dz * dz <= collectRadius * collectRadius
+    in
+    piece.salvageable && piece.afloat && near
+
+
+{-| Pick up every piece the boat at `boat` can reach (`collectable`): how
+many were picked up, and the pieces left, without them (so a piece is
+never counted twice).
+-}
+collect : Vec3 -> List Piece -> ( Int, List Piece )
+collect boat pieces =
+    let
+        ( picked, left ) =
+            List.partition (collectable boat) pieces
+    in
+    ( List.length picked, left )
+
+
+{-| Fish debris out of the water to patch `hull` (`collect`, then
+`Sails.Hull.repair` by `Sails.Hull.debrisRepair` a piece): how many pieces
+were picked up, the patched hull and the pieces left. A hull at
+`Sails.Hull.maxHealth` needs no patching and a wrecked one cannot be
+patched, so then nothing is picked up and the pieces float on until they
+expire.
+-}
+salvage : Vec3 -> Hull -> List Piece -> ( Int, Hull, List Piece )
+salvage boat hull pieces =
+    if Hull.wrecked hull || hull.health >= Hull.maxHealth then
+        ( 0, hull, pieces )
+
+    else
+        let
+            ( picked, left ) =
+                collect boat pieces
+        in
+        ( picked, Hull.repair (Hull.debrisRepair * toFloat picked) hull, left )
+
+
 {-| Move the pieces one step in a sea state `sea` at time `t`: through the
-air under gravity, then floating on the water, drifting apart slowly.
+air under gravity, then floating on the water, drifting apart slowly. A
+piece that has floated `floatSeconds` is gone.
 -}
 step : Float -> Float -> Float -> List Piece -> List Piece
 step dt sea t pieces =
-    List.map (stepPiece dt sea t) pieces
+    List.filterMap
+        (\piece ->
+            let
+                moved =
+                    stepPiece dt sea t piece
+            in
+            if moved.afloatFor >= floatSeconds then
+                Nothing
+
+            else
+                Just moved
+        )
+        pieces
 
 
 stepPiece : Float -> Float -> Float -> Piece -> Piece
@@ -237,6 +382,7 @@ stepPiece dt sea t piece =
             , velocity = vec3 (v.x * drag) 0 (v.z * drag)
             , yaw = piece.yaw + piece.spin * 0.08 * dt
             , tumble = piece.tumble * max 0 (1 - 3 * dt)
+            , afloatFor = piece.afloatFor + dt
         }
 
     else

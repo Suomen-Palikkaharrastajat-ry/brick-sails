@@ -368,8 +368,13 @@ debrisEntities inView ctx width height draw shipMeshOf piece =
         p =
             Vec3.toRecord piece.position
 
+        -- A piece near the end of its time afloat shrinks away
+        -- (`Sails.Wreck.size`).
+        shrink =
+            Wreck.size piece
+
         u =
-            0.035
+            0.035 * shrink
 
         -- A ship's part is culled as if it were as big as its whole ship.
         reach =
@@ -382,7 +387,7 @@ debrisEntities inView ctx width height draw shipMeshOf piece =
                         |> Maybe.map (\m -> Wreck.sourceScale source * max m.lengthMeters m.heightMeters + 1)
                         |> Maybe.withDefault 0
     in
-    if not (inView piece.position reach) then
+    if shrink <= 0 || not (inView piece.position reach) then
         []
 
     else
@@ -415,7 +420,7 @@ debrisEntities inView ctx width height draw shipMeshOf piece =
                                         Vec3.toRecord part.pivot
 
                                     scale =
-                                        Wreck.sourceScale source
+                                        Wreck.sourceScale source * shrink
 
                                     -- The part turns about its own centre, which
                                     -- is where the piece is; `linear` takes it to

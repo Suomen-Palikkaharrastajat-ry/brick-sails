@@ -114,6 +114,7 @@ starsShown ending =
 
 {-| Burst number `n` of bright bricks over the boat: they fly up high, tumble
 down and float, like the bricks of a wreck (`Sails.Wreck.step` moves them).
+They are not `salvageable`: the celebration does not patch the hull.
 -}
 confetti : Int -> SailingState -> List Wreck.Piece
 confetti n state =
@@ -150,6 +151,8 @@ confetti n state =
                         |> Maybe.withDefault 14
                     )
             , afloat = False
+            , afloatFor = 0
+            , salvageable = False
             }
     in
     List.map piece (List.range 0 (piecesPerBurst - 1))

@@ -1322,12 +1322,23 @@ tick dt model =
         knocked =
             hull.health < model.hull.health - 3
 
-        debris =
+        steppedDebris =
             if justWrecked then
                 Wreck.breakUp (Wreck.Ship { name = model.boat.name, scale = 1 }) state
 
             else
                 Wreck.step dt conditions.sea time model.debris
+
+        -- Floating debris the boat sails through is fished out and patches
+        -- the hull (`Sails.Wreck.salvage`), only while racing, as damage
+        -- counts only while racing, and only while the hull is hurt and
+        -- afloat (otherwise the pieces float on until they expire).
+        ( debrisCollected, repairedHull, debris ) =
+            if racing then
+                Wreck.salvage state.position hull steppedDebris
+
+            else
+                ( 0, hull, steppedDebris )
 
         ( progressAfterHarbours, passed ) =
             if racing then
@@ -1409,7 +1420,7 @@ tick dt model =
             List.concatMap
                 (\( i, fp ) ->
                     if List.member i rammedHarbours then
-                        Harbours.smash fp bumpedShips.heading bumpedShips.speed
+                        Harbours.ram fp bumpedShips.heading bumpedShips.speed
 
                     else if List.member i shotDownHarbours then
                         Harbours.smash fp 0 0
@@ -1810,7 +1821,7 @@ tick dt model =
 
                             [] ->
                                 if knocked then
-                                    Just ( T.hullDamagedToast model.language (Hull.percent hull), 1.2 )
+                                    Just ( T.hullDamagedToast model.language (Hull.percent repairedHull), 1.2 )
 
                                 else
                                     Nothing
@@ -1926,6 +1937,11 @@ tick dt model =
 
               else if ghostAppeared then
                 sfx Sound.GhostAppear
+
+              else
+                Cmd.none
+            , if debrisCollected > 0 then
+                sfx Sound.DebrisCollected
 
               else
                 Cmd.none
@@ -2134,7 +2150,7 @@ tick dt model =
         , nextCannonId = nextShotId
         , pirateGuns = pirateGuns
         , toast = toast
-        , hull = hull
+        , hull = repairedHull
         , rockTimer =
             if racing && rock /= Nothing then
                 rockWarningSeconds

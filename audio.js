@@ -58,6 +58,7 @@ export const SFX_LIMITS = {
     wrecked: 1,
     bump: 2,
     coins: 2,
+    debrisCollected: 2,
     bell: 2,
     finish: 1,
     horn: 1,
@@ -79,6 +80,7 @@ export const SFX_LIMITS = {
     hullHit: 0.08,
     bump: 0.2,
     coins: 0.08,
+    debrisCollected: 0.1,
     click: 0.05,
     thunder: 0.5,
     gull: 4,
@@ -357,6 +359,12 @@ export const SOUNDS = {
   coins: [0.6, 3, (v, t, { count }) => {
     const notes = count >= 20 ? [83, 88, 91] : [83, 88]
     chimes(v, t, notes.map((midi, i) => [i * 0.075, midi, 0.2, i === notes.length - 1 ? 0.4 : 0.15]))
+  }],
+  // Floating debris fished out to patch the hull: a quiet wooden tock and
+  // a little rising tick, short and soft.
+  debrisCollected: [0.22, 1, (v, t) => {
+    woodKnock(v, t, vary(420), 0.14)
+    tone(v, { type: 'sine', f: vary(1250, 0.04), f2: 1650, t: t + 0.05, attack: 0.002, decay: 0.08, peak: 0.06, glide: 0.06 })
   }],
   // A buoy or harbour passed: a ship's bell, ding-ding.
   bell: [2.0, 3, (v, t) => shipsBell(v, t, 0.22)],

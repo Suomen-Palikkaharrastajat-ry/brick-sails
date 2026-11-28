@@ -10,6 +10,7 @@ module Sails.Harbours exposing
     , hitsToDestroy
     , intactFootprints
     , isWrecked
+    , ram
     , ramSpeed
     , recordHits
     , skipWrecked
@@ -367,11 +368,21 @@ checkHits piers balls =
 
 
 {-| A smashed pier bursting into its own bricks (`Sails.Wreck`), carried on
-along compass `heading` at `speed` (a ship ramming it; 0 for a shot).
+along compass `heading` at `speed` (0 for a shot). The pieces can be fished
+out to patch the hull (`Sails.Wreck.salvageable`).
 -}
 smash : Footprint -> Float -> Float -> List Wreck.Piece
 smash fp heading speed =
     Wreck.burst Wreck.HarbourPier (vec3 fp.x 0 fp.z) heading speed
+
+
+{-| A pier the player's boat rams at compass `heading` and `speed`, bursting
+like `smash`, but its pieces are `Sails.Wreck.unsalvageable`: the boat
+cannot patch its hull from the pier it has just rammed.
+-}
+ram : Footprint -> Float -> Float -> List Wreck.Piece
+ram fp heading speed =
+    Wreck.unsalvageable (smash fp heading speed)
 
 
 {-| Mark smashed harbours done on the way: while the harbour the boat is to

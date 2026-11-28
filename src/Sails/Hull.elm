@@ -7,6 +7,7 @@ module Sails.Hull exposing
     , cannonDamage
     , cautionBelow
     , dangerBelow
+    , debrisRepair
     , fraction
     , fresh
     , healthState
@@ -17,6 +18,7 @@ module Sails.Hull exposing
     , maxHealth
     , noKnocks
     , percent
+    , repair
     , repairDelay
     , repairRate
     , roughSeaRate
@@ -33,8 +35,10 @@ off; at none the boat breaks up into its bricks and the run is lost.
 It is meant to be fair: a slow nudge does no harm (`knockDamage` is zero
 under 2.5 m/s), a hard knock at full speed takes about a fifth, and a hull
 that has not been hit for a few seconds slowly mends (`repairDelay`,
-`repairRate`). A boat survives four full-speed crashes into rock in a row;
-the fifth sinks it.
+`repairRate`). Fishing floating debris out of the water patches it at
+once (`debrisRepair` a piece, see `repair` and `Sails.Wreck.salvage`). A
+boat survives four full-speed crashes into rock in a row; the fifth sinks
+it.
 
 All of it is a pure function of the fixed steps it is given, like the
 rest of the physics.
@@ -161,6 +165,27 @@ step dt racing knocks hull =
                 | health = min maxHealth (hull.health + mend)
                 , sinceDamage = since
             }
+
+
+{-| Health one piece of floating debris patches back onto the hull when the
+boat picks it up (see `Sails.Wreck.salvage`).
+-}
+debrisRepair : Float
+debrisRepair =
+    5
+
+
+{-| Patch `amount` of health back onto the hull, capped at `maxHealth`.
+A wrecked hull stays wrecked, and the mending timer (`sinceDamage`) is left
+as it is, so a patch neither starts nor delays the passive mending.
+-}
+repair : Float -> Hull -> Hull
+repair amount hull =
+    if wrecked hull || amount <= 0 then
+        hull
+
+    else
+        { hull | health = min maxHealth (hull.health + amount) }
 
 
 wrecked : Hull -> Bool
