@@ -13,6 +13,7 @@ module Sails.Editor exposing
     , palette
     , partCategories
     , parts
+    , standsOnSomething
     )
 
 {-| The rules of the ship editor (`Pages.Build`): its 8 colours, its fixed
@@ -745,3 +746,41 @@ overlaps a b =
             getter a.max - slack <= getter b.min || getter b.max - slack <= getter a.min
     in
     not (apart Vec3.getX 2 || apart Vec3.getY (studHeight + 1) || apart Vec3.getZ 2)
+
+
+
+-- ── What a part stands on ────────────────────────────────────────────────────
+
+
+{-| Whether the part `piece` of a build (`build`, all of its leaf parts in world
+space, e.g. `Document.flattenedPlacements`) stands on something: another part
+reaches under its footprint (x and z, `overlapsAcross`) with its top at or
+below the part's lowest point. That is the notion `Sails.ShipMesh.sailFootOf`
+lowers the sails by, on the parts' connectivity boxes (`localInfo`) instead of
+their triangles, so it needs no loaded geometry. LDraw Y is down, and a box
+includes its studs, so a top up to a stud's height (and a little slack) above
+the lowest point still counts: the studs reach into the part standing on
+them. A part's own box never counts (its top is far above its lowest point).
+
+A sail with nothing under it floats: the game folds it down onto the deck
+(`sailFootOf`), and the builder warns about it (`Pages.Build.shipChecks`).
+
+-}
+standsOnSomething : List WorldPart -> WorldPart -> Bool
+standsOnSomething build piece =
+    case worldBox piece of
+        Just box ->
+            let
+                lowest =
+                    Vec3.getY box.max
+
+                under other =
+                    (Vec3.getY other.min >= lowest - studHeight - 0.5)
+                        && overlapsAcross box other
+            in
+            build
+                |> List.filterMap worldBox
+                |> List.any under
+
+        Nothing ->
+            True

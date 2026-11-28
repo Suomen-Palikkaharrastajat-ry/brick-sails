@@ -1,8 +1,12 @@
 module Sails.CannonPick exposing
-    ( pickCannon
+    ( allCannons
+    , nearestFoe
+    , pickCannon
     , pickRadius
     , projectMuzzles
     , projectToScreen
+    , selectCannon
+    , tapCandidates
     )
 
 {-| Which of the player's cannons a tap lands on. Each muzzle (boat space,
@@ -11,6 +15,12 @@ and projected to screen pixels with the same view and projection the renderer
 draws with (`Sails.OceanShader.makeCtx` on the follow camera's eye and target,
 as `Sails.Render.renderWorld` does). A tap within `pickRadius` pixels of a
 projected muzzle picks the nearest such cannon.
+
+The tap path (`tapCandidates`) and the desktop F key (`allCannons`) both
+choose their cannon with `selectCannon`: of the candidate cannons, the one
+nearest the foe being fired at (`nearestFoe`), ties going to the one nearest
+the tap.
+
 -}
 
 import Math.Matrix4 as Mat4
@@ -93,12 +103,89 @@ pickCannon :
     -> { x : Float, y : Float }
     -> Maybe { a | position : Vec3 }
 pickCannon cam width height state muzzles tap =
+    selectCannon state Nothing (tapCandidates cam width height state muzzles tap)
+
+
+{-| The cannons a tap at `tap` (screen pixels) is near: those whose
+projected muzzle is within `pickRadius`, each with its distance (pixels)
+from the tap.
+-}
+tapCandidates :
+    { eye : Vec3, target : Vec3 }
+    -> Int
+    -> Int
+    -> SailingState
+    -> List { a | position : Vec3 }
+    -> { x : Float, y : Float }
+    -> List ( { a | position : Vec3 }, Float )
+tapCandidates cam width height state muzzles tap =
     projectMuzzles cam width height state muzzles
         |> List.map
             (\( mz, s ) ->
-                ( sqrt ((s.x - tap.x) ^ 2 + (s.y - tap.y) ^ 2), mz )
+                ( mz, sqrt ((s.x - tap.x) ^ 2 + (s.y - tap.y) ^ 2) )
             )
-        |> List.filter (\( d, _ ) -> d <= pickRadius)
-        |> List.sortBy Tuple.first
+        |> List.filter (\( _, d ) -> d <= pickRadius)
+
+
+{-| Every cannon as a candidate for the F key, which has no tap point: the
+tie-break is how far the muzzle is from the middle of the hull fore and aft
+(as a broadside picks its muzzle in `Sails.Physics.fireTowardsFrom`).
+-}
+allCannons : List { a | position : Vec3 } -> List ( { a | position : Vec3 }, Float )
+allCannons =
+    List.map (\mz -> ( mz, abs (Vec3.getZ mz.position) ))
+
+
+{-| The foe the cannons are fired at: the aim point (see `Pages.Sail`'s
+`aimPoints`) nearest the ship, or Nothing with no foe about.
+-}
+nearestFoe : SailingState -> List Vec3 -> Maybe Vec3
+nearestFoe state aimPoints =
+    aimPoints
+        |> List.sortBy (Physics.horizontalDistance state.position)
         |> List.head
-        |> Maybe.map Tuple.second
+
+
+{-| Within this (m) two cannons are as near the foe as each other, and the
+tie-break decides.
+-}
+sameDistance : Float
+sameDistance =
+    0.05
+
+
+{-| Of the `candidates` (each with its tie-break distance, from the tap for
+a tap), the cannon to fire: the one whose muzzle (in the world, see
+`Sails.Physics.muzzleWorld`) is nearest the `foe`, ties (within
+`sameDistance`) going to the smaller tie-break distance. With no foe, the
+smallest tie-break distance wins. Nothing with no candidates.
+-}
+selectCannon : SailingState -> Maybe Vec3 -> List ( { a | position : Vec3 }, Float ) -> Maybe { a | position : Vec3 }
+selectCannon state foe candidates =
+    let
+        foeDistance mz =
+            case foe of
+                Just f ->
+                    Physics.horizontalDistance (Physics.muzzleWorld state mz) f
+
+                Nothing ->
+                    0
+
+        order ( a, ta ) ( b, tb ) =
+            let
+                da =
+                    foeDistance a
+
+                db =
+                    foeDistance b
+            in
+            if abs (da - db) > sameDistance then
+                compare da db
+
+            else
+                compare ta tb
+    in
+    candidates
+        |> List.sortWith order
+        |> List.head
+        |> Maybe.map Tuple.first

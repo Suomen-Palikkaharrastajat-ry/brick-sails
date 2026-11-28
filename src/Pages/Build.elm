@@ -50,6 +50,8 @@ import LDraw.Colors as Colors
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
 import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
+import Math.Matrix4 as Mat4
+import Math.Vector3 as Vec3 exposing (vec3)
 import Ports
 import Render.Scene exposing (Scene)
 import Sails.Analyze as Analyze
@@ -135,6 +137,7 @@ type Msg
     | ToggleBaseLock
     | PasteTextChanged String
     | SubmitPaste
+    | CopyBuildCode
     | CatalogFilterChanged String
     | PaletteLeft
     | CanvasTapped
@@ -630,6 +633,12 @@ updateModel msg model =
 
         PasteTextChanged textVal ->
             ( { model | pasteText = textVal, pasteError = Nothing }, Cmd.none, Stay )
+
+        CopyBuildCode ->
+            ( model
+            , GamePorts.copyShareUrl (Ingest.encodeShipLink (Core.getDocument model.studio))
+            , Stay
+            )
 
         SubmitPaste ->
             case Ingest.decodeShipInput Nothing model.pasteText of
@@ -1822,6 +1831,21 @@ viewImportDrawer model =
                     ]
                     [ text (tr lang "Open" "Avaa") ]
                 ]
+            , button
+                [ Attr.type_ "button"
+                , onClick CopyBuildCode
+                , Attr.attribute "data-testid" "copy-build-code"
+                , Attr.style "align-self" "flex-start"
+                , Attr.style "padding" "6px 12px"
+                , Attr.style "border-radius" "8px"
+                , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+                , Attr.style "color" Brand.legoWhite
+                , Attr.style "font-weight" "700"
+                , Attr.style "font-size" "12px"
+                , Attr.style "cursor" "pointer"
+                , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+                ]
+                [ text (tr lang "Copy build code" "Kopioi rakennelman koodi") ]
             , case model.pasteError of
                 Just err ->
                     div [ Attr.style "color" "#ef4444", Attr.style "font-size" "12px" ] [ text err ]
@@ -1840,17 +1864,25 @@ type ShipCheck
     = NoMast
     | NoSail
     | NoGuns
+    | UnsupportedSail
 
 
 {-| The checks a build fails, in prompt order. Each one is there only while
 the ship has no part of its kind at all:
 
   - `NoMast`: no mast part (what `Sails.Ingest` counts as a mast, the antenna
-    `3957a`, or the editor's mast pillar `43888`),
+    `3957a`, or the editor's mast pillar `43888`) and no mast stacked from
+    1 x 1 round bricks (`hasRoundBrickMast`),
   - `NoSail`: no placement passes `Sails.Ingest.sailRule`, the rule the game
     raises and lowers the sails by (flags and cloth, or white 1 x N bricks on
     the deck),
-  - `NoGuns`: no cannon (`Sails.Ingest.isCannonPart`, e.g. `32828`).
+  - `NoGuns`: no cannon (`Sails.Ingest.isCannonPart`, e.g. `32828`),
+  - `UnsupportedSail`: a sail stands on nothing (`Sails.Editor.standsOnSomething`:
+    no hull, mast or other part under its footprint at or below its lowest
+    point). It floats, and the game folds it down onto the deck
+    (`Sails.ShipMesh.sailFootOf`). This one only warns: it has no helper
+    button (the fix is to put the sail on something) and does not stop the
+    ship from sailing.
 
 -}
 shipChecks : Document -> List ShipCheck
@@ -1864,9 +1896,18 @@ shipChecks doc =
 
         isMast part =
             Ingest.isMastPart part || String.contains "43888" (String.toLower part)
+
+        hasMast =
+            List.any (.part >> isMast) placements || hasRoundBrickMast placements
+
+        worldParts =
+            List.map (\p -> { part = p.part, matrix = p.matrix }) placements
+
+        floats p =
+            isSail p && not (Editor.standsOnSomething worldParts { part = p.part, matrix = p.matrix })
     in
     List.filterMap identity
-        [ if List.any (.part >> isMast) placements then
+        [ if hasMast then
             Nothing
 
           else
@@ -1881,26 +1922,62 @@ shipChecks doc =
 
           else
             Just NoGuns
+        , if List.any floats placements then
+            Just UnsupportedSail
+
+          else
+            Nothing
         ]
 
 
-{-| The helper that fixes a check: a mast (antenna `3957a`), a white
-(colour 15) 1 x 3 brick sail (`3622`), or a cannon (`32828`).
+{-| Whether the build has a mast stacked from 1 x 1 round bricks (`3062a`,
+`3062b`): two or more of them in one column (the same x and z), as the NPC
+ships' mast segments and many player builds are made. A single round brick
+on the deck is a bollard, not a mast.
 -}
-shipCheckFix : ShipCheck -> Msg
+hasRoundBrickMast : List Document.Placement -> Bool
+hasRoundBrickMast placements =
+    let
+        isRoundBrick p =
+            List.member (String.replace ".dat" "" (String.toLower p.part)) [ "3062a", "3062b", "parts/3062a", "parts/3062b" ]
+
+        column p =
+            let
+                origin =
+                    Mat4.transform p.matrix (vec3 0 0 0)
+            in
+            ( round (Vec3.getX origin), round (Vec3.getZ origin) )
+
+        columns =
+            placements
+                |> List.filter isRoundBrick
+                |> List.map column
+    in
+    List.any (\c -> List.length (List.filter ((==) c) columns) >= 2) columns
+
+
+{-| The helper that fixes a check: a mast (antenna `3957a`), a white
+(colour 15) 1 x 3 brick sail (`3622`), or a cannon (`32828`). A floating sail
+(`UnsupportedSail`) has none: the player puts the sail on something.
+-}
+shipCheckFix : ShipCheck -> Maybe Msg
 shipCheckFix check =
     case check of
         NoMast ->
-            AddPartList [ "3957a.dat" ]
+            Just (AddPartList [ "3957a.dat" ])
 
         NoSail ->
-            AddPartInColour 15 "3622.dat"
+            Just (AddPartInColour 15 "3622.dat")
 
         NoGuns ->
-            AddPartList [ "32828.dat" ]
+            Just (AddPartList [ "32828.dat" ])
+
+        UnsupportedSail ->
+            Nothing
 
 
-{-| A check's prompt, its detail line and its helper button label.
+{-| A check's prompt, its detail line and its helper button label (empty
+for a check without a helper, `shipCheckFix`).
 -}
 shipCheckText : Language -> ShipCheck -> { title : String, detail : String, button : String }
 shipCheckText lang check =
@@ -1921,6 +1998,12 @@ shipCheckText lang check =
             { title = tr lang "Your ship has no guns" "Laivassasi ei ole tykkejä"
             , detail = tr lang "Add a cannon (32828) to sink pirate ships for gold coins." "Lisää tykki (32828) upottaaksesi merirosvolaivoja kultakolikoiksi."
             , button = tr lang "Add cannon" "Lisää tykki"
+            }
+
+        UnsupportedSail ->
+            { title = tr lang "A sail is not on anything" "Purje ei ole minkään päällä"
+            , detail = tr lang "Put each sail on the deck or a mast so it has something to stand on." "Aseta jokainen purje kannelle tai mastoon, että sillä on tuki."
+            , button = ""
             }
 
 
@@ -1986,24 +2069,34 @@ shipCheckRow lang check =
             ]
             []
         , span [ Attr.style "min-width" "0" ] [ text texts.title ]
-        , button
-            [ Attr.type_ "button"
-            , onClick (shipCheckFix check)
-            , Attr.attribute "aria-label" texts.button
-            , Attr.style "flex-shrink" "0"
-            , Attr.style "padding" "4px 10px"
-            , Attr.style "border-radius" "8px"
-            , Attr.style "background" "rgba(15, 23, 42, 0.75)"
-            , Attr.style "border" "1px solid rgba(250, 200, 10, 0.5)"
-            , Attr.style "color" Brand.legoYellow
-            , Attr.style "font-size" "12px"
-            , Attr.style "font-weight" "800"
-            , Attr.style "cursor" "pointer"
-            , Attr.style "pointer-events" "auto"
-            , Attr.style "touch-action" "manipulation"
-            ]
-            [ text ("+ " ++ texts.button) ]
+        , case shipCheckFix check of
+            Just fix ->
+                shipCheckButton texts.button fix
+
+            Nothing ->
+                text ""
         ]
+
+
+shipCheckButton : String -> Msg -> Html Msg
+shipCheckButton label fix =
+    button
+        [ Attr.type_ "button"
+        , onClick fix
+        , Attr.attribute "aria-label" label
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "padding" "4px 10px"
+        , Attr.style "border-radius" "8px"
+        , Attr.style "background" "rgba(15, 23, 42, 0.75)"
+        , Attr.style "border" "1px solid rgba(250, 200, 10, 0.5)"
+        , Attr.style "color" Brand.legoYellow
+        , Attr.style "font-size" "12px"
+        , Attr.style "font-weight" "800"
+        , Attr.style "cursor" "pointer"
+        , Attr.style "pointer-events" "auto"
+        , Attr.style "touch-action" "manipulation"
+        ]
+        [ text ("+ " ++ label) ]
 
 
 shipCheckId : ShipCheck -> String
@@ -2017,6 +2110,9 @@ shipCheckId check =
 
         NoGuns ->
             "guns"
+
+        UnsupportedSail ->
+            "sail-support"
 
 
 type EvalSeverity
@@ -2239,9 +2335,12 @@ viewReviewDrawer model =
                 NoGuns ->
                     "32828.dat"
 
+                UnsupportedSail ->
+                    "3622.dat"
+
         missingButtons =
-            List.map
-                (\check -> helperBtn (shipCheckText lang check).button (checkThumb check) (shipCheckFix check))
+            List.filterMap
+                (\check -> shipCheckFix check |> Maybe.map (helperBtn (shipCheckText lang check).button (checkThumb check)))
                 checks
 
         missingSection =
@@ -2277,7 +2376,7 @@ viewReviewDrawer model =
                         { severity = EvalWarning
                         , title = texts.title
                         , detail = Just texts.detail
-                        , fix = Just (shipCheckFix check)
+                        , fix = shipCheckFix check
                         }
                     )
                     checks

@@ -10,7 +10,11 @@ module Sails.Physics exposing
     , canRecoverStandardAtSea
     , canRepatriateStandard
     , canSeizeStandard
+    , cannonLaunchSpeed
+    , cannonPower
     , cannonRange
+    , cannonReach
+    , cannonShotVelocity
     , cannonVelocity
     , checkBoatHits
     , checkReefGrounding
@@ -30,6 +34,7 @@ module Sails.Physics exposing
     , factionTown
     , findBroadsideTarget
     , fireBroadside
+    , fireCannonAt
     , fireCannons
     , fireDirectional
     , fireFromMuzzle
@@ -1586,20 +1591,8 @@ balls, the camera bias and the heading, which is the current one: a cannon
 shot never turns the ship (`Pages.Sail` sets no turn target for it).
 -}
 fireFromMuzzle : { a | position : Vec3, side : Float, direction : Vec3 } -> Int -> SailingState -> Int -> ( List Cannonball, Float, Float )
-fireFromMuzzle muzzle slot state startId =
-    let
-        ball =
-            { id = startId
-            , sourceSlot = slot
-            , position = muzzleWorld state muzzle
-            , velocity = cannonVelocity state muzzle
-            , age = 0
-            }
-    in
-    ( [ ball ]
-    , shotBearing state ball
-    , state.heading
-    )
+fireFromMuzzle muzzle =
+    fireCannonAt muzzle Nothing
 
 
 {-| Velocity of a ball from a built cannon: the barrel `direction` (boat
@@ -1637,7 +1630,158 @@ cannonVelocity state muzzle =
             )
 
     else
-        Vec3.add (vec3 (wx / len * 22.0) 5.5 (wz / len * 22.0)) (shipVelocity state)
+        Vec3.add (vec3 (wx / len * cannonPower) (cannonPower * cannonElevation) (wz / len * cannonPower)) (shipVelocity state)
+
+
+{-| A built cannon's full power: the horizontal speed (m/s) of its ball, as
+`cannonVelocity` fires it.
+-}
+cannonPower : Float
+cannonPower =
+    22.0
+
+
+{-| Rise over run of a built cannon's shot (5.5 m/s up at full power).
+-}
+cannonElevation : Float
+cannonElevation =
+    0.25
+
+
+{-| The least horizontal speed a ranged cannon shot leaves with, so a target
+right under the muzzle still gets a short lob rather than a dropped ball.
+-}
+cannonMinPower : Float
+cannonMinPower =
+    4.0
+
+
+{-| Horizontal launch speed (m/s) for a built cannon's ball, at its fixed
+elevation (`cannonElevation`), to come down `distance` m away and `drop` m
+below the muzzle: the power that fits the target's distance, clamped to
+`cannonMinPower` .. `cannonPower`. A target beyond the cannon's reach gets
+full power (the ball falls short at the cannon's maximum range).
+-}
+cannonLaunchSpeed : Float -> Float -> Float
+cannonLaunchSpeed distance drop =
+    let
+        denom =
+            2 * (cannonElevation * distance + drop)
+    in
+    if denom <= 1.0e-6 then
+        cannonPower
+
+    else
+        clamp cannonMinPower cannonPower (sqrt (gravity * distance * distance / denom))
+
+
+{-| How far (m) a built cannon's ball carries at full power before it comes
+down `drop` m below the muzzle.
+-}
+cannonReach : Float -> Float
+cannonReach drop =
+    let
+        k =
+            cannonElevation
+
+        disc =
+            k * k + 2 * gravity * drop / (cannonPower * cannonPower)
+    in
+    if disc < 0 then
+        0
+
+    else
+        (k + sqrt disc) * cannonPower * cannonPower / gravity
+
+
+{-| Velocity of a ball from a built cannon with a `target` (a foe's world
+position) in mind. With the target within the cannon's arc (less than about
+49 degrees off its barrel, as `fireTowardsFrom` judges "near the line of
+fire") the ball is aimed at it from the muzzle with the power that fits its
+distance (`cannonLaunchSpeed`): it lands on the target instead of flying
+over it, and a target beyond the cannon's reach gets a full-power shot that
+falls short. Like `lobFrom` such a ranged shot is aimed in the world, so the
+ship's own velocity is not added. With no target, or one outside the arc,
+the ball goes along the barrel at full power (`cannonVelocity`).
+-}
+cannonShotVelocity : SailingState -> { a | position : Vec3, side : Float, direction : Vec3 } -> Maybe Vec3 -> Vec3
+cannonShotVelocity state muzzle target =
+    let
+        barrel =
+            Vec3.toRecord (Vec3.sub (cannonVelocity state muzzle) (shipVelocity state))
+
+        barrelLen =
+            sqrt (barrel.x * barrel.x + barrel.z * barrel.z)
+
+        o =
+            Vec3.toRecord (muzzleWorld state muzzle)
+    in
+    case target of
+        Just aim ->
+            let
+                a =
+                    Vec3.toRecord aim
+
+                dx =
+                    a.x - o.x
+
+                dz =
+                    a.z - o.z
+
+                d =
+                    sqrt (dx * dx + dz * dz)
+
+                inArc =
+                    d > 1.5 && barrelLen > 1.0e-6 && (dx * barrel.x + dz * barrel.z) / (d * barrelLen) > 0.65
+
+                -- As `lobFrom`: aim a little above the target's waterline.
+                drop =
+                    o.y - (a.y + 0.6)
+
+                vh =
+                    cannonLaunchSpeed d drop
+            in
+            if inArc then
+                let
+                    t =
+                        d / vh
+
+                    vy =
+                        if vh >= cannonPower then
+                            cannonPower * cannonElevation
+
+                        else
+                            (0 - drop + 0.5 * gravity * t * t) / t
+                in
+                vec3 (dx / d * vh) vy (dz / d * vh)
+
+            else
+                cannonVelocity state muzzle
+
+        Nothing ->
+            cannonVelocity state muzzle
+
+
+{-| `fireFromMuzzle` with the `target` the cannon is fired at (see
+`cannonShotVelocity`): the ball leaves the chosen cannon's muzzle and, when
+the target is in that cannon's arc, flies at it with the power that fits its
+distance. With Nothing it is `fireFromMuzzle`.
+-}
+fireCannonAt : { a | position : Vec3, side : Float, direction : Vec3 } -> Maybe Vec3 -> Int -> SailingState -> Int -> ( List Cannonball, Float, Float )
+fireCannonAt muzzle target slot state startId =
+    let
+        ball =
+            { id = startId
+            , sourceSlot = slot
+            , position = muzzleWorld state muzzle
+            , velocity = cannonShotVelocity state muzzle target
+            , age = 0
+            }
+    in
+    ( [ ball ]
+    , shotBearing state ball
+    , state.heading
+    )
 
 
 {-| The world bearing (degrees, as the heading: 0 along +Z, 90 along +X) a

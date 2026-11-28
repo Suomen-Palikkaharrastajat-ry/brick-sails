@@ -1,8 +1,11 @@
 module SailHoistTest exposing (suite)
 
-{-| Lowering the sails (`Sails.ShipMesh.sailHoist`): the sails come down to
-where they are attached, the deck or mast foot under them, and stand lower
-the less sail is set. Parts are stand-in boxes so no catalog is needed.
+{-| Lowering the sails (`Sails.ShipMesh.sailHoist`): sails hung from
+something above them (`sailHangs`: a yard, or a hull or rig piece over their
+top) roll up, their top staying where they hang; other sails roll down, their
+foot staying on what they stand on. Either way they gather to a stub of 12 %
+of their height and are never stretched. Parts are stand-in boxes so no
+catalog is needed.
 -}
 
 import Dict
@@ -123,8 +126,13 @@ deckTop =
     8
 
 
-lowersToAttachment : String -> ShipMesh -> Float -> Test
-lowersToAttachment name mesh foot =
+{-| Nothing above the sails to hang them from, so they roll down: the foot
+stays on what they stand on (`sailFoot`) and the cloth gathers down to it,
+the top coming down to 12 % of its height above the foot at Down. Nothing is
+stretched.
+-}
+rollsDownToFoot : String -> ShipMesh -> Float -> Test
+rollsDownToFoot name mesh foot =
     test name <|
         \_ ->
             let
@@ -138,15 +146,17 @@ lowersToAttachment name mesh foot =
                     drawnSails mesh 0
             in
             Expect.all
-                [ \_ -> Expect.within (Expect.Absolute 0.01) foot mesh.sailFoot
-                , \_ -> Expect.within (Expect.Absolute 0.01) foot downLow
+                [ \_ -> Expect.equal False mesh.sailHangs
+                , \_ -> Expect.within (Expect.Absolute 0.01) foot mesh.sailFoot
                 , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailLow fullLow
                 , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailTop fullTop
                 , \_ -> Expect.lessThan fullTop reefTop
                 , \_ -> Expect.lessThan reefTop downTop
                 , \_ -> Expect.atMost fullLow reefLow
                 , \_ -> Expect.atMost reefLow downLow
-                , \_ -> Expect.atMost (foot + 0.12 * (fullTop - foot) + 0.01) downTop
+                , \_ -> Expect.atLeast foot downLow
+                , \_ -> Expect.within (Expect.Absolute 0.01) (foot + 0.12 * (fullTop - foot)) downTop
+                , \_ -> Expect.within (Expect.Absolute 0.01) (foot + 0.12 * (fullLow - foot)) downLow
                 , \_ -> Expect.atLeast (downTop - downLow - 0.01) (fullTop - fullLow)
                 ]
                 ()
@@ -155,21 +165,30 @@ lowersToAttachment name mesh foot =
 suite : Test
 suite =
     describe "Lowering the sails"
-        [ lowersToAttachment "white 1 x 3 sails stacked on the deck fold down onto the deck"
+        [ rollsDownToFoot "white 1 x 3 sails stacked on the deck, nothing above, roll down onto the deck"
             (meshOf (ship [ "1 15 30 -32 0 1 0 0 0 1 0 0 0 1 3622.dat", "1 15 30 -56 0 1 0 0 0 1 0 0 0 1 3622.dat" ]))
             deckTop
-        , lowersToAttachment "a flag hung at the mast top comes down to the deck"
+        , rollsDownToFoot "a flag at the mast top, nothing above it, rolls down toward the deck"
             (meshOf (ship [ "1 15 0 -104 0 1 0 0 0 1 0 0 0 1 2335.dat" ]))
             deckTop
-        , test "S lowers the drawn sail towards the deck and W raises it back to the masthead" <|
+        , test "S rolls the drawn sail down towards the deck and W raises it back to the masthead" <|
             \_ ->
                 let
                     -- The default boat's rig: a flag hung at the mast top.
                     mesh =
                         meshOf (ship [ "1 15 0 -104 0 1 0 0 0 1 0 0 0 1 2335.dat" ])
 
+                    drawnOf m =
+                        drawnSails mesh m.state.sail
+
                     topOf m =
-                        Tuple.second (drawnSails mesh m.state.sail)
+                        Tuple.second (drawnOf m)
+
+                    heightOf m =
+                        Tuple.second (drawnOf m) - Tuple.first (drawnOf m)
+
+                    fullHeight =
+                        mesh.sailTop - mesh.sailLow
 
                     full =
                         settle fresh
@@ -182,13 +201,19 @@ suite =
                 in
                 Expect.all
                     [ \_ -> Expect.equal ( 3, 0, 3 ) ( full.sailLevel, lowered.sailLevel, raised.sailLevel )
+                    , \_ -> Expect.equal False mesh.sailHangs
                     , \_ -> Expect.within (Expect.Absolute 0.5) mesh.sailTop (topOf full)
+                    , \_ -> Expect.within (Expect.Absolute 0.5) fullHeight (heightOf full)
                     , \_ -> Expect.lessThan (topOf full - 20) (topOf lowered)
+                    , \_ -> Expect.atLeast mesh.sailFoot (Tuple.first (drawnOf lowered))
+                    , \_ -> Expect.lessThan (heightOf full - 20) (heightOf lowered)
                     , \_ -> Expect.greaterThan (topOf lowered + 20) (topOf raised)
+                    , \_ -> Expect.greaterThan (heightOf lowered + 20) (heightOf raised)
                     , \_ -> Expect.within (Expect.Absolute 0.5) mesh.sailTop (topOf raised)
+                    , \_ -> Expect.within (Expect.Absolute 0.5) fullHeight (heightOf raised)
                     ]
                     ()
-        , test "the frigate's sails hanging from yards come down below the lowest yard, to the mast foot" <|
+        , test "the frigate's sails hanging from yards roll up toward their yards, above the lowest yard" <|
             \_ ->
                 let
                     doc =
@@ -202,13 +227,35 @@ suite =
                     mesh =
                         ShipMesh.build (Ingest.sailRule (Document.flattenedPlacements doc)) doc boxes
 
+                    -- Yards are the 3021 plates up in the rig (the forecastle's
+                    -- 3021 deck plates, LDraw y -32, are hull, not yards); each
+                    -- stand-in box hangs 24 LDU below its origin (LDraw -Y up),
+                    -- so its bottom (Y-up) is -(y + 24).
+                    originY p =
+                        Vec3.getY (Mat4.transform p.matrix (Vec3.vec3 0 0 0))
+
+                    lowestYardBottom =
+                        Document.flattenedPlacements doc
+                            |> List.filter (\p -> p.part == "3021.dat" && originY p < -100)
+                            |> List.map (\p -> -(originY p + 24))
+                            |> List.minimum
+                            |> Maybe.withDefault 0
+
+                    ( fullLow, fullTop ) =
+                        drawnSails mesh 1
+
                     ( downLow, downTop ) =
                         drawnSails mesh 0
                 in
                 Expect.all
-                    [ \_ -> Expect.lessThan mesh.sailLow mesh.sailFoot
-                    , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailFoot downLow
-                    , \_ -> Expect.atMost (mesh.sailFoot + 0.12 * (mesh.sailTop - mesh.sailFoot) + 0.01) downTop
+                    [ \_ -> Expect.equal True mesh.sailHangs
+                    , \_ -> Expect.lessThan lowestYardBottom mesh.sailLow
+                    , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailLow fullLow
+                    , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailTop fullTop
+                    , \_ -> Expect.greaterThan lowestYardBottom downLow
+                    , \_ -> Expect.within (Expect.Absolute 0.01) mesh.sailTop downTop
+                    , \_ -> Expect.within (Expect.Absolute 0.01) (mesh.sailTop - 0.12 * (mesh.sailTop - mesh.sailLow)) downLow
+                    , \_ -> Expect.atLeast (downTop - downLow - 0.01) (fullTop - fullLow)
                     ]
                     ()
         ]

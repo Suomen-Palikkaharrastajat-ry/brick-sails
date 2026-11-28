@@ -716,42 +716,49 @@ update msg model =
             ( releaseControls model, Cmd.none )
 
         FireCannons ->
-            let
-                aimTarget =
-                    case Physics.findBroadsideTarget model.state (aimPoints model) of
-                        Just ( _, aim, _ ) ->
-                            let
-                                p =
-                                    Vec3.toRecord aim
+            -- A ship with built cannons fires one of them, chosen and
+            -- ranged exactly as a tap does (`fireChosenCannon`). Only a
+            -- ship with none fires the old hull broadside.
+            if List.isEmpty model.cannons then
+                let
+                    aimTarget =
+                        case Physics.findBroadsideTarget model.state (aimPoints model) of
+                            Just ( _, aim, _ ) ->
+                                let
+                                    p =
+                                        Vec3.toRecord aim
 
-                                s =
-                                    Vec3.toRecord model.state.position
-                            in
-                            vec3 (p.x - s.x) 0 (p.z - s.z)
+                                    s =
+                                        Vec3.toRecord model.state.position
+                                in
+                                vec3 (p.x - s.x) 0 (p.z - s.z)
 
-                        Nothing ->
-                            let
-                                rad =
-                                    degrees model.state.heading
-                            in
-                            vec3 (cos rad) 0 (0 - sin rad)
-            in
-            fireInAimDirection aimTarget model
+                            Nothing ->
+                                let
+                                    rad =
+                                        degrees model.state.heading
+                                in
+                                vec3 (cos rad) 0 (0 - sin rad)
+                in
+                fireInAimDirection aimTarget model
+
+            else
+                fireChosenCannon (CannonPick.allCannons model.cannons) model
 
         PointerFire tap ->
             let
                 tapped =
                     { model | touchShoot = tap.pointerType == "touch" }
             in
-            -- Only a tap on one of the drawn cannons fires, along that
-            -- cannon's own barrel (ahead, astern or out to its side). Taps
-            -- anywhere else do nothing.
-            case CannonPick.pickCannon (CameraRig.followView model.follow) model.viewportWidth model.viewportHeight model.state model.cannons { x = tap.x, y = tap.y } of
-                Just muzzle ->
-                    fireCannonShot muzzle tapped
-
-                Nothing ->
+            -- Only a tap on one of the drawn cannons fires, from that
+            -- cannon (ahead, astern or out to its side). A tap near several
+            -- fires the one nearest the foe. Taps anywhere else do nothing.
+            case CannonPick.tapCandidates (CameraRig.followView model.follow) model.viewportWidth model.viewportHeight model.state model.cannons { x = tap.x, y = tap.y } of
+                [] ->
                     ( model, Cmd.none )
+
+                candidates ->
+                    fireChosenCannon candidates tapped
 
         RaiseSail ->
             ( { model | sailLevel = min (List.length Physics.sailLevels - 1) (model.sailLevel + 1) }, Cmd.none )
@@ -1035,17 +1042,38 @@ fireInAimDirection aimDir =
     fireShot (\m -> Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId) aimDir
 
 
-{-| Fire one built cannon (a tap on it, see `Sails.CannonPick`) along its own
-barrel (`Physics.fireFromMuzzle`). Unlike a broadside it sets no turn
-target, so a bow or stern chaser never swings the ship sideways, and the
-camera looks along the shot (`CameraRig.setCannonShotFocus`) while the ball
-flies, then swings back to the heading.
+{-| Fire one of the `candidates` (from a tap, `CannonPick.tapCandidates`,
+or the F key, `CannonPick.allCannons`): the one nearest the foe
+(`CannonPick.selectCannon` with `CannonPick.nearestFoe`), from its own
+muzzle, with the power that fits the foe's distance when the foe is in that
+cannon's arc (`Physics.fireCannonAt`). The tap and the F key share this one
+path.
 -}
-fireCannonShot : Muzzle -> SailModel -> ( SailModel, Cmd SailMsg )
-fireCannonShot muzzle m =
+fireChosenCannon : List ( Muzzle, Float ) -> SailModel -> ( SailModel, Cmd SailMsg )
+fireChosenCannon candidates m =
+    let
+        foe =
+            CannonPick.nearestFoe m.state (aimPoints m)
+    in
+    case CannonPick.selectCannon m.state foe candidates of
+        Just muzzle ->
+            fireCannonShot muzzle foe m
+
+        Nothing ->
+            ( m, Cmd.none )
+
+
+{-| Fire one built cannon at `foe` (see `Physics.fireCannonAt`): along its
+own barrel, or at the foe when it is in the cannon's arc. Unlike a broadside
+it sets no turn target, so a bow or stern chaser never swings the ship
+sideways, and the camera looks along the shot (`CameraRig.setCannonShotFocus`)
+while the ball flies, then swings back to the heading.
+-}
+fireCannonShot : Muzzle -> Maybe Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
+fireCannonShot muzzle foe m =
     fireShotWith True
-        (\s -> Physics.fireFromMuzzle muzzle (mySlot s) s.state s.nextCannonId)
-        (Vec3.sub (Physics.cannonVelocity m.state muzzle) (Physics.shipVelocity m.state))
+        (\s -> Physics.fireCannonAt muzzle foe (mySlot s) s.state s.nextCannonId)
+        (Vec3.sub (Physics.cannonShotVelocity m.state muzzle foe) (Physics.shipVelocity m.state))
         m
 
 

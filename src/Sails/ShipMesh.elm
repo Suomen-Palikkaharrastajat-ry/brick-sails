@@ -68,6 +68,7 @@ type alias ShipMesh =
     , sailFoot : Float
     , sailLow : Float
     , sailTop : Float
+    , sailHangs : Bool
     , toBoat : Mat4
     , linear : Mat4
     , parts : Array ShipPart
@@ -255,6 +256,7 @@ build isSail doc rawCache =
     , sailFoot = sailFootOf bodyGeom.triangles sailTriangles
     , sailLow = Vec3.getY (boundsOf sailTriangles).min
     , sailTop = Vec3.getY (boundsOf sailTriangles).max
+    , sailHangs = sailsHangFromAbove (List.map (pieceBounds cache) body) sailTriangles
     , toBoat = toBoat
     , triangleCount = List.length triangles
     , lengthMeters = lengthMeters
@@ -293,13 +295,29 @@ sailFootOf body sails =
                 && (Vec3.getX b.min <= Vec3.getX box.max)
                 && (Vec3.getZ b.max >= Vec3.getZ box.min)
                 && (Vec3.getZ b.min <= Vec3.getZ box.max)
+
+        -- The top of what the sails stand on: the highest surface directly
+        -- under them. A sail with nothing under it (floating) still folds down
+        -- onto the deck, the highest surface below its lowest point.
+        tops =
+            List.map (\tri -> Vec3.getY (boundsOf [ tri ]).max) body
+
+        directlyUnder =
+            body
+                |> List.filter under
+                |> List.map (\tri -> Vec3.getY (boundsOf [ tri ]).max)
+                |> List.maximum
     in
-    body
-        |> List.filter under
-        |> List.map (\tri -> Vec3.getY (boundsOf [ tri ]).max)
-        |> List.maximum
-        |> Maybe.map (min lowest)
-        |> Maybe.withDefault lowest
+    case directlyUnder of
+        Just top ->
+            min lowest top
+
+        Nothing ->
+            tops
+                |> List.filter (\top -> top <= lowest + 0.5)
+                |> List.maximum
+                |> Maybe.map (min lowest)
+                |> Maybe.withDefault lowest
 
 
 {-| How the sails scene is drawn at a sail setting (`SailingState.sail`: 0
@@ -313,32 +331,89 @@ standing on the deck fold down onto it. The sails are never stretched.
 sailHoist : ShipMesh -> Float -> Mat4
 sailHoist mesh sail =
     let
-        u =
-            clamp 0 1 sail
-
-        foot =
-            mesh.sailFoot
-
-        low =
-            foot + (mesh.sailLow - foot) * u
-
-        top =
-            foot + (mesh.sailTop - foot) * (0.12 + 0.88 * u)
-
-        span =
-            mesh.sailTop - mesh.sailLow
-
-        squash =
-            if span > 0 then
-                clamp 0 1 ((top - low) / span)
-
-            else
-                1
+        k =
+            0.12 + 0.88 * clamp 0 1 sail
     in
-    -- y' = low + (y - sailLow) * squash
-    Mat4.makeTranslate3 0 low 0
-        |> Mat4.scale3 1 squash 1
-        |> Mat4.translate3 0 -mesh.sailLow 0
+    if mesh.sailHangs then
+        -- Something above holds the sails: they roll up towards it. The top
+        -- stays where the sails hang and the cloth gathers up to it.
+        Mat4.makeTranslate3 0 mesh.sailTop 0
+            |> Mat4.scale3 1 k 1
+            |> Mat4.translate3 0 -mesh.sailTop 0
+
+    else
+        -- Nothing above: the sails roll down, the foot stays on whatever
+        -- they stand on, and the top comes down to it.
+        Mat4.makeTranslate3 0 mesh.sailFoot 0
+            |> Mat4.scale3 1 k 1
+            |> Mat4.translate3 0 -mesh.sailFoot 0
+
+
+{-| Whether the sails hang from a yard: a hull or rig piece (one placed part,
+its whole bounds from `pieceBounds`, not one of its triangles) wider than one
+stud (20 LDU) along x or z, whose bottom lies within the sails' height and
+over their footprint. A mast is one stud wide, so a flag at a mast top does
+not hang from one, and sails on the deck with nothing above roll down.
+-}
+sailsHangFromAbove : List { min : Vec3, max : Vec3 } -> List ( Vertex, Vertex, Vertex ) -> Bool
+sailsHangFromAbove pieces sails =
+    let
+        box =
+            boundsOf sails
+
+        yard b =
+            (Vec3.getY b.min >= Vec3.getY box.min + 0.5)
+                && (Vec3.getY b.min <= Vec3.getY box.max + 0.5)
+                && ((Vec3.getX b.max - Vec3.getX b.min >= 20.5) || (Vec3.getZ b.max - Vec3.getZ b.min >= 20.5))
+                && (Vec3.getX b.max >= Vec3.getX box.min)
+                && (Vec3.getX b.min <= Vec3.getX box.max)
+                && (Vec3.getZ b.max >= Vec3.getZ box.min)
+                && (Vec3.getZ b.min <= Vec3.getZ box.max)
+    in
+    List.any yard pieces
+
+
+{-| The bounds of one placed part as a whole piece, in the Y-up scene (LDraw
+Y and Z negated, as `LDraw.Geometry.worldOptions` flips them): the part's
+catalog bounding boxes (`Connectivity.knownCatalogPart`, the real brick or
+plate size) through its placement when the part is known, otherwise the
+bounds of its own flattened geometry.
+-}
+pieceBounds : PartCache -> Placement -> { min : Vec3, max : Vec3 }
+pieceBounds cache p =
+    let
+        toScene v =
+            let
+                q =
+                    Vec3.toRecord (Mat4.transform p.matrix v)
+            in
+            vec3 q.x -q.y -q.z
+
+        corners b =
+            let
+                lo =
+                    Vec3.toRecord b.min
+
+                hi =
+                    Vec3.toRecord b.max
+            in
+            List.concatMap
+                (\x -> List.concatMap (\y -> List.map (\z -> toScene (vec3 x y z)) [ lo.z, hi.z ]) [ lo.y, hi.y ])
+                [ lo.x, hi.x ]
+
+        catalogPoints =
+            Connectivity.knownCatalogPart p.part
+                |> Maybe.map (.boundingBoxes >> List.concatMap corners)
+                |> Maybe.withDefault []
+    in
+    case catalogPoints of
+        first :: rest ->
+            { min = List.foldl (\v acc -> vec3 (min (Vec3.getX v) (Vec3.getX acc)) (min (Vec3.getY v) (Vec3.getY acc)) (min (Vec3.getZ v) (Vec3.getZ acc))) first rest
+            , max = List.foldl (\v acc -> vec3 (max (Vec3.getX v) (Vec3.getX acc)) (max (Vec3.getY v) (Vec3.getY acc)) (max (Vec3.getZ v) (Vec3.getZ acc))) first rest
+            }
+
+        [] ->
+            boundsOf (Geometry.flattenWith Geometry.worldOptions [ toRef p ] cache 15 Mat4.identity).triangles
 
 
 markSail : ( Vertex, Vertex, Vertex ) -> ( Vertex, Vertex, Vertex )
@@ -527,6 +602,7 @@ buildScenery metersPerLdu doc rawCache =
     , sailFoot = 0
     , sailLow = 0
     , sailTop = 0
+    , sailHangs = False
     , toBoat = Mat4.makeScale3 metersPerLdu metersPerLdu metersPerLdu
     , triangleCount = List.length geom.triangles
     , lengthMeters = max size.x size.z * metersPerLdu
