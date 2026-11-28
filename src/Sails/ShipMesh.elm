@@ -41,6 +41,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Render.Mesh exposing (Vertex)
 import Render.Scene as Scene exposing (Scene)
+import Sails.Wreck as Wreck
 import Set exposing (Set)
 
 
@@ -95,7 +96,9 @@ type alias Muzzle =
 
 {-| One brick (or other part) of a boat, for when the boat breaks up
 (`Sails.Wreck`): its own geometry in the boat's brick units (LDU, as in
-`scene`) and its centre, the point its pieces turn about.
+`scene`) and its centre, the point its pieces turn about. A `ShipMesh`'s
+`parts` holds only the parts a wreck can show, in piece order
+(`Sails.Wreck.shownParts`), not every part of the model.
 -}
 type alias ShipPart =
     { scene : Scene
@@ -231,8 +234,9 @@ build isSail doc rawCache =
             linear
                 |> Mat4.translate3 -centre.x -(Vec3.getY bounds.min + draftLdu - 24) -centre.z
 
+        -- Only the parts a wreck can show (`Sails.Wreck.shownParts`).
         parts =
-            placements
+            Wreck.shownParts placements
                 |> List.map (onePart isSail doc cache)
                 |> Array.fromList
 
@@ -624,7 +628,7 @@ withParts doc rawCache mesh =
         cache =
             List.foldl (\( name, lines ) acc -> Dict.insert name (Loaded lines) acc) rawCache (Document.subfiles doc)
     in
-    { mesh | parts = Array.fromList (List.map (onePart (\_ -> False) doc cache) (Document.flattenedPlacements doc)) }
+    { mesh | parts = Array.fromList (List.map (onePart (\_ -> False) doc cache) (Wreck.shownParts (Document.flattenedPlacements doc))) }
 
 
 docIsBfcSafe : Document -> Bool

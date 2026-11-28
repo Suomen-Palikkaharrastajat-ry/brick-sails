@@ -358,7 +358,8 @@ wakeInView inView ctx rb =
 
 
 {-| One loose piece of a wrecked boat or smashed pier (see `Sails.Wreck`):
-one of the model's own parts, drawn as it was built (`Sails.ShipMesh.parts`)
+one of the model's own parts, drawn as it was built (`Sails.ShipMesh.parts`,
+already in piece order, see `Sails.Wreck.shownParts`)
 at the size the model was drawn, or a generic brick in its colour, at about
 the scale of the boats' own bricks.
 -}
@@ -413,7 +414,7 @@ debrisEntities inView ctx width height draw shipMeshOf piece =
             Wreck.ShipPart source index ->
                 case shipMeshOf source of
                     Just mesh ->
-                        case Wreck.partSlot (Array.length mesh.parts) index |> Maybe.andThen (\slot -> Array.get slot mesh.parts) of
+                        case Array.get index mesh.parts of
                             Just part ->
                                 let
                                     pivot =

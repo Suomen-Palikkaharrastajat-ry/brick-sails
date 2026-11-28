@@ -11,6 +11,7 @@ module Sails.Wreck exposing
     , partSlot
     , pieceCount
     , salvage
+    , shownParts
     , shrinkSeconds
     , size
     , sourceScale
@@ -48,6 +49,7 @@ looks the same every time it is replayed: there is no randomness.
 
 -}
 
+import Array
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Hull as Hull exposing (Hull)
 import Sails.Physics as Physics
@@ -88,8 +90,8 @@ sourceScale source =
 
 
 {-| What a piece looks like: one of the parts of a model (`ShipPart` the
-model, and the piece's index, which `partSlot` turns into one of the model's
-parts when drawn), or a generic brick of part "3001.dat" or "3003.dat" and
+model, and the piece's index into `Sails.ShipMesh.parts`, see `shownParts`),
+or a generic brick of part "3001.dat" or "3003.dat" and
 an LDraw colour code.
 -}
 type Look
@@ -142,6 +144,21 @@ partSlot partCount index =
 
     else
         Just ((index * partCount + partCount // 2) // pieceCount)
+
+
+{-| The parts of a model a wreck can ever show, in piece order: those
+`partSlot` picks, at most `pieceCount` of them. Piece number `index` is then
+item `index` of this list, so `Sails.ShipMesh` builds the wreck geometry of
+these parts only rather than of every part of every model.
+-}
+shownParts : List a -> List a
+shownParts parts =
+    let
+        all =
+            Array.fromList parts
+    in
+    List.range 0 (pieceCount - 1)
+        |> List.filterMap (\index -> partSlot (Array.length all) index |> Maybe.andThen (\slot -> Array.get slot all))
 
 
 {-| Burst a boat into its pieces. Pieces fly out all round, more of them
