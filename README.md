@@ -13,7 +13,7 @@ from `master-builder/public`, as in Brick Play.
 ### 1. Primary Voyage Objective
 - **Course Navigation & Docking**: Navigate through the archipelago's waypoint sequence in order. Each waypoint is a sheltered harbour marked by beacons.
 - **Mooring**: To check in at each waypoint, steer into the harbour radius, slow down, and moor (or drop anchor with the anchor button / Space).
-- **Final Harbour**: Complete all legs of the route and dock at the final harbour under the citadel arch to finish the voyage, stopping the timer and recording your time on the leaderboard.
+- **Final Harbour**: Complete all legs of the route and dock at the final harbour to finish the voyage, stopping the timer and recording your time on the leaderboard.
 - **Multiplayer Crew Voyage**: In an online multiplayer room, all players participate as one unified crew (`Sails.Crew`). The voyage timer starts together, and the voyage completes when the entire crew has safely moored at the final harbour.
 
 ### 2. Secondary & Auxiliary Goals

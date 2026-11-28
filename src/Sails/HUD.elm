@@ -39,9 +39,12 @@ the boat has stopped (sails down, under 1 km/h), an Exit button and a
 restart button show under it, the way out of a race. Bottom left: while
 tilt steering is off (no sensor, permission refused, or not a phone), big
 left/right steering buttons; phones always steer by tilt. Bottom right: the
-sail control (raise / lower, with the sail set shown between) and a hint: tapping or clicking the sea fires. The middle of the screen stays clear for the boat in both
-portrait and landscape. Steering buttons react to pointer down/up so they
-can be held. A boat far off the course gets an arrow back to it.
+anchor button. On a phone (`pointer-coarse`) the anchor moves to the bottom
+left, above which the steering buttons sit, and a fire button takes the
+bottom right. The middle of the screen stays clear for the boat in both
+portrait and landscape. The top left starts with the coin counter
+(`Sails.Coins`). Steering buttons react to pointer down/up so they can be
+held. A boat far off the course gets an arrow back to it.
 
 -}
 
@@ -91,6 +94,7 @@ type alias HudActions msg =
     , onRestart : msg
     , onExit : msg
     , onDropAnchor : msg
+    , onFire : msg
     }
 
 
@@ -150,7 +154,7 @@ viewHud cfg =
             , viewToast cfg.toast
             , viewCountdown cfg.language cfg.countdown
             , div
-                [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto"
+                [ Attr.class "absolute bottom-0 left-0 flex flex-col items-start gap-2 pointer-events-auto pointer-coarse:bottom-24"
                 , Attr.attribute "data-testid" "hud-steer-controls"
                 ]
                 [ if showSteerButtons cfg.tilt then
@@ -163,10 +167,11 @@ viewHud cfg =
                     text ""
                 ]
             , div
-                [ Attr.class "absolute bottom-0 right-0 flex items-end gap-2 pointer-events-auto"
-                , Attr.attribute "data-testid" "hud-anchor-container"
+                [ Attr.class "absolute inset-x-0 bottom-0 flex items-end justify-end gap-2 pointer-events-none pointer-coarse:justify-between"
+                , Attr.attribute "data-testid" "hud-action-container"
                 ]
                 [ anchorButton cfg
+                , fireButton cfg
                 ]
             , viewHudGoals cfg.hintVisible cfg.goals
             , viewHelpModal cfg.showHelp cfg.actions.onToggleHelp
@@ -667,11 +672,13 @@ viewTopLeftButtons :
         , cameraYaw : Float
         , sailLevel : Int
         , state : SailingState
+        , progress : CourseProgress
     }
     -> Html msg
-viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw, sailLevel, state } =
+viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw, sailLevel, state, progress } =
     div [ Attr.class "flex items-center gap-1.5 pointer-events-auto shrink-0", Attr.attribute "data-testid" "hud-top-left" ]
-        (viewWindBadge language cameraYaw wind
+        (viewCoinBadge language progress.coins
+            :: viewWindBadge language cameraYaw wind
             :: viewSailBadge language isAnchored sailLevel state.sail
             :: (if isAnchored then
                     [ iconButton
@@ -849,6 +856,15 @@ formatCounter seconds =
             String.padLeft 2 '0' (String.fromInt n)
     in
     pad2 (tenths // 600) ++ ":" ++ pad2 (modBy 60 (tenths // 10)) ++ "." ++ String.fromInt (modBy 10 tenths)
+
+
+{-| The coin counter at the top left: the coins won so far in a panel of its
+own (`viewCoins`), the first thing in the top-left corner.
+-}
+viewCoinBadge : Language -> Int -> Html msg
+viewCoinBadge language coins =
+    div [ Attr.class (panel ++ " px-2 py-1 flex items-center") ]
+        [ viewCoins language coins ]
 
 
 {-| The coins won so far, the run's score (`Sails.Coins`): a gold 1x1
@@ -1117,8 +1133,9 @@ shootHint { cannonReady, touchShoot, language } =
         [ text (T.shootHint language touchShoot) ]
 
 
-{-| Anchor button in the bottom right corner for dropping and raising anchor.
-Pulses with bright yellow ring when inside harbour mooring zone.
+{-| Anchor button for dropping and raising anchor: bottom right on a computer,
+bottom left on a phone (`pointer-coarse`, where the fire button takes the
+bottom right). Pulses with bright yellow ring when inside harbour mooring zone.
 -}
 anchorButton :
     { a
@@ -1152,6 +1169,41 @@ anchorButton { canAnchor, isAnchored, actions } =
             |> FeatherIcons.withSize 32
             |> FeatherIcons.toHtml []
         ]
+
+
+{-| Fire button for phones, bottom right (`pointer-coarse`; hidden elsewhere,
+where the F key and a click or tap on the sea fire). It sends the same
+`onFire` as the F key and takes a pointer down, so it fires as the finger
+lands; it dims while the guns reload, as the shoot hint did.
+-}
+fireButton :
+    { a
+        | cannonReady : Bool
+        , language : Language
+        , actions : HudActions msg
+    }
+    -> Html msg
+fireButton { cannonReady, language, actions } =
+    button
+        [ Attr.type_ "button"
+        , Attr.title (T.fireTitle language)
+        , Attr.attribute "aria-label" (T.fireTitle language)
+        , Attr.attribute "data-testid" "fire-button"
+        , Attr.style "touch-action" "none"
+        , Attr.style "-webkit-user-select" "none"
+        , Attr.style "user-select" "none"
+        , Events.on "pointerdown" (Decode.succeed actions.onFire)
+        , Attr.class
+            ("hidden pointer-coarse:flex w-20 h-20 items-center justify-center rounded-2xl border-2 font-black text-lg tracking-wide shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto cursor-pointer "
+                ++ (if cannonReady then
+                        "bg-brand-red/90 border-brand-red/60 text-white ring-4 ring-brand-red/40"
+
+                    else
+                        "bg-slate-800/80 border-slate-600 text-slate-400"
+                   )
+            )
+        ]
+        [ text (T.fireButton language cannonReady) ]
 
 
 {-| Graphic icon keybinding help modal toggled by ? or H or the top-right button.

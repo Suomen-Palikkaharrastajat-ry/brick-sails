@@ -884,43 +884,6 @@ suite =
                             maps
                         )
                         ()
-            , test "finishArch batches all bricks of the final harbour arch into one certified prop" <|
-                \_ ->
-                    let
-                        certifiedBox =
-                            Parser.parseFile "0 BFC CERTIFY CCW\n4 16 -10 0 -10 10 0 -10 10 24 10 -10 24 10"
-
-                        cache =
-                            [ "3001.dat", "3003.dat" ]
-                                |> List.map (\n -> ( n, Loaded certifiedBox ))
-                                |> Dict.fromList
-
-                        archSource =
-                            Render.propSources Archipelago.defaultMap
-                                |> List.filter (\( k, _ ) -> k == "finishArch")
-                                |> List.head
-                                |> Maybe.map Tuple.second
-                                |> Maybe.withDefault ""
-
-                        builtArch =
-                            BrickProps.build archSource cache
-
-                        expectedCount =
-                            List.length
-                                (BrickModels.archBricks
-                                    { halfWidth = Physics.harbourRadius
-                                    , postHeight = 6.5
-                                    , unit = 0.02
-                                    , postColor = 15
-                                    , bannerColors = [ 0, 15 ]
-                                    }
-                                )
-                    in
-                    Expect.all
-                        [ \_ -> Expect.equal True builtArch.scene.bfcCertified
-                        , \_ -> Expect.equal (expectedCount * 2) builtArch.triangleCount
-                        ]
-                        ()
             , test "ShipMesh and active island models set bfcCertified cleanly from parts" <|
                 \_ ->
                     let

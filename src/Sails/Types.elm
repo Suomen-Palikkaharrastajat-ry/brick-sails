@@ -51,7 +51,7 @@ metersToLdu =
 
 
 {-| A harbour's role: one to dock at on the way, or the final harbour
-under the pirate arch that ends the voyage.
+that ends the voyage.
 -}
 type HarbourKind
     = Harbour

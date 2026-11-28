@@ -2457,6 +2457,7 @@ viewRace model callbacks maybeRoom =
                     , onRestart = callbacks.onRestartCourse
                     , onExit = callbacks.onReturnToShipyard
                     , onDropAnchor = DropAnchor
+                    , onFire = FireCannons
                     }
                 }
         , hostHeader model.language (crewDone model) maybeRoom

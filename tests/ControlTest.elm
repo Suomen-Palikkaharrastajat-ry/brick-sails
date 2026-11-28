@@ -111,6 +111,7 @@ hudConfig visible goals =
         , onRestart = ()
         , onExit = ()
         , onDropAnchor = ()
+        , onFire = ()
         }
     }
 
@@ -388,6 +389,24 @@ suite =
                             , { available = False, enabled = False }
                             ]
                         )
+            , test "the coin counter sits at the top left and shows the coins won" <|
+                \_ ->
+                    let
+                        config =
+                            hudConfig True []
+
+                        progress =
+                            config.progress
+                    in
+                    Query.fromHtml (HUD.viewHud { config | progress = { progress | coins = 7 } })
+                        |> Query.find [ testId "hud-top-left" ]
+                        |> Query.find [ testId "coins" ]
+                        |> Query.has [ Selector.text "7" ]
+            , test "the fire button is labelled FIRE when the guns are ready" <|
+                \_ ->
+                    Query.fromHtml (HUD.viewHud (hudConfig True []))
+                        |> Query.find [ testId "fire-button" ]
+                        |> Query.has [ Selector.text (T.fireButton En True) ]
             , test "the race counter shows minutes, seconds and tenths" <|
                 \_ ->
                     Expect.equal [ "00:00.0", "01:23.4", "10:05.9" ]

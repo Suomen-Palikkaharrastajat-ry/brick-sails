@@ -157,7 +157,6 @@ propSources map =
     , ( "3001.dat", BrickModels.singlePart "3001.dat" )
     , ( "3003.dat", BrickModels.singlePart "3003.dat" )
     , ( "92338-f1.dat", BrickModels.singlePart "92338-f1.dat" )
-    , ( "finishArch", finishArchModel )
     ]
         ++ IslandDecor.propSources (IslandDecor.lookFor map).snow
 
@@ -190,58 +189,6 @@ propDetailOptions name =
 
     else
         BrickProps.defaultDetailOptions
-
-
-finishArchUnit : Float
-finishArchUnit =
-    0.02
-
-
-{-| The finish harbour arch baked into a single BFC-certified LDraw model so
-its 55 bricks render in one draw call.
--}
-finishArchModel : String
-finishArchModel =
-    let
-        cleanZero v =
-            if v == 0 then
-                0
-
-            else
-                v
-
-        toLine brick =
-            let
-                pos =
-                    Vec3.toRecord (Mat4.transform brick.transform (vec3 0 0 0))
-            in
-            String.join " "
-                [ "1"
-                , String.fromInt brick.color
-                , String.fromFloat (cleanZero (pos.x / finishArchUnit))
-                , String.fromFloat (cleanZero -(pos.y / finishArchUnit))
-                , String.fromFloat (cleanZero -(pos.z / finishArchUnit))
-                , "1 0 0 0 1 0 0 0 1"
-                , brick.part
-                ]
-
-        bricks =
-            BrickModels.archBricks
-                { halfWidth = Physics.harbourRadius
-                , postHeight = 6.5
-                , unit = finishArchUnit
-                , postColor = 15
-                , bannerColors = [ 0, 15 ]
-                }
-    in
-    String.join "\n"
-        ([ "0 FILE finish-arch.ldr"
-         , "0 Name: Brick Sails finish arch"
-         , "0 Author: Brick Sails"
-         , "0 BFC CERTIFY CCW"
-         ]
-            ++ List.map toLine bricks
-        )
 
 
 {-| A boat to draw: its brick geometry (`Nothing` while its parts are still
@@ -1210,45 +1157,7 @@ harbourEntities inView ctx width height scenery draw time nextIndex damage cours
                             []
                        )
         in
-        case wp.kind of
-            FinalHarbour ->
-                let
-                    archEntities =
-                        if inView (vec3 p.x 4.5 p.z) (wp.radius + 5.0) then
-                            let
-                                frame =
-                                    Mat4.makeTranslate3 p.x -0.5 p.z |> rotY approach
-
-                                -- A pirate flag on top of each post of the arch (whose beam
-                                -- tops out 7.68 m up in arch space).
-                                flag x =
-                                    draw.fitted "pirateFlag" (BrickProps.fitHeight 3.2) (Mat4.mul frame (Mat4.makeTranslate3 x 7.68 0)) plain
-
-                                arch =
-                                    if wp.radius == Physics.harbourRadius then
-                                        draw.prop "finishArch" (Mat4.mul frame (Mat4.makeScale3 finishArchUnit finishArchUnit finishArchUnit)) plain
-
-                                    else
-                                        List.concatMap
-                                            (\b -> draw.prop b.part (Mat4.mul frame b.transform) (tint3 (BrickLook.colour b.color)))
-                                            (BrickModels.archBricks
-                                                { halfWidth = wp.radius
-                                                , postHeight = 6.5
-                                                , unit = finishArchUnit
-                                                , postColor = 15
-                                                , bannerColors = [ 0, 15 ]
-                                                }
-                                            )
-                            in
-                            arch ++ flag (negate wp.radius) ++ flag wp.radius
-
-                        else
-                            []
-                in
-                archEntities ++ pier ++ ring ++ channelBeacons
-
-            Harbour ->
-                pier ++ ring ++ channelBeacons
+        pier ++ ring ++ channelBeacons
 
 
 {-| Islands generated procedurally as stepped 4-tier brick shells
