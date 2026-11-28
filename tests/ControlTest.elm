@@ -402,11 +402,11 @@ suite =
                         |> Query.find [ testId "hud-top-left" ]
                         |> Query.find [ testId "coins" ]
                         |> Query.has [ Selector.text "7" ]
-            , test "the fire button is labelled FIRE when the guns are ready" <|
+            , test "the fire button is an icon with its title as the accessible label" <|
                 \_ ->
                     Query.fromHtml (HUD.viewHud (hudConfig True []))
                         |> Query.find [ testId "fire-button" ]
-                        |> Query.has [ Selector.text (T.fireButton En True) ]
+                        |> Query.has [ Selector.attribute (Attr.attribute "aria-label" (T.fireTitle En)) ]
             , test "the race counter shows minutes, seconds and tenths" <|
                 \_ ->
                     Expect.equal [ "00:00.0", "01:23.4", "10:05.9" ]

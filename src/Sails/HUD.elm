@@ -1204,7 +1204,7 @@ fireButton { cannonReady, language, actions } =
         , Attr.style "user-select" "none"
         , Events.on "pointerdown" (Decode.succeed actions.onFire)
         , Attr.class
-            ("hidden pointer-coarse:flex w-20 h-20 items-center justify-center rounded-2xl border-2 font-black text-lg tracking-wide shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto cursor-pointer "
+            ("hidden pointer-coarse:flex w-20 h-20 items-center justify-center rounded-2xl border-2 shadow-xl backdrop-blur-md transition-all active:scale-95 pointer-events-auto cursor-pointer "
                 ++ (if cannonReady then
                         "bg-brand-red/90 border-brand-red/60 text-white ring-4 ring-brand-red/40"
 
@@ -1213,7 +1213,15 @@ fireButton { cannonReady, language, actions } =
                    )
             )
         ]
-        [ text (T.fireButton language cannonReady) ]
+        [ (if cannonReady then
+            FeatherIcons.crosshair
+
+           else
+            FeatherIcons.clock
+          )
+            |> FeatherIcons.withSize 32
+            |> FeatherIcons.toHtml []
+        ]
 
 
 {-| Graphic icon keybinding help modal toggled by ? or H or the top-right button.
