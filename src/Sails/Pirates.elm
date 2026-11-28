@@ -23,7 +23,7 @@ module Sails.Pirates exposing
     , stateAt
     )
 
-{-| Pirate and patrol ships: a fleet of faction NPC vessels of three sizes
+{-| Pirate and patrol ships: a fleet of faction NPC vessels of three kinds
 that patrol the course.
 
 Each ship sails round and round a small circle centred on a leg between two
@@ -31,7 +31,8 @@ harbours (half way along it, or a quarter of the way from either end), so it
 crosses the route twice a lap and the player meets it on the way. The fleet
 has `fleetSize` ships, two for each faction (Pirates, BlueCoats, RedCoats),
 each faction's pair of two different kinds (`ShipKind`): a big `Frigate`, a
-middling `Corvette` and a small `Sloop`. A ship guards a patrol spot near
+`Corvette` (on the frigate's model) and a smaller `Sloop`, all at the
+player's brick scale. A ship guards a patrol spot near
 its faction's island where the course has one, with faction-specific sail
 tints. Which spot, where on the circle each starts, which way round and how
 fast all come from a seed.
@@ -61,14 +62,15 @@ import Sails.Physics as Physics
 import Sails.Types exposing (Course, Faction(..), SailingState)
 
 
-{-| The three sizes of patrol ship, each drawn with one of the NPC models of
-`Sails.NpcShips` at its own scale (`shipScale`):
+{-| The three kinds of patrol ship, each drawn with one of the NPC models of
+`Sails.NpcShips` at the boats' own brick scale (`Sails.ShipMesh.studScale`,
+`shipScale` is 1), so its bricks and studs are the size of the player's:
 
-  - `Frigate`: large, the three-masted frigate (`npc:frigate`) at 1.2 times
-    the boats' brick scale, about 11.8 m long.
-  - `Corvette`: medium, the same frigate model at 0.85, about 8.3 m long.
-  - `Sloop`: small, the single-masted sloop (`npc:sloop`) at 0.75, about
-    6.3 m long.
+  - `Frigate`: large, the three-masted frigate (`npc:frigate`), 9.8 m long
+    (14 studs with the bowsprit), as a player's build on the frigate hull.
+  - `Corvette`: the same frigate model, as large as the frigate.
+  - `Sloop`: small, the single-masted sloop (`npc:sloop`), 8.4 m long
+    (12 studs with the bowsprit), as a player's build on the sloop hull.
 
 -}
 type ShipKind
@@ -133,38 +135,33 @@ kindOf pirate =
 
 
 {-| How many times the boats' brick scale (`Sails.ShipMesh.studScale`) a
-kind of ship is drawn at.
+kind of ship is drawn at: 1 for every kind, so a patrol ship is the same
+size as the player's build of the same model (bricks and studs 1:1). A
+ship's size comes from its model (`shipNameFor`), never from a stretch.
 -}
 shipScale : ShipKind -> Float
-shipScale kind =
-    case kind of
-        Frigate ->
-            1.2
-
-        Corvette ->
-            0.85
-
-        Sloop ->
-            0.75
+shipScale _ =
+    1
 
 
 {-| Radius (m) of a kind of pirate ship for collisions with the boat: the
 boat bumps off it at this distance plus its own radius
-(`Sails.Physics.boatRadius`) from the pirate's centre. A circle a little
-under half the hull's drawn length (the frigate model is 9.8 m long at
-scale 1, the sloop 8.4 m), scaled with the ship.
+(`Sails.Physics.boatRadius`) from the pirate's centre. A circle about 0.24
+times the hull's drawn length (the frigate model is 9.8 m long, the sloop
+8.4 m, at `shipScale` 1), wider than half the 3.6 m beam: frigates and
+corvettes share the frigate model, so they share its radius.
 -}
 collisionRadius : ShipKind -> Float
 collisionRadius kind =
     case kind of
         Frigate ->
-            2.8
+            2.35
 
         Corvette ->
-            2.0
+            2.35
 
         Sloop ->
-            1.5
+            2.0
 
 
 {-| How many cannon hits a pirate ship takes before it sinks: it lasts a few
@@ -176,8 +173,7 @@ hitsToSink =
 
 
 {-| How close (m) a cannon ball must come to a kind of ship to hit it: its
-`collisionRadius` and 0.6 m more for the rig above the deck (2.6 m for
-the corvette, the size every patrol ship used to have).
+`collisionRadius` and 0.6 m more for the rig above the deck.
 -}
 hitRadius : ShipKind -> Float
 hitRadius kind =
@@ -220,8 +216,8 @@ sailTint pirate =
 
 
 {-| Model a pirate's vessel is drawn with (see `Sails.NpcShips`), by its
-kind: frigates and corvettes are three-masted frigates (at different
-scales, `shipScale`), sloops are sloops. A sunk pirate breaks up into the
+kind: frigates and corvettes are three-masted frigates, sloops are
+sloops, all at the player's brick scale (`shipScale`). A sunk pirate breaks up into the
 parts of this same model (`Sails.Wreck`).
 -}
 shipNameFor : Pirate -> String

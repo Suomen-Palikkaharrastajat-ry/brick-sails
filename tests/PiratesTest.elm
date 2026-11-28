@@ -352,7 +352,7 @@ suite =
                                     == [ 2, 2, 2 ]
                             )
                         |> Expect.equal True
-            , test "frigates and corvettes are drawn as frigates, sloops as sloops, each kind at its own size" <|
+            , test "frigates and corvettes are drawn as frigates, sloops as sloops, all at the player's brick scale" <|
                 \_ ->
                     let
                         shipOf k =
@@ -362,23 +362,25 @@ suite =
                                 |> Maybe.map Pirates.shipNameFor
                     in
                     Expect.equal
-                        ( [ Just "npc:frigate", Just "npc:frigate", Just "npc:sloop" ], [ 1.2, 0.85, 0.75 ] )
+                        ( [ Just "npc:frigate", Just "npc:frigate", Just "npc:sloop" ], [ 1, 1, 1 ] )
                         ( List.map shipOf Pirates.allKinds, List.map Pirates.shipScale Pirates.allKinds )
             , test "a bigger ship is bigger to bump into, to hit and to be boarded by" <|
                 \_ ->
                     let
-                        decreasing f =
+                        -- Frigates and corvettes share the frigate model at
+                        -- the same scale, so they are the same size.
+                        shrinking f =
                             case List.map f Pirates.allKinds of
                                 [ a, b, c ] ->
-                                    a > b && b > c
+                                    a == b && b > c
 
                                 _ ->
                                     False
                     in
                     Expect.equal ( True, True, True )
-                        ( decreasing Pirates.collisionRadius
-                        , decreasing Pirates.hitRadius
-                        , decreasing Pirates.boardingRange
+                        ( shrinking Pirates.collisionRadius
+                        , shrinking Pirates.hitRadius
+                        , shrinking Pirates.boardingRange
                             && List.all (\k -> Pirates.boardingRange k > Physics.boatRadius + Pirates.collisionRadius k) Pirates.allKinds
                         )
             , test "a ball comes down on a pirate of every kind and sinks it" <|

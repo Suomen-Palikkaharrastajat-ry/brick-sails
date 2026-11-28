@@ -59,6 +59,7 @@ import Render.Mesh exposing (Vertex)
 import Render.Scene exposing (Scene)
 import Render.Shader as Shader
 import Sails.Coins as Coins exposing (FlyingCoin)
+import Sails.DamageMarks as DamageMarks
 import Sails.Harbours as Harbours
 import Sails.IslandDecor as IslandDecor
 import Sails.IslandDressing as IslandDressing
@@ -67,6 +68,7 @@ import Sails.OceanShader as Ocean exposing (Ctx, PropVertex)
 import Sails.Physics as Physics
 import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (ShipMesh)
+import Sails.Structures as Structures
 import Sails.Types
     exposing
         ( Cannonball
@@ -246,8 +248,8 @@ finishArchModel =
 loading), its state, an optional sail colour override (used to tell
 multiplayer boats apart), whether it is the phantom ghost vessel, whether
 its anchor chain is dropped, and how many times its brick size it is drawn
-(`scale`: 1 for every boat but the pirates, whose kinds differ in size, see
-`Sails.Pirates.shipScale`).
+(`scale`: 1 for every boat, the pirates too, see `Sails.Pirates.shipScale`,
+so every ship's bricks are drawn 1:1 with the player's).
 -}
 type alias RenderBoat =
     { mesh : Maybe ShipMesh
@@ -294,6 +296,8 @@ renderWorld :
         , shipMeshOf : Wreck.Source -> Maybe ShipMesh
         , standards : List StandardState
         , harbourDamage : Harbours.Damage
+        , structures : Structures.State
+        , damageMarks : DamageMarks.Pool
         }
     -> Int
     -> Int
@@ -351,8 +355,14 @@ renderWorld cam scene width height =
                 ++ islandEntities inView ctx draw scene.props scene.course scene.islandMeshes
                 ++ decorEntities inView ctx width height scene.scenery draw scene.course
                 ++ seabirdFlockEntities inView draw scene.time scene.course
-                ++ lighthouseBeamEntity ctx scene.time scene.course
-                ++ townEntities inView ctx width height scene.scenery draw scene.standards scene.course.towns
+                ++ (if Structures.landmarkDown scene.structures then
+                        []
+
+                    else
+                        lighthouseBeamEntity ctx scene.time scene.course
+                   )
+                ++ townEntities inView ctx width height scene.scenery draw scene.standards (Structures.townPiersDown scene.structures) scene.course.towns
+                ++ List.concatMap (rubbleEntities inView draw) (Structures.rubble scene.structures)
                 ++ treasureEntities inView ctx width height scene.scenery scene.time scene.treasureFound scene.course.treasures
                 ++ List.concatMap (harbourEntities inView ctx width height scene.scenery draw scene.time scene.nextIndex scene.harbourDamage scene.course) scene.course.waypoints
                 ++ List.concatMap (boatEntities ctx width height draw) visibleBoats
@@ -360,6 +370,7 @@ renderWorld cam scene width height =
                 ++ List.concatMap (debrisEntities inView ctx width height draw scene.shipMeshOf) scene.debris
                 ++ List.concatMap (ballEntity draw) scene.balls
                 ++ List.concatMap (impactEntity draw) scene.impacts
+                ++ DamageMarks.entities inView ctx scene.damageMarks
                 ++ List.concatMap (coinEntity draw) scene.coins
                 ++ List.concatMap (sprayEntities ctx draw scene.time) (List.filter (wakeInView inView ctx) (List.take 1 scene.boats))
                 ++ List.concatMap (wakeEntities ctx draw scene.time) (List.filter (wakeInView inView ctx) visibleBoats)
@@ -1508,15 +1519,16 @@ pierInView inView ctx width height scenery isl bearing =
         []
 
 
-{-| Each town: its pier from the beach out to the water's edge, and the
-faction standard at the end of the pier on the island shore (drawn only if
-still safe at the citadel). The town's houses are part of the island's
+{-| Each town: its pier from the beach out to the water's edge (unless it
+has been shot down, `piersDown` by town index, see `Sails.Structures`), and
+the faction standard at the end of the pier on the island shore (drawn only
+if still safe at the citadel). The town's houses are part of the island's
 dressing (`islandEntities`).
 -}
-townEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Town -> List WebGL.Entity
-townEntities inView ctx width height scenery draw standards towns =
-    List.concatMap
-        (\town ->
+townEntities : (Vec3 -> Float -> Bool) -> Ctx -> Int -> Int -> (String -> Maybe ShipMesh) -> Draw -> List StandardState -> List Int -> List Town -> List WebGL.Entity
+townEntities inView ctx width height scenery draw standards piersDown towns =
+    List.indexedMap
+        (\townIndex town ->
             let
                 isl =
                     town.island
@@ -1563,10 +1575,31 @@ townEntities inView ctx width height scenery draw standards towns =
                         Nothing ->
                             []
             in
-            pierInView inView ctx width height scenery isl town.bearing
+            (if List.member townIndex piersDown then
+                []
+
+             else
+                pierInView inView ctx width height scenery isl town.bearing
+            )
                 ++ standardEntities
         )
         towns
+        |> List.concat
+
+
+{-| The rubble of a building shot down (`Sails.Structures.rubble`): a low
+heap of grey rock bricks where it stood, one prop.
+-}
+rubbleEntities : (Vec3 -> Float -> Bool) -> Draw -> Structures.Rubble -> List WebGL.Entity
+rubbleEntities inView draw heap =
+    if inView heap.at heap.size then
+        draw.fitted "rock"
+            (BrickProps.fitBox { width = heap.size, height = 0.35 * heap.size, depth = heap.size })
+            (Mat4.makeTranslate heap.at |> rotY (degrees heap.bearing))
+            plain
+
+    else
+        []
 
 
 {-| A faction standard lost at sea: bobbing in the waves with a golden beacon glow ring.

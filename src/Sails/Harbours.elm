@@ -50,6 +50,7 @@ final harbour ends the voyage.
 import Dict exposing (Dict)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Sails.Physics as Physics
+import Sails.Structures as Structures
 import Sails.Types exposing (Cannonball, CombatImpact, Course, CourseProgress, Island, SailingState, Waypoint)
 import Sails.Wreck as Wreck
 
@@ -85,11 +86,12 @@ ramSpeed =
     7.5
 
 
-{-| Cannon ball hits that smash a pier.
+{-| Cannon ball hits that smash a pier: the `HarbourPier` entry of the
+structures' durability table (`Sails.Structures.durability`).
 -}
 hitsToDestroy : Int
 hitsToDestroy =
-    4
+    Structures.durability Structures.HarbourPier
 
 
 {-| A pier's width across (m): four studs and its round pilings.

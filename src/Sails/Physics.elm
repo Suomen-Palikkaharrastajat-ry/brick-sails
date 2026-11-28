@@ -1700,7 +1700,8 @@ position) in mind. With the target within the cannon's arc (less than about
 fire") the ball is aimed at it from the muzzle with the power that fits its
 distance (`cannonLaunchSpeed`): it lands on the target instead of flying
 over it, and a target beyond the cannon's reach gets a full-power shot that
-falls short. Like `lobFrom` such a ranged shot is aimed in the world, so the
+falls short, unless it is high over the muzzle (`raisedLobDrop`), which
+gets a raised lob onto it. Like `lobFrom` such a ranged shot is aimed in the world, so the
 ship's own velocity is not added. With no target, or one outside the arc,
 the ball goes along the barrel at full power (`cannonVelocity`).
 -}
@@ -1747,10 +1748,14 @@ cannonShotVelocity state muzzle target =
                         d / vh
 
                     vy =
-                        if vh >= cannonPower then
+                        if vh >= cannonPower && drop > raisedLobDrop then
                             cannonPower * cannonElevation
 
                         else
+                            -- In reach at the fixed elevation, or a target
+                            -- high over the muzzle (a building up on an
+                            -- island, `raisedLobDrop`): the lob that comes
+                            -- down on it.
                             (0 - drop + 0.5 * gravity * t * t) / t
                 in
                 vec3 (dx / d * vh) vy (dz / d * vh)
@@ -1760,6 +1765,19 @@ cannonShotVelocity state muzzle target =
 
         Nothing ->
             cannonVelocity state muzzle
+
+
+{-| A target more than this far (m) over a built cannon's muzzle (a
+negative drop, see `cannonShotVelocity`) is above the fixed elevation's
+arc, which rises only about 1.5 m: the barrel is raised to lob the ball
+onto it at full horizontal power, as `lobFrom` lobs a broadside. No ship's
+waterline is ever this high over a muzzle, even in a storm swell, so shots
+at ships are as before; the buildings on the islands are (see
+`Sails.Structures`).
+-}
+raisedLobDrop : Float
+raisedLobDrop =
+    -2.5
 
 
 {-| `fireFromMuzzle` with the `target` the cannon is fired at (see

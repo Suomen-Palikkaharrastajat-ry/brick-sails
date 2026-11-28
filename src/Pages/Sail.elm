@@ -41,6 +41,7 @@ import Sails.CameraRig as CameraRig exposing (Follow)
 import Sails.CannonPick as CannonPick
 import Sails.Coins as Coins exposing (FlyingCoin)
 import Sails.Crew as Crew exposing (Crew)
+import Sails.DamageMarks as DamageMarks
 import Sails.Ending as Ending exposing (Ending)
 import Sails.FrameGuard as FrameGuard exposing (FrameGuard)
 import Sails.GhostShip as GhostShip exposing (GhostShip)
@@ -54,6 +55,7 @@ import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (Muzzle, ShipMesh)
+import Sails.Structures as Structures
 import Sails.TiltPitch as TiltPitch
 import Sails.Types
     exposing
@@ -136,6 +138,12 @@ type alias SailModel =
     , -- Cannon ball hits each harbour's pier has taken (`Sails.Harbours`);
       -- a smashed pier stays smashed until the course is sailed again.
       harbourDamage : Harbours.Damage
+    , -- The buildings and town piers that can be shot down, and what has
+      -- befallen them (`Sails.Structures`); fresh when the course is sailed
+      -- again.
+      structures : Structures.State
+    , -- Durability bars over the structures just hit (`Sails.DamageMarks`).
+      damageMarks : DamageMarks.Pool
     , -- The canvas resolution guard (`Sails.FrameGuard`): drawing only, it
       -- lowers the 3D canvas resolution while frames stay slow.
       frameGuard : FrameGuard
@@ -299,6 +307,8 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , islandMeshes = islandMeshes
     , cannons = []
     , harbourDamage = Dict.empty
+    , structures = Structures.init course islandMeshes
+    , damageMarks = DamageMarks.empty
     , frameGuard = FrameGuard.init
     }
 
@@ -482,6 +492,31 @@ aimPoints model =
                 []
     in
     pirates ++ remotes ++ ghost
+
+
+{-| What the cannons choose among (`Sails.Structures.cannonTargets`): the
+foes of `aimPoints` while one is in range, else those and the structures in
+range: the buildings and town piers still standing and the harbours' piers,
+but never the harbour the boat is to dock at next.
+-}
+cannonTargets : SailModel -> List Vec3
+cannonTargets model =
+    Structures.cannonTargets model.state.position
+        (aimPoints model)
+        (Structures.pierAims (dockingAt model) (Harbours.intactFootprints model.harbourDamage model.course)
+            ++ List.map Structures.aimPoint (Structures.standing model.structures)
+        )
+
+
+{-| The harbour the boat is to dock at next, if the voyage is not over.
+-}
+dockingAt : SailModel -> Maybe Int
+dockingAt model =
+    if model.progress.finished then
+        Nothing
+
+    else
+        Just model.progress.currentWaypointIndex
 
 
 {-| The pirates still afloat, with where they are now.
@@ -722,7 +757,7 @@ update msg model =
             if List.isEmpty model.cannons then
                 let
                     aimTarget =
-                        case Physics.findBroadsideTarget model.state (aimPoints model) of
+                        case Physics.findBroadsideTarget model.state (cannonTargets model) of
                             Just ( _, aim, _ ) ->
                                 let
                                     p =
@@ -1039,7 +1074,7 @@ fireInDirection sideSign m =
 
 fireInAimDirection : Vec3 -> SailModel -> ( SailModel, Cmd SailMsg )
 fireInAimDirection aimDir =
-    fireShot (\m -> Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (aimPoints m) m.nextCannonId) aimDir
+    fireShot (\m -> Physics.fireTowardsFrom m.cannons (mySlot m) m.state aimDir (cannonTargets m) m.nextCannonId) aimDir
 
 
 {-| Fire one of the `candidates` (from a tap, `CannonPick.tapCandidates`,
@@ -1053,7 +1088,7 @@ fireChosenCannon : List ( Muzzle, Float ) -> SailModel -> ( SailModel, Cmd SailM
 fireChosenCannon candidates m =
     let
         foe =
-            CannonPick.nearestFoe m.state (aimPoints m)
+            CannonPick.nearestFoe m.state (cannonTargets m)
     in
     case CannonPick.selectCannon m.state foe candidates of
         Just muzzle ->
@@ -1328,7 +1363,7 @@ tick dt model =
 
         ( pirateShots, nextShotId, pirateGuns ) =
             if racing then
-                pirateVolleys dt state model.nextCannonId piratesNow model.pirateGuns
+                pirateVolleys dt state model.structures model.nextCannonId piratesNow model.pirateGuns
 
             else
                 ( [], model.nextCannonId, model.pirateGuns )
@@ -1381,6 +1416,51 @@ tick dt model =
 
         smashedHarbours =
             rammedHarbours ++ shotDownHarbours
+
+        -- Balls hitting the buildings and town piers still standing
+        -- (`Sails.Structures`): the boat's own balls hit both, the patrol
+        -- ships' balls only buildings. At its durability one falls.
+        standingStructures =
+            Structures.standing model.structures
+
+        ( afterStructures, structureFlashes, ownStructureHits ) =
+            Structures.checkHits standingStructures afterPirates
+
+        ( othersAfterStructures, otherStructureFlashes, otherStructureHits ) =
+            Structures.checkHits (List.filter (.kind >> Structures.isBuilding) standingStructures) afterBoatHits
+
+        ( structures, fallen ) =
+            Structures.recordHits (World.islandPalette model.course.map) model.islandMeshes (ownStructureHits ++ otherStructureHits) model.structures
+
+        townPierDebris =
+            fallen.structures
+                |> List.filter (\s -> s.kind == Structures.TownPier)
+                |> List.concatMap (\s -> Wreck.burst Wreck.HarbourPier (vec3 s.x 0 s.z) 0 0)
+
+        -- A bar over each structure hit shows the hits it has left.
+        damageMarks =
+            List.foldl
+                (\( i, fp ) pool ->
+                    if List.member i harbourHits then
+                        DamageMarks.hit ("harbour:" ++ String.fromInt i) (vec3 fp.x 4.2 fp.z) (Harbours.hitsLeft harbourDamage i) Harbours.hitsToDestroy pool
+
+                    else
+                        pool
+                )
+                (DamageMarks.step dt model.damageMarks)
+                standingPiers
+                |> (\pool ->
+                        List.foldl
+                            (\s acc ->
+                                if List.member s.id (ownStructureHits ++ otherStructureHits) then
+                                    DamageMarks.hit ("structure:" ++ String.fromInt s.id) (Structures.topPoint s) (Structures.hitsLeft structures s) (Structures.durability s.kind) acc
+
+                                else
+                                    acc
+                            )
+                            pool
+                            standingStructures
+                   )
 
         -- Each cannon hit adds to a pirate ship's count; it sinks when the
         -- count reaches `Pirates.hitsToSink`.
@@ -1779,7 +1859,7 @@ tick dt model =
 
                     else
                         Cmd.none
-            , if not (List.isEmpty pirateFlashes) || not (List.isEmpty harbourFlashes) || not (List.isEmpty rammedHarbours) then
+            , if not (List.isEmpty pirateFlashes) || not (List.isEmpty harbourFlashes) || not (List.isEmpty structureFlashes) || not (List.isEmpty rammedHarbours) then
                 sfx (GameAudio.Impact 1.0)
 
               else if not (List.isEmpty splashes) then
@@ -1999,8 +2079,8 @@ tick dt model =
         , follow = follow
         , simTime = time
         , weather = weather
-        , cannonballs = afterPirates ++ afterBoatHits ++ pirateShots
-        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ harbourFlashes ++ boatFlashes)
+        , cannonballs = afterStructures ++ othersAfterStructures ++ pirateShots
+        , impacts = Physics.stepImpacts dt (model.impacts ++ splashes ++ pirateFlashes ++ harbourFlashes ++ boatFlashes ++ structureFlashes ++ otherStructureFlashes ++ fallen.flashes)
         , piratesSunk = model.piratesSunk ++ List.map (Tuple.first >> .id) sunkNow
         , pirateHits = pirateHitsNow
         , standards = regalia.standards
@@ -2037,6 +2117,7 @@ tick dt model =
             debris
                 ++ List.concatMap (\( p, ps ) -> Wreck.breakUp (pirateWreck p) ps) sunkNow
                 ++ pierDebris
+                ++ townPierDebris
                 ++ ghostDebris
                 ++ celebration
         , flyingCoins = Coins.step dt model.flyingCoins ++ newCoins
@@ -2046,6 +2127,8 @@ tick dt model =
         , crewTime = crewTime
         , ghostShip = updatedGhostShip
         , harbourDamage = harbourDamage
+        , structures = structures
+        , damageMarks = damageMarks
         , combatTurnTarget =
             case model.combatTurnTarget of
                 Just targetH ->
@@ -2079,29 +2162,39 @@ pirateWreck pirate =
 
 {-| The pirates in reach of the boat fire at it when their guns are ready
 (`Pirates.reach`, `Pirates.reloadSeconds`): one lobbed ball each, from the
-pirate's own gun slot. Returns the new balls, the next ball id and how long
-each pirate's gun has left to reload.
+pirate's own gun slot. With the boat out of reach a pirate fires at the
+nearest building in reach on a rival faction's island instead
+(`Structures.npcTarget`). Returns the new balls, the next ball id and how
+long each pirate's gun has left to reload.
 -}
-pirateVolleys : Float -> SailingState -> Int -> List ( Pirate, SailingState ) -> Dict Int Float -> ( List Cannonball, Int, Dict Int Float )
-pirateVolleys dt boat nextId pirates guns =
+pirateVolleys : Float -> SailingState -> Structures.State -> Int -> List ( Pirate, SailingState ) -> Dict Int Float -> ( List Cannonball, Int, Dict Int Float )
+pirateVolleys dt boat structures nextId pirates guns =
     List.foldl
         (\( pirate, ps ) ( balls, id, reload ) ->
             let
                 left =
                     (Dict.get pirate.id reload |> Maybe.withDefault 0) - dt
 
-                distance =
-                    horizontal ps.position boat.position
-            in
-            if left <= 0 && distance <= Pirates.reach && distance > 1.5 then
-                let
-                    shot =
-                        Physics.fireCannons (Pirates.shipSlot pirate.id) ps [ boat.position ] id
-                in
-                ( balls ++ shot, id + List.length shot, Dict.insert pirate.id (Pirates.reloadSeconds pirate) reload )
+                target =
+                    if left <= 0 then
+                        Structures.npcTarget Pirates.reach
+                            ps.position
+                            boat.position
+                            (List.map Structures.aimPoint (Structures.rivalBuildings pirate.faction structures))
 
-            else
-                ( balls, id, Dict.insert pirate.id (max 0 left) reload )
+                    else
+                        Nothing
+            in
+            case target of
+                Just aim ->
+                    let
+                        shot =
+                            Physics.fireCannons (Pirates.shipSlot pirate.id) ps [ aim ] id
+                    in
+                    ( balls ++ shot, id + List.length shot, Dict.insert pirate.id (Pirates.reloadSeconds pirate) reload )
+
+                Nothing ->
+                    ( balls, id, Dict.insert pirate.id (max 0 left) reload )
         )
         ( [], nextId, guns )
         pirates
@@ -2297,12 +2390,14 @@ viewRace model callbacks maybeRoom =
             , scenery = callbacks.meshFor
             , treasureFound = model.progress.treasureFound
             , props = callbacks.props
-            , islandMeshes = model.islandMeshes
+            , islandMeshes = Structures.islandsFor model.structures model.islandMeshes
             , debris = model.debris
             , coins = model.flyingCoins
             , shipMeshOf = shipMeshOf
             , standards = model.standards
             , harbourDamage = model.harbourDamage
+            , structures = model.structures
+            , damageMarks = model.damageMarks
             }
     in
     div
