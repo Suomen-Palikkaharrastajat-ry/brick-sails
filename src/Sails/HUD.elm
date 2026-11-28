@@ -1104,6 +1104,7 @@ steerButton language actions side =
                 Right ->
                     "right"
             )
+         , Attr.attribute "data-no-click-sfx" ""
          , Attr.style "touch-action" "none"
          , Attr.style "-webkit-user-select" "none"
          , Attr.style "user-select" "none"
@@ -1151,6 +1152,7 @@ anchorButton { canAnchor, isAnchored, actions } =
         [ Attr.type_ "button"
         , Events.onClick actions.onDropAnchor
         , Attr.attribute "data-testid" "drop-anchor"
+        , Attr.attribute "data-no-click-sfx" ""
         , Attr.style "touch-action" "manipulation"
         , Attr.style "-webkit-user-select" "none"
         , Attr.style "user-select" "none"
@@ -1191,6 +1193,7 @@ fireButton { cannonReady, language, actions } =
         , Attr.title (T.fireTitle language)
         , Attr.attribute "aria-label" (T.fireTitle language)
         , Attr.attribute "data-testid" "fire-button"
+        , Attr.attribute "data-no-click-sfx" ""
         , Attr.style "touch-action" "none"
         , Attr.style "-webkit-user-select" "none"
         , Attr.style "user-select" "none"

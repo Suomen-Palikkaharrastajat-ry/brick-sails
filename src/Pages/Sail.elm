@@ -196,6 +196,26 @@ cannonReload =
     0.8
 
 
+{-| How far (m) from the boat, measured across the water
+(`Physics.horizontalDistance`), a battle the boat is not part of is still
+heard: a pirate volley, or a ball from a pirate or another player striking
+a building, toppling it or splashing down. Further off it is silent, so
+fights far off-screen do not drum on. The boat's own shots are always
+heard. A pirate fires at the boat only within `Pirates.reach`, well inside
+this.
+-}
+combatHearingRange : Float
+combatHearingRange =
+    60
+
+
+{-| Whether `position` is within `combatHearingRange` of the boat at `boat`.
+-}
+withinEarshot : Vec3 -> Vec3 -> Bool
+withinEarshot boat position =
+    Physics.horizontalDistance boat position <= combatHearingRange
+
+
 initSail :
     Language
     -> Boat
@@ -1860,6 +1880,21 @@ tick dt model =
                                     Nothing
                             )
 
+        -- Battle sounds from others' balls carry only `combatHearingRange`.
+        nearBoat =
+            withinEarshot state.position
+
+        ownBallIds =
+            model.cannonballs
+                |> List.filter (\b -> b.sourceSlot == mySlot model)
+                |> List.map .id
+
+        heardSplash splash =
+            List.member splash.id ownBallIds || nearBoat splash.position
+
+        heardFall s =
+            List.member s.id ownStructureHits || nearBoat (vec3 s.x 0 s.z)
+
         sfxCmds =
             [ case passed of
                 Just _ ->
@@ -1876,13 +1911,14 @@ tick dt model =
                     else
                         Cmd.none
 
-            -- What the boat's balls struck this frame: the biggest event
-            -- speaks (a ship sunk over a pier smashed over a mere hit), and
-            -- a splash only when nothing was hit.
+            -- What the boat's balls struck this frame, plus what others'
+            -- balls struck within earshot (`combatHearingRange`): the
+            -- biggest event speaks (a ship sunk over a pier smashed over a
+            -- mere hit), and a splash only when nothing was hit.
             , if not (List.isEmpty sunkNow) then
                 sfx Sound.ShipSunk
 
-              else if not (List.isEmpty smashedHarbours) || not (List.isEmpty fallen.structures) then
+              else if not (List.isEmpty smashedHarbours) || List.any heardFall fallen.structures then
                 sfx Sound.Collapse
 
               else if not (List.isEmpty pirateFlashes) then
@@ -1891,19 +1927,21 @@ tick dt model =
               else if not (List.isEmpty harbourFlashes) then
                 sfx Sound.HitDock
 
-              else if not (List.isEmpty structureFlashes) || not (List.isEmpty otherStructureFlashes) then
+              else if not (List.isEmpty structureFlashes) || List.any (.position >> nearBoat) otherStructureFlashes then
                 sfx Sound.HitBuilding
 
-              else if not (List.isEmpty splashes) then
+              else if List.any heardSplash splashes then
                 sfx (Sound.Splash 0.5)
 
               else
                 Cmd.none
-            , if List.isEmpty pirateShots then
-                Cmd.none
+
+            -- A pirate volley is heard only within earshot of the boat.
+            , if List.any (.position >> nearBoat) pirateShots then
+                sfx Sound.EnemyCannon
 
               else
-                sfx Sound.EnemyCannon
+                Cmd.none
             , if sunkCoins + boardingCoins + treasureCoins > 0 then
                 sfx (Sound.Coins (sunkCoins + boardingCoins + treasureCoins))
 

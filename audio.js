@@ -722,10 +722,13 @@ export function createAudioEngine(initialMuted = false) {
       stopMusic(engine.ctx.currentTime)
       engine.ctx.suspend?.().catch?.(() => {})
     })
-    // Every button on the page gives a soft tick.
+    // Every button on the page gives a soft tick, except game controls
+    // marked `data-no-click-sfx` (fire, steering, anchor): they have their
+    // own sounds, so a tick on every tap would only clutter them.
     document.addEventListener(
       'click',
       (event) => {
+        if (event.target?.closest?.('[data-no-click-sfx]')) return
         const el = event.target?.closest?.('button, [role="button"], a[href], summary, select, input[type="checkbox"], input[type="radio"]')
         if (el && !el.disabled) engine.playSfx('click')
       },

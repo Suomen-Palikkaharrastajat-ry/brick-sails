@@ -275,3 +275,52 @@ test('every sound Sails.Sound sends has a voice in audio.js', async () => {
   assert.ok(types.length >= 20, `found ${types.length}`)
   for (const t of types) assert.ok(resolveSound({ type: t }), `${t} has no sound`)
 })
+
+// A minimal element for the page's click listener: `closest` walks up the
+// parents matching a comma list of tag names and `[attribute]`s.
+class FakeElement {
+  constructor(tag, attrs = {}, parent = null) {
+    this.tagName = tag.toUpperCase()
+    this.attrs = attrs
+    this.parent = parent
+    this.disabled = false
+  }
+  matches(selector) {
+    return selector.split(',').some((part) => {
+      const s = part.trim()
+      const attr = /^\[([\w-]+)\]$/.exec(s)
+      if (attr) return attr[1] in this.attrs
+      return /^[a-z]+$/.test(s) && s.toUpperCase() === this.tagName
+    })
+  }
+  closest(selector) {
+    for (let el = this; el; el = el.parent) if (el.matches(selector)) return el
+    return null
+  }
+}
+
+test('a click ticks, but not on a game control marked data-no-click-sfx', () => {
+  const listeners = {}
+  globalThis.document = {
+    hidden: false,
+    addEventListener: (type, fn) => {
+      listeners[type] = fn
+    },
+  }
+  try {
+    const { engine, ctx } = unlocked()
+    const click = (target) => {
+      const before = ctx.created
+      listeners.click({ target })
+      return ctx.created - before
+    }
+    const fire = new FakeElement('button', { 'data-no-click-sfx': '' })
+    const icon = new FakeElement('span', {}, fire)
+    assert.equal(click(fire), 0, 'the fire button ticked')
+    assert.equal(click(icon), 0, 'an icon inside the fire button ticked')
+    ctx.advance(1)
+    assert.ok(click(new FakeElement('button')) > 0, 'a plain button did not tick')
+  } finally {
+    delete globalThis.document
+  }
+})
