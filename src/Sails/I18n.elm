@@ -10,6 +10,12 @@ module Sails.I18n exposing
     , blueCoatsName
     , boatDescription
     , boatName
+    , buildHistoryAge
+    , buildHistoryCurrent
+    , buildHistoryEmpty
+    , buildHistoryHeading
+    , buildHistoryParts
+    , buildHistoryRestored
     , buildOwnShip
     , byChance
     , citadelName
@@ -89,6 +95,7 @@ module Sails.I18n exposing
     , reefScrapeToast
     , reefWarning
     , restartRace
+    , restoreBuildLabel
     , rollWorld
     , roomCodeLabel
     , roomCodePlaceholder
@@ -1529,6 +1536,16 @@ allPhrases =
     , ( "crewTimeLabel", \l -> crewTimeLabel l 2 2 )
     , ( "editShipButton", editShipButton )
     , ( "buildOwnShip", buildOwnShip )
+    , ( "buildHistoryHeading", buildHistoryHeading )
+    , ( "buildHistoryEmpty", buildHistoryEmpty )
+    , ( "buildHistoryCurrent", buildHistoryCurrent )
+    , ( "buildHistoryRestored", buildHistoryRestored )
+    , ( "buildHistoryParts", \l -> buildHistoryParts l 12 )
+    , ( "buildHistoryAge now", \l -> buildHistoryAge l 10 )
+    , ( "buildHistoryAge minutes", \l -> buildHistoryAge l (5 * 60 * 1000) )
+    , ( "buildHistoryAge hours", \l -> buildHistoryAge l (3 * 60 * 60 * 1000) )
+    , ( "buildHistoryAge days", \l -> buildHistoryAge l (2 * 24 * 60 * 60 * 1000) )
+    , ( "restoreBuildLabel", \l -> restoreBuildLabel l "Sloop Hull" )
     , ( "crewHeading", crewHeading )
     , ( "twoPlayerHostDesc", twoPlayerHostDesc )
     , ( "gridHostDesc", gridHostDesc )
@@ -1554,6 +1571,79 @@ editShipButton lang =
 buildOwnShip : Language -> String
 buildOwnShip lang =
     pick lang "Rakenna oma laiva" "Build your own ship"
+
+
+
+-- BUILD HISTORY (the ship editor's hulls drawer)
+
+
+{-| Heading of the saved builds in the hulls drawer.
+-}
+buildHistoryHeading : Language -> String
+buildHistoryHeading lang =
+    pick lang "Aiemmat rakennelmat" "Previous builds"
+
+
+{-| Shown in place of the saved builds before there are any.
+-}
+buildHistoryEmpty : Language -> String
+buildHistoryEmpty lang =
+    pick lang "Rakennelmasi tallentuvat tähän, kun rakennat." "Your builds are saved here as you build."
+
+
+{-| Badge of the saved build that is open in the editor.
+-}
+buildHistoryCurrent : Language -> String
+buildHistoryCurrent lang =
+    pick lang "Työn alla" "In progress"
+
+
+{-| Notice after a saved build was opened again.
+-}
+buildHistoryRestored : Language -> String
+buildHistoryRestored lang =
+    pick lang "↺ Aiempi rakennelma palautettu" "↺ Earlier build restored"
+
+
+{-| The part count of a saved build.
+-}
+buildHistoryParts : Language -> Int -> String
+buildHistoryParts lang n =
+    String.fromInt n ++ pick lang " osaa" " parts"
+
+
+{-| How long ago a build was saved, from its age in milliseconds.
+-}
+buildHistoryAge : Language -> Int -> String
+buildHistoryAge lang ms =
+    let
+        minutes =
+            ms // 60000
+
+        hours =
+            minutes // 60
+
+        days =
+            hours // 24
+    in
+    if minutes < 1 then
+        pick lang "juuri nyt" "just now"
+
+    else if hours < 1 then
+        String.fromInt minutes ++ pick lang " min sitten" " min ago"
+
+    else if days < 1 then
+        String.fromInt hours ++ pick lang " t sitten" " h ago"
+
+    else
+        String.fromInt days ++ pick lang " pv sitten" " d ago"
+
+
+{-| Label of a saved build's card, which opens it again.
+-}
+restoreBuildLabel : Language -> String -> String
+restoreBuildLabel lang name =
+    pick lang ("Palauta rakennelma: " ++ name) ("Restore build: " ++ name)
 
 
 {-| Heading of the shipyard's online play cards.

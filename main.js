@@ -53,6 +53,27 @@ const { ports } = bootGame({
 ports?.storeLanguage?.subscribe((lang) => {
   document.documentElement.lang = lang
 })
-// Part pictures for the ship editor's dock (`Pages.Build`), from the same
-// catalog the game loads its parts from.
+// Part pictures for the ship editor's dock (`Pages.Build`) and pictures of
+// whole hulls and saved builds, from the same catalog the game loads its parts
+// from.
 initThumbnails(ports, import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw')
+
+// The ship editor's build history (`Game.BuildHistory`): saved on every change,
+// handed back to Elm at start-up. Storage may be blocked (private mode, full
+// quota); the game then simply has no saved builds.
+const BUILD_HISTORY_KEY = 'palikkakehys.sails.buildHistory'
+ports?.saveBuildHistory?.subscribe((json) => {
+  try {
+    window.localStorage.setItem(BUILD_HISTORY_KEY, String(json ?? ''))
+  } catch {
+    // Not saved; the build stays in memory.
+  }
+})
+let savedBuildHistory = ''
+try {
+  savedBuildHistory = window.localStorage.getItem(BUILD_HISTORY_KEY) || ''
+} catch {
+  savedBuildHistory = ''
+}
+// After the app's first subscriptions are in place.
+setTimeout(() => ports?.buildHistoryLoaded?.send(savedBuildHistory), 0)

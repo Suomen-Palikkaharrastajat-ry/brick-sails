@@ -25,6 +25,14 @@ it. "Use ship" loads the build exactly like a build link, as "Your ship", and
 puts its link in the URL; "Edit ship" opens a ship standing on a starter hull
 again.
 
+The editor saves the build as it goes into the build history
+(`Game.BuildHistory`, in localStorage through `Ports.saveBuildHistory`; the
+saved history arrives through `Ports.buildHistoryLoaded` at start-up). So a
+reload, or a phone discarding the hidden tab, does not lose the build: the
+shipyard's editor button opens the newest saved build (`draft`) — unless the
+page was opened on a ship link that is not one of the saved builds, which it
+then edits — and the editor's hulls drawer lists all the saved builds.
+
 In a multiplayer room every player shares their ship once: a built-in boat by
 name, a loaded build as a `#b/...` build link. Room updates only name it by
 `vehicleId`; the JS runtime fetches each ship once and hands it over through
@@ -43,6 +51,7 @@ import Browser.Dom as Dom
 import Browser.Events
 import Dict exposing (Dict)
 import Game.BrickProps as BrickProps
+import Game.BuildHistory as BuildHistory exposing (History)
 import Game.MapParams as MapParams exposing (Biome, MapParams, Pick(..), Season, Selection, WeatherKind)
 import Game.Multiplayer as Multiplayer
 import Game.PartLoading as PartLoading
@@ -124,6 +133,9 @@ type alias Model =
     , ldrawFallbackBase : String
     , supportsPointerEvents : Bool
     , builder : Maybe Build.Model
+    , buildHistory : History
+    , linkedShip : Maybe String
+    , draft : Maybe ( Editor.Base, Document )
     }
 
 
@@ -156,6 +168,7 @@ type Msg
     | CopyMapLink
     | RollWorld
     | UsePreviousMap
+    | BuildHistoryLoaded String
     | NoOp
 
 
@@ -225,6 +238,9 @@ init flags =
             , ldrawFallbackBase = flags.ldrawFallbackBase
             , supportsPointerEvents = flags.supportsPointerEvents
             , builder = Nothing
+            , buildHistory = BuildHistory.empty
+            , linkedShip = Nothing
+            , draft = Nothing
             }
 
         hasPayload =
@@ -478,6 +494,19 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        BuildHistoryLoaded json ->
+            let
+                saved =
+                    BuildHistory.fromJson json
+            in
+            ( refreshDraft
+                { model
+                    | buildHistory = saved
+                    , builder = Maybe.map (Build.setHistory saved) model.builder
+                }
+            , Cmd.none
+            )
+
         UsePreviousMap ->
             case model.lastMap of
                 Just previous ->
@@ -673,7 +702,7 @@ update msg model =
                     ( model, Cmd.none )
 
         EditShip ->
-            case editableShip model of
+            case builderTarget model of
                 Just ( base, doc ) ->
                     openBuilder base doc model
 
@@ -686,28 +715,31 @@ update msg model =
                     let
                         ( nextBuild, buildCmd, outcome ) =
                             Build.update buildMsg build
+
+                        withHistory =
+                            { model | buildHistory = Build.history nextBuild }
                     in
                     case outcome of
                         Build.Stay ->
-                            ( { model | builder = Just nextBuild }, Cmd.map BuildMsg buildCmd )
+                            ( { withHistory | builder = Just nextBuild }, Cmd.map BuildMsg buildCmd )
 
                         Build.Quit ->
-                            ( { model | builder = Nothing }, Cmd.none )
+                            ( refreshDraft { withHistory | builder = Nothing }, Cmd.map BuildMsg buildCmd )
 
                         Build.Finished doc ->
                             let
                                 ( next, cmd ) =
-                                    useShip (Ingest.validateShip doc |> Result.map (\spec -> ( { document = doc, title = hullName model.language nextBuild.base }, spec ))) model
+                                    useShip (Ingest.validateShip doc |> Result.map (\spec -> ( { document = doc, title = hullName model.language nextBuild.base }, spec ))) withHistory
                             in
                             case next.loadError of
                                 Nothing ->
-                                    ( { next | builder = Nothing }
-                                    , Cmd.batch [ cmd, GamePorts.setUrlHash (Ingest.encodeMapHash next.course.map (Just doc)) ]
+                                    ( refreshDraft { next | builder = Nothing, linkedShip = Nothing }
+                                    , Cmd.batch [ cmd, Cmd.map BuildMsg buildCmd, GamePorts.setUrlHash (Ingest.encodeMapHash next.course.map (Just doc)) ]
                                     )
 
                                 Just _ ->
                                     -- Not a boat (cannot happen with a whole hull): stay in the editor.
-                                    ( { model | builder = Just nextBuild }, Cmd.none )
+                                    ( { withHistory | builder = Just nextBuild }, Cmd.map BuildMsg buildCmd )
 
                 Nothing ->
                     ( model, Cmd.none )
@@ -834,11 +866,20 @@ selected; an invalid one leaves the boats as they were and shows why.
 -}
 loadShip : Maybe (List Int) -> String -> Model -> ( Model, Cmd Msg )
 loadShip bytes input model =
-    useShip
-        (Ingest.decodeShipInput bytes input
-            |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\spec -> ( decoded, spec )))
-        )
-        model
+    let
+        checked =
+            Ingest.decodeShipInput bytes input
+                |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\spec -> ( decoded, spec )))
+
+        linked =
+            case checked of
+                Ok ( decoded, _ ) ->
+                    refreshDraft { model | linkedShip = Just (Ingest.encodeShipLink decoded.document) }
+
+                Err _ ->
+                    model
+    in
+    useShip checked linked
 
 
 {-| Make a checked build "Your ship" and select it, or show why it is not a
@@ -882,7 +923,65 @@ openBuilder base doc model =
                 base
                 doc
     in
-    ( { model | builder = Just build, loadError = Nothing }, Cmd.map BuildMsg buildCmd )
+    ( { model | builder = Just (Build.setHistory model.buildHistory build), loadError = Nothing }, Cmd.map BuildMsg buildCmd )
+
+
+{-| What the shipyard's editor button opens: the newest saved build
+(`draft`), else "Your ship" when it stands on a starter hull.
+-}
+builderTarget : Model -> Maybe ( Editor.Base, Document )
+builderTarget model =
+    case model.draft of
+        Just found ->
+            Just found
+
+        Nothing ->
+            editableShip model
+
+
+{-| Find the build the editor button resumes: the newest saved build, unless
+the page was opened on a ship link that is not one of the saved builds (then
+that ship is the one to edit). Worked out when the history or the link
+changes, not on every frame, as it inflates the saved build link.
+-}
+refreshDraft : Model -> Model
+refreshDraft model =
+    let
+        linkedElsewhere =
+            case model.linkedShip of
+                Just code ->
+                    not (BuildHistory.member code model.buildHistory)
+
+                Nothing ->
+                    False
+    in
+    { model
+        | draft =
+            if linkedElsewhere then
+                Nothing
+
+            else
+                BuildHistory.latest model.buildHistory
+                    |> Maybe.andThen savedBuild
+    }
+
+
+{-| A saved build and the hull it stands on (its saved hull, else the hull
+the build holds), when its link still reads.
+-}
+savedBuild : BuildHistory.Entry -> Maybe ( Editor.Base, Document )
+savedBuild entry =
+    case Ingest.decodeShipInput Nothing entry.code of
+        Ok decoded ->
+            case List.filter (\b -> b.id == entry.base) Editor.bases |> List.head of
+                Just base ->
+                    Just ( base, decoded.document )
+
+                Nothing ->
+                    Editor.baseOf decoded.document |> Maybe.map (\base -> ( base, decoded.document ))
+
+        Err _ ->
+            Nothing
 
 
 {-| A hull's name in the player's language.
@@ -1067,6 +1166,7 @@ subscriptions model =
         , GamePorts.multiplayerVehicleLoaded MultiplayerVehicleLoaded
         , GamePorts.tiltStatus TiltStatusChanged
         , GamePorts.hashChanged HashChanged
+        , Ports.buildHistoryLoaded BuildHistoryLoaded
         , case ( model.builder, model.viewMode, model.sailModel ) of
             ( Just build, _, _ ) ->
                 Sub.map BuildMsg (Build.subscriptions build)
@@ -1112,7 +1212,7 @@ view model =
                 , roomCode = model.roomCodeInput
                 , language = model.language
                 , hulls = List.map (\b -> { id = b.id, name = shortHullName model.language b }) Editor.bases
-                , canEditShip = editableShip model /= Nothing
+                , canEditShip = builderTarget model /= Nothing
                 , selection = model.selection
                 , seedText = model.seedText
                 , seedEditing = model.seedEditing

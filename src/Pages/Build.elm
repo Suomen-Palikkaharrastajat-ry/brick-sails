@@ -5,8 +5,11 @@ module Pages.Build exposing
     , Outcome(..)
     , ShipCheck(..)
     , document
+    , history
     , init
+    , previewRequests
     , resize
+    , setHistory
     , setLanguage
     , shipCheckFix
     , shipCheckText
@@ -25,6 +28,15 @@ import drawer (`ImportBuildTab`), and live seaworthiness & rigging evaluation
 drawer (`ReviewTab`) with one-tap helpers and hints to add masts, sails, cannons,
 and deck fittings.
 
+The build is saved as it changes into the build history (`Game.BuildHistory`,
+kept in localStorage by `main.js` through `Ports.saveBuildHistory`): a short
+while after each edit, when the page is hidden (a phone switching apps or
+discarding the tab), when the hulls drawer opens, before another hull or build
+replaces it, and when the player finishes. The hulls drawer lists the saved
+builds under the starter hulls, so a build replaced or lost to a reload is one
+tap away. Hull cards and saved builds show pictures from the shared thumbnail
+pipeline (`Game.ModelPreview`, `Ports.requestModelThumbnails`).
+
 The top bar holds only icons, matching Brick Racer:
 
   - Left: "Use this ship" (`FeatherIcons.check`)
@@ -34,9 +46,12 @@ The top bar holds only icons, matching Brick Racer:
 
 -}
 
+import Browser.Events
 import DesignTokens.Colors as Brand
 import Dict exposing (Dict)
 import FeatherIcons
+import Game.BuildHistory as BuildHistory exposing (History)
+import Game.ModelPreview as ModelPreview
 import Game.PartLoading as PartLoading
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, h3, input, span, text, textarea)
@@ -53,17 +68,21 @@ import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Ports
+import Process
 import Render.Scene exposing (Scene)
 import Sails.Analyze as Analyze
 import Sails.BuilderDock as BuilderDock
 import Sails.DockFloor as DockFloor
 import Sails.Editor as Editor exposing (Base, PartEntry)
+import Sails.I18n as T
 import Sails.Ingest as Ingest
 import Sails.ShipMesh as ShipMesh
 import Set
 import Studio.Colours as Colours
 import Studio.Core as Core
 import Studio.Shortcuts exposing (TurnDirection(..))
+import Task
+import Time
 import UI.PartCard as PartCard
 import Viewport
 
@@ -83,6 +102,15 @@ the colour for new parts, the part pictures received so far (by
 `PartCard.thumbnailKey`), the active drawer tab (`catalogOpen` and `hullsOpen`
 stay in sync with `activeTab`), the catalog filter, paste buffer, and the
 palette row (`activePart` and `recentParts`).
+
+The build history: the saved builds (`history`), the clock (ms, refreshed
+by `ClockTick` and each autosave), the editing session saves go to
+(`session`, `Nothing` until the next save starts a new one; `lastSession` is
+the newest session id used), the edit counter the autosave debounce checks
+(`revision`), the build link of the build as last saved (`savedCode`), and
+the pictures of hulls (`"hull:" ++ id`) and saved builds (by build link) in
+`previews`.
+
 -}
 type alias Model =
     { studio : Core.Model
@@ -105,6 +133,13 @@ type alias Model =
     , dockResolver : ResolverConfig
     , dockParts : PartCache
     , dockScene : Maybe Scene
+    , history : History
+    , clock : Int
+    , session : Maybe Int
+    , lastSession : Int
+    , revision : Int
+    , savedCode : String
+    , previews : Dict String String
     }
 
 
@@ -142,6 +177,11 @@ type Msg
     | PaletteLeft
     | CanvasTapped
     | DockPartFetched String (Result Http.Error String)
+    | ClockTick Time.Posix
+    | AutoSave Int Time.Posix
+    | PageVisibility Browser.Events.Visibility
+    | RestoreBuild BuildHistory.Entry
+    | ModelPreviewLoaded { key : String, url : String }
 
 
 {-| What the editor asks `Main` to do after an update.
@@ -209,6 +249,13 @@ init config base doc =
             , dockResolver = PartLoading.resolverFromFlags config
             , dockParts = Resolve.initCache
             , dockScene = Nothing
+            , history = BuildHistory.empty
+            , clock = 0
+            , session = Nothing
+            , lastSession = 0
+            , revision = 0
+            , savedCode = ""
+            , previews = Dict.empty
             }
 
         ( sized, sizeCmd ) =
@@ -218,8 +265,30 @@ init config base doc =
             requestDockParts sized
     in
     ( docked
-    , Cmd.batch [ Cmd.map StudioMsg studioCmd, Cmd.map StudioMsg fitCmd, sizeCmd, dockCmd, requestThumbnails docked ]
+    , Cmd.batch
+        [ Cmd.map StudioMsg studioCmd
+        , Cmd.map StudioMsg fitCmd
+        , sizeCmd
+        , dockCmd
+        , requestThumbnails docked
+        , Task.perform ClockTick Time.now
+        ]
     )
+
+
+{-| The saved builds, newest first.
+-}
+history : Model -> History
+history model =
+    model.history
+
+
+{-| Hand the editor the saved builds (opening it, or once `main.js` has read
+them from localStorage).
+-}
+setHistory : History -> Model -> Model
+setHistory saved model =
+    { model | history = saved }
 
 
 {-| Fetch the parts of the harbour (`Sails.BuilderDock`) that are still
@@ -415,16 +484,153 @@ update msg model =
                  else
                     model
                 )
+
+        ( saved, saveCmd ) =
+            scheduleAutoSave model next
     in
-    if next.activeTab /= model.activeTab || next.catalogOpen /= model.catalogOpen || next.hullsOpen /= model.hullsOpen then
+    if saved.activeTab /= model.activeTab || saved.catalogOpen /= model.catalogOpen || saved.hullsOpen /= model.hullsOpen then
         let
             ( resized, resizeCmd ) =
-                runCore (Core.update (Core.ViewportMsg (Viewport.WindowResize next.width (canvasHeight next)))) next
+                runCore (Core.update (Core.ViewportMsg (Viewport.WindowResize saved.width (canvasHeight saved)))) saved
         in
-        ( resized, Cmd.batch [ cmd, resizeCmd ], outcome )
+        ( resized, Cmd.batch [ cmd, saveCmd, resizeCmd, requestPreviews resized ], outcome )
 
     else
-        ( next, cmd, outcome )
+        ( saved, Cmd.batch [ cmd, saveCmd ], outcome )
+
+
+{-| How long the build must stay unchanged before it is saved.
+-}
+autoSaveDelay : Float
+autoSaveDelay =
+    1500
+
+
+{-| After an edit, save the build once it has stayed unchanged for
+`autoSaveDelay` (each edit bumps `revision`, so only the last one saves).
+-}
+scheduleAutoSave : Model -> Model -> ( Model, Cmd Msg )
+scheduleAutoSave before after =
+    if Core.getDocument after.studio /= Core.getDocument before.studio then
+        let
+            revision =
+                after.revision + 1
+        in
+        ( { after | revision = revision }
+        , Process.sleep autoSaveDelay
+            |> Task.andThen (\_ -> Time.now)
+            |> Task.perform (AutoSave revision)
+        )
+
+    else
+        ( after, Cmd.none )
+
+
+{-| Whether the build has anything on it beyond the bare starter hull.
+-}
+hasOwnParts : Model -> Bool
+hasOwnParts model =
+    let
+        doc =
+            Core.getDocument model.studio
+    in
+    not (Editor.baseIntact model.base doc && List.length (Document.flattenedPlacements doc) <= model.base.partCount)
+
+
+{-| Save the build as it stands into the history, in the current session (a
+new one when there is none), and store the history. A bare starter hull is
+not saved.
+-}
+saveBuild : Model -> ( Model, Cmd Msg )
+saveBuild model =
+    if not (hasOwnParts model) then
+        ( model, Cmd.none )
+
+    else
+        let
+            doc =
+                Core.getDocument model.studio
+
+            sessionId =
+                case model.session of
+                    Just id ->
+                        id
+
+                    Nothing ->
+                        max model.clock (model.lastSession + 1)
+
+            code =
+                Ingest.encodeShipLink doc
+
+            saved =
+                BuildHistory.record
+                    { code = code
+                    , base = model.base.id
+                    , parts = List.length (Document.flattenedPlacements doc)
+                    , savedAt = model.clock
+                    , session = sessionId
+                    }
+                    model.history
+
+            next =
+                { model | session = Just sessionId, lastSession = max sessionId model.lastSession, savedCode = code }
+        in
+        if saved == model.history then
+            ( next, Cmd.none )
+
+        else
+            ( { next | history = saved }, Ports.saveBuildHistory (BuildHistory.toJson saved) )
+
+
+{-| Save the build and start a new session, so later edits are saved as a
+new entry (and the saved one stays in the history).
+-}
+saveSnapshot : Model -> ( Model, Cmd Msg )
+saveSnapshot model =
+    saveBuild model |> Tuple.mapFirst (\m -> { m | session = Nothing })
+
+
+{-| The picture requests the hulls drawer still needs: every starter hull and
+every saved build without a picture yet. Asked for whenever the drawer opens.
+-}
+previewRequests : Model -> List ModelPreview.Request
+previewRequests model =
+    let
+        hulls =
+            Editor.bases
+                |> List.filter (\b -> not (Dict.member (hullPreviewKey b) model.previews))
+                |> List.map (\b -> ModelPreview.request (hullPreviewKey b) b.document)
+
+        builds =
+            BuildHistory.entries model.history
+                |> List.filter (\e -> not (Dict.member e.code model.previews))
+                |> List.filterMap
+                    (\e ->
+                        Ingest.decodeShipInput Nothing e.code
+                            |> Result.toMaybe
+                            |> Maybe.map (\decoded -> ModelPreview.request e.code decoded.document)
+                    )
+    in
+    hulls ++ builds
+
+
+requestPreviews : Model -> Cmd Msg
+requestPreviews model =
+    if model.activeTab == BasesTab then
+        case previewRequests model of
+            [] ->
+                Cmd.none
+
+            requests ->
+                Ports.requestModelThumbnails requests
+
+    else
+        Cmd.none
+
+
+hullPreviewKey : Base -> String
+hullPreviewKey base =
+    "hull:" ++ base.id
 
 
 updateModel : Msg -> Model -> ( Model, Cmd Msg, Outcome )
@@ -553,7 +759,11 @@ updateModel msg model =
             ( { model | studio = studio }, Cmd.map StudioMsg cmd, Stay )
 
         Finish ->
-            ( model, Cmd.none, Finished (Core.getDocument model.studio) )
+            let
+                ( saved, saveCmd ) =
+                    saveSnapshot model
+            in
+            ( saved, saveCmd, Finished (Core.getDocument model.studio) )
 
         Leave ->
             ( model, Cmd.none, Quit )
@@ -565,37 +775,87 @@ updateModel msg model =
             )
 
         SelectTab tab ->
-            ( toggleTab tab model, Cmd.none, Stay )
+            stay (openTab tab model)
 
         ToggleCatalog ->
             ( toggleTab AllBricksTab model, Cmd.none, Stay )
 
         ToggleHulls ->
-            ( toggleTab BasesTab model, Cmd.none, Stay )
+            stay (openTab BasesTab model)
 
         SelectHull base ->
             if base.id == model.base.id then
                 ( setTab BuildBricksTab model, Cmd.none, Stay )
 
             else
+                -- The build is saved first: a tap on another hull starts a new
+                -- build, and the old one stays in the history below the hulls.
                 let
-                    ( resetStudio, resetCmd, events ) =
-                        Core.resetDocument base.document model.studio
+                    ( saved, saveCmd ) =
+                        saveSnapshot model
 
-                    ( fittedStudio, fitCmd ) =
-                        Core.fitView resetStudio
-
-                    closed =
-                        setTab BuildBricksTab model
+                    ( loaded, loadCmd ) =
+                        loadBuild base base.document saved
                 in
-                ( { closed | studio = fittedStudio, base = base, baseLocked = True }
-                , Cmd.batch
-                    (Cmd.map StudioMsg resetCmd
-                        :: Cmd.map StudioMsg fitCmd
-                        :: List.map eventCmd events
-                    )
-                , Stay
-                )
+                ( loaded, Cmd.batch [ saveCmd, loadCmd ], Stay )
+
+        RestoreBuild entry ->
+            if entry.code == Ingest.encodeShipLink (Core.getDocument model.studio) then
+                -- Already the build on the dock.
+                ( setTab BuildBricksTab model, Cmd.none, Stay )
+
+            else
+                case Ingest.decodeShipInput Nothing entry.code of
+                    Ok decoded ->
+                        let
+                            ( saved, saveCmd ) =
+                                saveSnapshot model
+
+                            base =
+                                Editor.bases
+                                    |> List.filter (\b -> b.id == entry.base)
+                                    |> List.head
+                                    |> Maybe.withDefault (Editor.baseOf decoded.document |> Maybe.withDefault model.base)
+
+                            ( loaded, loadCmd ) =
+                                loadBuild base decoded.document saved
+                        in
+                        ( { loaded | notice = Just (T.buildHistoryRestored model.language), savedCode = entry.code }
+                        , Cmd.batch [ saveCmd, loadCmd ]
+                        , Stay
+                        )
+
+                    Err _ ->
+                        -- Cannot be read any more: drop it from the list.
+                        let
+                            pruned =
+                                BuildHistory.remove entry.code model.history
+                        in
+                        ( { model | history = pruned }, Ports.saveBuildHistory (BuildHistory.toJson pruned), Stay )
+
+        ClockTick now ->
+            ( { model | clock = Time.posixToMillis now }, Cmd.none, Stay )
+
+        AutoSave revision now ->
+            let
+                ticked =
+                    { model | clock = Time.posixToMillis now }
+            in
+            if revision == model.revision then
+                stay (saveBuild ticked)
+
+            else
+                ( ticked, Cmd.none, Stay )
+
+        PageVisibility Browser.Events.Hidden ->
+            -- A phone may discard a hidden tab: save what is there now.
+            stay (saveBuild model)
+
+        PageVisibility Browser.Events.Visible ->
+            ( model, Cmd.none, Stay )
+
+        ModelPreviewLoaded picture ->
+            ( { model | previews = Dict.insert picture.key picture.url model.previews }, Cmd.none, Stay )
 
         ToggleBaseLock ->
             if model.baseLocked then
@@ -647,33 +907,13 @@ updateModel msg model =
                         newBase =
                             Editor.baseOf decoded.document |> Maybe.withDefault model.base
 
-                        ( nextStudio, cmd, events ) =
-                            Core.resetDocument decoded.document model.studio
+                        ( saved, saveCmd ) =
+                            saveSnapshot model
 
-                        ( fittedStudio, fitCmd ) =
-                            Core.fitView nextStudio
-
-                        closed =
-                            setTab BuildBricksTab model
-
-                        updated =
-                            { closed
-                                | studio = fittedStudio
-                                , base = newBase
-                                , baseLocked = Editor.baseOf decoded.document /= Nothing
-                                , pasteText = ""
-                                , pasteError = Nothing
-                            }
+                        ( loaded, loadCmd ) =
+                            loadBuild newBase decoded.document { saved | pasteText = "", pasteError = Nothing }
                     in
-                    ( updated
-                    , Cmd.batch
-                        [ Cmd.map StudioMsg cmd
-                        , Cmd.map StudioMsg fitCmd
-                        , Cmd.batch (List.map eventCmd events)
-                        , requestThumbnails updated
-                        ]
-                    , Stay
-                    )
+                    ( loaded, Cmd.batch [ saveCmd, loadCmd ], Stay )
 
                 Err err ->
                     ( { model | pasteError = Just err }, Cmd.none, Stay )
@@ -689,6 +929,48 @@ updateModel msg model =
 
         DockPartFetched name result ->
             stay (requestDockParts { model | dockParts = Resolve.updateCache name result Parser.parseFile model.dockParts })
+
+
+{-| Open a drawer tab (or close it again). Opening the hulls drawer saves the
+build first, so it is listed there, and later edits are saved as a new entry.
+-}
+openTab : BuilderTab -> Model -> ( Model, Cmd Msg )
+openTab tab model =
+    if tab == BasesTab && model.activeTab /= BasesTab then
+        saveSnapshot model |> Tuple.mapFirst (toggleTab tab)
+
+    else
+        ( toggleTab tab model, Cmd.none )
+
+
+{-| Replace the build with `doc` standing on `base` (a starter hull, a pasted
+build or a saved one): the studio is reset (its undo history too), the view
+fitted and the drawer closed. The hull is locked when the build still holds it
+in one piece.
+-}
+loadBuild : Base -> Document -> Model -> ( Model, Cmd Msg )
+loadBuild base doc model =
+    let
+        ( resetStudio, resetCmd, events ) =
+            Core.resetDocument doc model.studio
+
+        ( fittedStudio, fitCmd ) =
+            Core.fitView resetStudio
+
+        closed =
+            setTab BuildBricksTab model
+
+        updated =
+            { closed | studio = fittedStudio, base = base, baseLocked = Editor.baseIntact base doc }
+    in
+    ( updated
+    , Cmd.batch
+        (Cmd.map StudioMsg resetCmd
+            :: Cmd.map StudioMsg fitCmd
+            :: requestThumbnails updated
+            :: List.map eventCmd events
+        )
+    )
 
 
 {-| Add `file` in `colour` where `Editor.dropMatrix` puts it, close the drawer
@@ -822,6 +1104,9 @@ subscriptions model =
         , GamePorts.geometryFlattened (StudioMsg << Core.geometryFlattened)
         , GamePorts.geometryFlattenFailed (StudioMsg << Core.geometryFlattenFailed)
         , Ports.thumbnailLoaded ThumbnailLoaded
+        , Ports.modelThumbnailLoaded ModelPreviewLoaded
+        , Browser.Events.onVisibilityChange PageVisibility
+        , Time.every 30000 ClockTick
         ]
 
 
@@ -1702,7 +1987,8 @@ catalogCard model entry =
         ]
 
 
-{-| Drawer showing the 4 starter hulls (matching Brick Racer's `viewBasesDrawer`).
+{-| Drawer of the starter hulls (matching Brick Racer's `viewBasesDrawer`),
+each with its picture, and below them the saved builds (`historyCards`).
 -}
 viewBasesDrawer : Model -> Html Msg
 viewBasesDrawer model =
@@ -1753,23 +2039,9 @@ viewBasesDrawer model =
                 , Attr.style "text-align" "left"
                 , Attr.style "touch-action" "manipulation"
                 ]
-                [ div
-                    [ Attr.style "width" "100%"
-                    , Attr.style "aspect-ratio" "1 / 1"
-                    , Attr.style "border-radius" "8px"
-                    , Attr.style "overflow" "hidden"
-                    , Attr.style "background" "#070c14"
-                    , Attr.style "border" "1px solid rgba(255, 255, 255, 0.08)"
-                    ]
-                    [ Html.img
-                        [ Attr.src ("base-previews/" ++ base.id ++ ".png")
-                        , Attr.alt name
-                        , Attr.style "width" "100%"
-                        , Attr.style "height" "100%"
-                        , Attr.style "object-fit" "contain"
-                        ]
-                        []
-                    ]
+                [ cardPicture name
+                    (Dict.get (hullPreviewKey base) model.previews)
+                    (Just ("base-previews/" ++ base.id ++ ".png"))
                 , div []
                     [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px" ] [ text ("⚓ " ++ name) ]
                     , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
@@ -1779,12 +2051,154 @@ viewBasesDrawer model =
     in
     div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "", Attr.attribute "data-testid" "bases-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
-            [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
-                [ text (tr lang "Choose Starter Hull" "Valitse aloitusrunko") ]
-            , div [ Attr.style "display" "grid", Attr.style "grid-template-columns" "repeat(2, minmax(0, 1fr))", Attr.style "gap" "10px" ]
+            [ drawerHeading (tr lang "Choose Starter Hull" "Valitse aloitusrunko")
+            , div cardGridStyle
                 (List.map renderBaseCard Editor.bases)
+            , drawerHeading (T.buildHistoryHeading lang)
+            , historyCards model
             ]
         ]
+
+
+drawerHeading : String -> Html msg
+drawerHeading label =
+    h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
+        [ text label ]
+
+
+{-| The card grid of the hulls drawer: as many columns as fit, so a phone in
+landscape shows a row of small cards rather than two huge ones.
+-}
+cardGridStyle : List (Html.Attribute msg)
+cardGridStyle =
+    [ Attr.style "display" "grid"
+    , Attr.style "grid-template-columns" "repeat(auto-fill, minmax(132px, 1fr))"
+    , Attr.style "gap" "10px"
+    ]
+
+
+{-| The square picture of a hull or saved build card: the rendered picture
+when it has arrived, else the bundled one (`fallback`, drawn as a background
+so a missing file shows the empty frame rather than a broken image), else an
+anchor.
+-}
+cardPicture : String -> Maybe String -> Maybe String -> Html msg
+cardPicture name rendered fallback =
+    div
+        [ Attr.attribute "data-testid" "card-picture"
+        , Attr.style "width" "100%"
+        , Attr.style "aspect-ratio" "1 / 1"
+        , Attr.style "border-radius" "8px"
+        , Attr.style "overflow" "hidden"
+        , Attr.style "background-color" "#070c14"
+        , Attr.style "border" "1px solid rgba(255, 255, 255, 0.08)"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        ]
+        [ case ( rendered, fallback ) of
+            ( Just url, _ ) ->
+                Html.img
+                    [ Attr.src url
+                    , Attr.alt name
+                    , Attr.attribute "data-preview" "rendered"
+                    , Attr.style "width" "100%"
+                    , Attr.style "height" "100%"
+                    , Attr.style "object-fit" "contain"
+                    ]
+                    []
+
+            ( Nothing, Just url ) ->
+                div
+                    [ Attr.attribute "role" "img"
+                    , Attr.attribute "aria-label" name
+                    , Attr.attribute "data-preview" "bundled"
+                    , Attr.style "width" "100%"
+                    , Attr.style "height" "100%"
+                    , Attr.style "background-image" ("url(\"" ++ url ++ "\")")
+                    , Attr.style "background-size" "contain"
+                    , Attr.style "background-position" "center"
+                    , Attr.style "background-repeat" "no-repeat"
+                    ]
+                    []
+
+            ( Nothing, Nothing ) ->
+                span [ Attr.style "font-size" "28px", Attr.style "opacity" "0.6" ] [ text "⚓" ]
+        ]
+
+
+{-| The saved builds (`Game.BuildHistory`), newest first, as cards like the
+hull cards: a picture of the build, its hull, part count and age. A tap opens
+the build again; the build open now is marked.
+-}
+historyCards : Model -> Html Msg
+historyCards model =
+    let
+        lang =
+            model.language
+
+        card entry =
+            let
+                hullName =
+                    Editor.bases
+                        |> List.filter (\b -> b.id == entry.base)
+                        |> List.head
+                        |> Maybe.map (baseName lang)
+                        |> Maybe.withDefault (tr lang "Ship" "Laiva")
+
+                isCurrent =
+                    entry.code == model.savedCode
+            in
+            button
+                [ Attr.type_ "button"
+                , onClick (RestoreBuild entry)
+                , Attr.attribute "data-history-entry" (String.fromInt entry.savedAt)
+                , Attr.attribute "aria-label" (T.restoreBuildLabel lang hullName)
+                , Attr.title (T.restoreBuildLabel lang hullName)
+                , Attr.style "display" "flex"
+                , Attr.style "flex-direction" "column"
+                , Attr.style "gap" "8px"
+                , Attr.style "padding" "10px 12px"
+                , Attr.style "border-radius" "12px"
+                , Attr.style "border"
+                    (if isCurrent then
+                        "2px solid " ++ Brand.legoYellow
+
+                     else
+                        "1px solid rgba(255, 255, 255, 0.15)"
+                    )
+                , Attr.style "background" "rgba(15, 23, 42, 0.7)"
+                , Attr.style "color" Brand.legoWhite
+                , Attr.style "cursor" "pointer"
+                , Attr.style "text-align" "left"
+                , Attr.style "touch-action" "manipulation"
+                ]
+                [ cardPicture hullName (Dict.get entry.code model.previews) Nothing
+                , div []
+                    [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px" ] [ text ("↺ " ++ hullName) ]
+                    , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
+                        [ text
+                            (T.buildHistoryParts lang entry.parts
+                                ++ " • "
+                                ++ (if isCurrent then
+                                        T.buildHistoryCurrent lang
+
+                                    else
+                                        T.buildHistoryAge lang (max 0 (model.clock - entry.savedAt))
+                                   )
+                            )
+                        ]
+                    ]
+                ]
+    in
+    case BuildHistory.entries model.history of
+        [] ->
+            div [ Attr.attribute "data-testid" "build-history-empty", Attr.style "font-size" "12px", Attr.style "color" "#94a3b8" ]
+                [ text (T.buildHistoryEmpty lang) ]
+
+        saved ->
+            div (Attr.attribute "data-testid" "build-history" :: cardGridStyle)
+                (List.map card saved)
 
 
 {-| Drawer for pasting build links or LDraw `.ldr` / `.mpd` text (matching
