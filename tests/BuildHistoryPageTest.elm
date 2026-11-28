@@ -203,6 +203,63 @@ suite =
                                 |> List.map .key
                                 |> List.member ("hull:" ++ first.id)
                                 |> Expect.equal False
+                    , test "every hull picture is asked for as soon as the editor opens, before the drawer does" <|
+                        \_ ->
+                            Expect.all
+                                [ \m -> Expect.equal BuildBricksTab m.activeTab
+                                , \m ->
+                                    Build.previewRequests m
+                                        |> List.map .key
+                                        |> Expect.equal (List.map (\b -> "hull:" ++ b.id) Editor.bases)
+                                ]
+                                opened
+                    , test "only the hulls without a picture are asked for" <|
+                        \_ ->
+                            opened
+                                |> step (ModelPreviewLoaded { key = "hull:" ++ first.id, url = "data:image/png;base64,AAAA" })
+                                |> step (ModelPreviewLoaded { key = "hull:" ++ second.id, url = "data:image/png;base64,BBBB" })
+                                |> Build.previewRequests
+                                |> List.map .key
+                                |> Expect.equal
+                                    (Editor.bases
+                                        |> List.filter (\b -> b.id /= first.id && b.id /= second.id)
+                                        |> List.map (\b -> "hull:" ++ b.id)
+                                    )
+                    , test "a hull card shows the bundled picture until its live picture arrives" <|
+                        \_ ->
+                            opened
+                                |> step (SelectTab BasesTab)
+                                |> Build.view
+                                |> Query.fromHtml
+                                |> Query.find [ Selector.attribute (Html.Attributes.attribute "data-hull" first.id) ]
+                                |> Query.has [ Selector.attribute (Html.Attributes.attribute "data-preview" "bundled") ]
+                    , test "the live picture replaces the bundled one on its card only" <|
+                        \_ ->
+                            let
+                                drawer =
+                                    opened
+                                        |> step (SelectTab BasesTab)
+                                        |> step (ModelPreviewLoaded { key = "hull:" ++ first.id, url = "data:image/png;base64,AAAA" })
+                                        |> Build.view
+                                        |> Query.fromHtml
+
+                                card id =
+                                    Query.find [ Selector.attribute (Html.Attributes.attribute "data-hull" id) ] drawer
+                            in
+                            Expect.all
+                                [ \_ ->
+                                    card first.id
+                                        |> Query.find [ Selector.attribute (Html.Attributes.attribute "data-preview" "rendered") ]
+                                        |> Query.has [ Selector.tag "img", Selector.attribute (Html.Attributes.src "data:image/png;base64,AAAA") ]
+                                , \_ ->
+                                    card first.id
+                                        |> Query.findAll [ Selector.attribute (Html.Attributes.attribute "data-preview" "bundled") ]
+                                        |> Query.count (Expect.equal 0)
+                                , \_ ->
+                                    card second.id
+                                        |> Query.has [ Selector.attribute (Html.Attributes.attribute "data-preview" "bundled") ]
+                                ]
+                                ()
                     , test "a hull card shows its rendered picture once it arrives" <|
                         \_ ->
                             opened
@@ -220,7 +277,20 @@ suite =
                                 |> Query.fromHtml
                                 |> Query.find [ Selector.attribute (Html.Attributes.attribute "data-testid" "build-history") ]
                                 |> Query.findAll [ Selector.tag "button" ]
-                                |> Query.count (Expect.equal 1)
+                                |> Query.count (Expect.equal 2)
+                    , test "the remove button drops the saved build from the history" <|
+                        \_ ->
+                            case BuildHistory.entries (Build.history saved) of
+                                [ entry ] ->
+                                    saved
+                                        |> step (RemoveBuild entry.code)
+                                        |> Build.history
+                                        |> BuildHistory.entries
+                                        |> List.length
+                                        |> Expect.equal 0
+
+                                _ ->
+                                    Expect.fail "expected exactly one saved build"
                     ]
                 ]
 

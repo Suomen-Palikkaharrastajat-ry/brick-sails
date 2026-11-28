@@ -33,6 +33,11 @@ shipyard's editor button opens the newest saved build (`draft`) — unless the
 page was opened on a ship link that is not one of the saved builds, which it
 then edits — and the editor's hulls drawer lists all the saved builds.
 
+A build moves to another device by QR code: the editor shows the build link
+as a QR code, and its scan button opens the camera of the shared runtime
+(`GamePorts.openQrScanner`). The scanned text comes back here through
+`GamePorts.qrCodeScanned` and goes to the open editor (`Build.ScannedCode`).
+
 In a multiplayer room every player shares their ship once: a built-in boat by
 name, a loaded build as a `#b/...` build link. Room updates only name it by
 `vehicleId`; the JS runtime fetches each ship once and hands it over through
@@ -92,6 +97,7 @@ type alias Flags =
     , predecodedInitialBytes : Maybe (List Int)
     , language : String
     , supportsPointerEvents : Bool
+    , baseUrl : String
     }
 
 
@@ -132,6 +138,7 @@ type alias Model =
     , ldrawBase : String
     , ldrawFallbackBase : String
     , supportsPointerEvents : Bool
+    , baseUrl : String
     , builder : Maybe Build.Model
     , buildHistory : History
     , linkedShip : Maybe String
@@ -155,6 +162,8 @@ type Msg
     | SailMessage Sail.SailMsg
     | PartFetched String (Result Http.Error String)
     | HashChanged String
+    | QrCodeScanned String
+    | QrScannerError String
     | StartBuild String
     | EditShip
     | BuildMsg Build.Msg
@@ -236,6 +245,7 @@ init flags =
             , language = SailsI18n.fromFlag flags.language
             , ldrawBase = flags.ldrawBase
             , ldrawFallbackBase = flags.ldrawFallbackBase
+            , baseUrl = flags.baseUrl
             , supportsPointerEvents = flags.supportsPointerEvents
             , builder = Nothing
             , buildHistory = BuildHistory.empty
@@ -418,7 +428,10 @@ update msg model =
             requestParts { model | partCache = Resolve.updateCache name result Parser.parseFile model.partCache }
 
         HashChanged hash ->
-            if model.viewMode == ViewShipyard then
+            -- While the ship editor is open it owns the build: a hash the QR
+            -- scanner's boot code sets (see `QrCodeScanned`) is not loaded
+            -- behind it. Finishing the build sets the page link.
+            if model.viewMode == ViewShipyard && model.builder == Nothing then
                 let
                     mapped =
                         case Ingest.mapFromHash hash of
@@ -443,6 +456,29 @@ update msg model =
 
             else
                 ( model, Cmd.none )
+
+        QrCodeScanned scanned ->
+            -- The shared boot code also writes a scanned build link into the
+            -- page URL (`game-boot.js`, `onScanned`); the shipyard's link is
+            -- put back, as only finishing the build changes it.
+            case model.builder of
+                Just _ ->
+                    let
+                        ( next, cmd ) =
+                            update (BuildMsg (Build.ScannedCode scanned)) model
+                    in
+                    ( next, Cmd.batch [ cmd, GamePorts.setUrlHash (mapLink next) ] )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        QrScannerError err ->
+            case model.builder of
+                Just _ ->
+                    update (BuildMsg (Build.ScannerFailed err)) model
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         PickBiome pick ->
             applySelection (\sel -> { sel | biome = pick }) model
@@ -923,7 +959,7 @@ openBuilder base doc model =
                 base
                 doc
     in
-    ( { model | builder = Just (Build.setHistory model.buildHistory build), loadError = Nothing }, Cmd.map BuildMsg buildCmd )
+    ( { model | builder = Just (Build.setHistory model.buildHistory build |> Build.setShareBase model.baseUrl), loadError = Nothing }, Cmd.map BuildMsg buildCmd )
 
 
 {-| What the shipyard's editor button opens: the newest saved build
@@ -1166,6 +1202,8 @@ subscriptions model =
         , GamePorts.multiplayerVehicleLoaded MultiplayerVehicleLoaded
         , GamePorts.tiltStatus TiltStatusChanged
         , GamePorts.hashChanged HashChanged
+        , GamePorts.qrCodeScanned QrCodeScanned
+        , GamePorts.qrScannerError QrScannerError
         , Ports.buildHistoryLoaded BuildHistoryLoaded
         , case ( model.builder, model.viewMode, model.sailModel ) of
             ( Just build, _, _ ) ->

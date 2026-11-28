@@ -1,7 +1,7 @@
 import './main.css'
 import { bootGame } from './vendor/packages/brick-frame-game/runtime/game-boot.js'
 import { readLanguage } from './vendor/packages/brick-frame-game/runtime/language.js'
-import { initThumbnails } from './vendor/packages/brick-frame-viewport/runtime/thumbnail-pipeline.js'
+import { initGameThumbnails } from './thumbnails.js'
 import { createAudioEngine } from './audio.js'
 import { Elm } from './src/Main.elm'
 
@@ -55,8 +55,9 @@ ports?.storeLanguage?.subscribe((lang) => {
 })
 // Part pictures for the ship editor's dock (`Pages.Build`) and pictures of
 // whole hulls and saved builds, from the same catalog the game loads its parts
-// from.
-initThumbnails(ports, import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw')
+// from. The hull pictures do not wait behind the dock's part pictures
+// (see thumbnails.js).
+initGameThumbnails(ports,import.meta.env.VITE_LDRAW_BASE || 'https://catalog.palikkaharrastajat.fi/raw')
 
 // The ship editor's build history (`Game.BuildHistory`): saved on every change,
 // handed back to Elm at start-up. Storage may be blocked (private mode, full

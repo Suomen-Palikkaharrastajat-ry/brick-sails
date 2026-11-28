@@ -11,6 +11,7 @@ module Pages.Build exposing
     , resize
     , setHistory
     , setLanguage
+    , setShareBase
     , shipCheckFix
     , shipCheckText
     , shipChecks
@@ -44,6 +45,12 @@ The top bar holds only icons, matching Brick Racer:
     (`FeatherIcons.download`), and Evaluation (`FeatherIcons.award`)
   - Right: "Show the whole ship" (`FeatherIcons.maximize`)
 
+A build moves between devices by QR code (`Sails.QrShare`): the "Open build"
+drawer shows the build link as a QR code (`ToggleShareQr`, unless the link is
+too long for one), and the hulls drawer opens the camera of the shared runtime
+(`OpenQrScanner`, `GamePorts.openQrScanner`). `Main` hands the scanned text
+back as `ScannedCode`; it opens like a pasted link when it is a ship build.
+
 -}
 
 import Browser.Events
@@ -69,6 +76,7 @@ import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Ports
 import Process
+import QRCode
 import Render.Scene exposing (Scene)
 import Sails.Analyze as Analyze
 import Sails.BuilderDock as BuilderDock
@@ -76,11 +84,13 @@ import Sails.DockFloor as DockFloor
 import Sails.Editor as Editor exposing (Base, PartEntry)
 import Sails.I18n as T
 import Sails.Ingest as Ingest
+import Sails.QrShare as QrShare
 import Sails.ShipMesh as ShipMesh
 import Set
 import Studio.Colours as Colours
 import Studio.Core as Core
 import Studio.Shortcuts exposing (TurnDirection(..))
+import Svg.Attributes
 import Task
 import Time
 import UI.PartCard as PartCard
@@ -111,6 +121,10 @@ the newest session id used), the edit counter the autosave debounce checks
 the pictures of hulls (`"hull:" ++ id`) and saved builds (by build link) in
 `previews`.
 
+The QR code of the build while the "Open build" drawer shows it (`shareQr`:
+the link and its code, made again after each autosave), and the page the link
+opens (`shareBase`, `Main` sets it with `setShareBase`).
+
 -}
 type alias Model =
     { studio : Core.Model
@@ -140,6 +154,8 @@ type alias Model =
     , revision : Int
     , savedCode : String
     , previews : Dict String String
+    , shareQr : Maybe ( String, QrShare.QrCode )
+    , shareBase : String
     }
 
 
@@ -181,7 +197,12 @@ type Msg
     | AutoSave Int Time.Posix
     | PageVisibility Browser.Events.Visibility
     | RestoreBuild BuildHistory.Entry
+    | RemoveBuild String
     | ModelPreviewLoaded { key : String, url : String }
+    | ToggleShareQr
+    | OpenQrScanner
+    | ScannedCode String
+    | ScannerFailed String
 
 
 {-| What the editor asks `Main` to do after an update.
@@ -256,6 +277,8 @@ init config base doc =
             , revision = 0
             , savedCode = ""
             , previews = Dict.empty
+            , shareQr = Nothing
+            , shareBase = QrShare.defaultShareBase
             }
 
         ( sized, sizeCmd ) =
@@ -270,6 +293,10 @@ init config base doc =
         , Cmd.map StudioMsg fitCmd
         , sizeCmd
         , dockCmd
+
+        -- The hull pictures are asked for as soon as the hulls are known, not
+        -- only when the drawer opens, so the cards are live when it does.
+        , sendPreviewRequests docked
         , requestThumbnails docked
         , Task.perform ClockTick Time.now
         ]
@@ -346,6 +373,18 @@ setLanguage language model =
     { model | language = language }
 
 
+{-| The page a shared build link opens (the app's own address, from the
+`baseUrl` flag); an empty one keeps the public site.
+-}
+setShareBase : String -> Model -> Model
+setShareBase base model =
+    if String.isEmpty (String.trim base) then
+        model
+
+    else
+        { model | shareBase = base }
+
+
 {-| The parts of the palette row before the player adds any: a hull brick, a
 plate, a slope, a deck tile, a mast, a sail and a cannon.
 -}
@@ -383,6 +422,7 @@ setTab tab model =
         , catalogOpen = tab == AllBricksTab
         , hullsOpen = tab == BasesTab
         , notice = Nothing
+        , shareQr = Nothing
     }
 
 
@@ -591,7 +631,8 @@ saveSnapshot model =
 
 
 {-| The picture requests the hulls drawer still needs: every starter hull and
-every saved build without a picture yet. Asked for whenever the drawer opens.
+every saved build without a picture yet (one already known is never asked for
+again). Asked for when the editor opens and again whenever the drawer opens.
 -}
 previewRequests : Model -> List ModelPreview.Request
 previewRequests model =
@@ -617,15 +658,20 @@ previewRequests model =
 requestPreviews : Model -> Cmd Msg
 requestPreviews model =
     if model.activeTab == BasesTab then
-        case previewRequests model of
-            [] ->
-                Cmd.none
-
-            requests ->
-                Ports.requestModelThumbnails requests
+        sendPreviewRequests model
 
     else
         Cmd.none
+
+
+sendPreviewRequests : Model -> Cmd Msg
+sendPreviewRequests model =
+    case previewRequests model of
+        [] ->
+            Cmd.none
+
+        requests ->
+            Ports.requestModelThumbnails requests
 
 
 hullPreviewKey : Base -> String
@@ -833,6 +879,13 @@ updateModel msg model =
                         in
                         ( { model | history = pruned }, Ports.saveBuildHistory (BuildHistory.toJson pruned), Stay )
 
+        RemoveBuild code ->
+            let
+                pruned =
+                    BuildHistory.remove code model.history
+            in
+            ( { model | history = pruned }, Ports.saveBuildHistory (BuildHistory.toJson pruned), Stay )
+
         ClockTick now ->
             ( { model | clock = Time.posixToMillis now }, Cmd.none, Stay )
 
@@ -842,7 +895,7 @@ updateModel msg model =
                     { model | clock = Time.posixToMillis now }
             in
             if revision == model.revision then
-                stay (saveBuild ticked)
+                stay (saveBuild (refreshShareQr ticked))
 
             else
                 ( ticked, Cmd.none, Stay )
@@ -903,20 +956,27 @@ updateModel msg model =
         SubmitPaste ->
             case Ingest.decodeShipInput Nothing model.pasteText of
                 Ok decoded ->
-                    let
-                        newBase =
-                            Editor.baseOf decoded.document |> Maybe.withDefault model.base
-
-                        ( saved, saveCmd ) =
-                            saveSnapshot model
-
-                        ( loaded, loadCmd ) =
-                            loadBuild newBase decoded.document { saved | pasteText = "", pasteError = Nothing }
-                    in
-                    ( loaded, Cmd.batch [ saveCmd, loadCmd ], Stay )
+                    stay (openDecoded decoded model)
 
                 Err err ->
                     ( { model | pasteError = Just err }, Cmd.none, Stay )
+
+        ToggleShareQr ->
+            case model.shareQr of
+                Just _ ->
+                    ( { model | shareQr = Nothing }, Cmd.none, Stay )
+
+                Nothing ->
+                    ( { model | shareQr = Just (shareQrOf model) }, Cmd.none, Stay )
+
+        OpenQrScanner ->
+            ( { model | notice = Nothing }, GamePorts.openQrScanner (), Stay )
+
+        ScannedCode raw ->
+            stay (openScanned raw model)
+
+        ScannerFailed _ ->
+            ( { model | notice = Just (T.qrCameraFailed model.language) }, Cmd.none, Stay )
 
         CatalogFilterChanged query ->
             ( { model | catalogFilter = query }, Cmd.none, Stay )
@@ -929,6 +989,94 @@ updateModel msg model =
 
         DockPartFetched name result ->
             stay (requestDockParts { model | dockParts = Resolve.updateCache name result Parser.parseFile model.dockParts })
+
+
+{-| Replace the build with a decoded one (pasted or scanned), on the starter
+hull it stands on (else the current hull). The build on the dock is saved
+first, so it stays in the history.
+-}
+openDecoded : Ingest.DecodedShip -> Model -> ( Model, Cmd Msg )
+openDecoded decoded model =
+    let
+        newBase =
+            Editor.baseOf decoded.document |> Maybe.withDefault model.base
+
+        ( saved, saveCmd ) =
+            saveSnapshot model
+
+        ( loaded, loadCmd ) =
+            loadBuild newBase decoded.document { saved | pasteText = "", pasteError = Nothing }
+    in
+    ( loaded, Cmd.batch [ saveCmd, loadCmd ] )
+
+
+{-| Open a scanned QR code (`Sails.QrShare.parseScanned`): a ship build link
+opens as the build, like a pasted one; anything else, or a build that is not
+a boat (`Sails.Ingest.validateShip`), leaves the build as it was and says why.
+-}
+openScanned : String -> Model -> ( Model, Cmd Msg )
+openScanned raw model =
+    let
+        lang =
+            model.language
+
+        refuse text =
+            ( { model | notice = Just text }, Cmd.none )
+    in
+    case QrShare.parseScanned raw of
+        Err rejection ->
+            refuse (scanRejectionText lang rejection)
+
+        Ok hash ->
+            case
+                Ingest.decodeShipInput Nothing hash
+                    |> Result.andThen (\decoded -> Ingest.validateShip decoded.document |> Result.map (\_ -> decoded))
+            of
+                Ok decoded ->
+                    openDecoded decoded model
+                        |> Tuple.mapFirst (\m -> { m | notice = Just (T.qrScanOpened lang) })
+
+                Err _ ->
+                    refuse (T.qrScanNotAShip lang)
+
+
+scanRejectionText : Language -> QrShare.ScanRejection -> String
+scanRejectionText lang rejection =
+    case rejection of
+        QrShare.RacerLink ->
+            T.qrScanRacerLink lang
+
+        QrShare.PlayLink ->
+            T.qrScanPlayLink lang
+
+        QrShare.RoomLink ->
+            T.qrScanRoomLink lang
+
+        QrShare.NotABuildLink ->
+            T.qrScanNotABuild lang
+
+
+{-| The page link of the build on the dock and its QR code.
+-}
+shareQrOf : Model -> ( String, QrShare.QrCode )
+shareQrOf model =
+    let
+        link =
+            QrShare.shareUrl model.shareBase (Ingest.encodeShipLink (Core.getDocument model.studio))
+    in
+    ( link, QrShare.qrCode link )
+
+
+{-| Make the shown QR code again for the build as it is now.
+-}
+refreshShareQr : Model -> Model
+refreshShareQr model =
+    case model.shareQr of
+        Just _ ->
+            { model | shareQr = Just (shareQrOf model) }
+
+        Nothing ->
+            model
 
 
 {-| Open a drawer tab (or close it again). Opening the hulls drawer saves the
@@ -1353,8 +1501,128 @@ noticeView model =
             text ""
 
 
-{-| Base lock toggle, shown at the far right of the palette row (matching Brick
-Racer).
+{-| The lock controls at the far right of the palette row (matching Brick
+Racer): the grouping lock, then the hull lock.
+-}
+lockControls : Model -> Html Msg
+lockControls model =
+    div
+        [ Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "gap" "6px"
+        , Attr.style "flex-shrink" "0"
+        ]
+        [ groupLockButton model
+        , lockButton model
+        ]
+
+
+{-| The grouping lock (see `Core.GroupLock`): greyed with nothing selected or
+during a drag, LOCKED on exactly one group (pressing releases its bricks),
+OPEN otherwise (pressing merges the selection into one group).
+-}
+groupLockButton : Model -> Html Msg
+groupLockButton model =
+    let
+        lang =
+            model.language
+
+        state =
+            Core.groupLock model.studio
+
+        ( label, stateName, icon ) =
+            case state of
+                Core.GroupLockDisabled ->
+                    ( T.groupDisabledLabel lang, "disabled", FeatherIcons.unlock )
+
+                Core.GroupLockOpen ->
+                    ( T.groupOpenLabel lang, "open", FeatherIcons.unlock )
+
+                Core.GroupLockLocked ->
+                    ( T.groupLockedLabel lang, "locked", FeatherIcons.lock )
+
+        enabled =
+            state /= Core.GroupLockDisabled
+
+        locked =
+            state == Core.GroupLockLocked
+    in
+    button
+        ([ Attr.type_ "button"
+         , Attr.attribute "data-testid" "group-lock"
+         , Attr.attribute "data-state" stateName
+         , Attr.disabled (not enabled)
+         , Attr.style "display" "inline-flex"
+         , Attr.style "align-items" "center"
+         , Attr.style "justify-content" "center"
+         , Attr.style "width" "40px"
+         , Attr.style "height" "40px"
+         , Attr.style "flex-shrink" "0"
+         , Attr.style "border-radius" "12px"
+         , Attr.style "border"
+            (if not enabled then
+                "1px solid rgba(255, 255, 255, 0.08)"
+
+             else if locked then
+                "1px solid rgba(255, 255, 255, 0.2)"
+
+             else
+                "1px solid #f59e0b"
+            )
+         , Attr.style "background"
+            (if not enabled then
+                "rgba(15, 23, 42, 0.4)"
+
+             else if locked then
+                "rgba(15, 23, 42, 0.82)"
+
+             else
+                "rgba(245, 158, 11, 0.25)"
+            )
+         , Attr.style "color"
+            (if not enabled then
+                "#475569"
+
+             else if locked then
+                "#cbd5e1"
+
+             else
+                "#fbbf24"
+            )
+         , Attr.style "opacity"
+            (if enabled then
+                "1"
+
+             else
+                "0.35"
+            )
+         , Attr.style "cursor"
+            (if enabled then
+                "pointer"
+
+             else
+                "default"
+            )
+         , Attr.style "touch-action" "manipulation"
+         , Attr.style "pointer-events" "auto"
+         , Attr.title label
+         , Attr.attribute "aria-label" label
+         ]
+            ++ (if enabled then
+                    [ onClick (StudioMsg Core.ToggleGroupLock) ]
+
+                else
+                    []
+               )
+        )
+        [ icon
+            |> FeatherIcons.withSize 18
+            |> FeatherIcons.toHtml []
+        ]
+
+
+{-| Hull lock toggle: locks the starter hull so edits cannot split it. A shield
+with a small "Hull" caption, so it is not mistaken for the grouping lock.
 -}
 lockButton : Model -> Html Msg
 lockButton model =
@@ -1367,15 +1635,27 @@ lockButton model =
 
         label =
             if locked then
-                tr lang "Hull locked (click to unlock and edit hull)" "Runko lukittu (klikkaa avataksesi rungon muokkaus)"
+                T.hullLockedLabel lang
 
             else
-                tr lang "Hull unlocked (click to lock hull)" "Runko avattu (klikkaa lukitaksesi runko)"
+                T.hullUnlockedLabel lang
     in
     button
         [ Attr.type_ "button"
         , onClick ToggleBaseLock
+        , Attr.attribute "data-testid" "base-lock"
+        , Attr.attribute "aria-pressed"
+            (if locked then
+                "true"
+
+             else
+                "false"
+            )
         , Attr.style "display" "inline-flex"
+        , Attr.style "flex-direction" "column"
+        , Attr.style "gap" "1px"
+        , Attr.style "padding" "0"
+        , Attr.style "touch-action" "manipulation"
         , Attr.style "align-items" "center"
         , Attr.style "justify-content" "center"
         , Attr.style "width" "40px"
@@ -1409,13 +1689,20 @@ lockButton model =
         , Attr.attribute "aria-label" label
         ]
         [ (if locked then
-            FeatherIcons.lock
+            FeatherIcons.shield
 
            else
-            FeatherIcons.unlock
+            FeatherIcons.shieldOff
           )
-            |> FeatherIcons.withSize 18
+            |> FeatherIcons.withSize 16
             |> FeatherIcons.toHtml []
+        , span
+            [ Attr.style "font-size" "9px"
+            , Attr.style "line-height" "1"
+            , Attr.style "font-weight" "600"
+            , Attr.attribute "aria-hidden" "true"
+            ]
+            [ text (T.hullLockCaption lang) ]
         ]
 
 
@@ -1733,7 +2020,7 @@ paletteRow model =
             , Attr.style "flex-shrink" "0"
             ]
             []
-        , lockButton model
+        , lockControls model
         ]
 
 
@@ -2051,11 +2338,14 @@ viewBasesDrawer model =
     in
     div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "", Attr.attribute "data-testid" "bases-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
-            [ drawerHeading (tr lang "Choose Starter Hull" "Valitse aloitusrunko")
-            , div cardGridStyle
-                (List.map renderBaseCard Editor.bases)
+            [ div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "align-items" "center", Attr.style "justify-content" "space-between", Attr.style "gap" "8px" ]
+                [ drawerHeading (tr lang "Choose Starter Hull" "Valitse aloitusrunko")
+                , scanQrButton lang
+                ]
             , drawerHeading (T.buildHistoryHeading lang)
             , historyCards model
+            , div cardGridStyle
+                (List.map renderBaseCard Editor.bases)
             ]
         ]
 
@@ -2149,46 +2439,49 @@ historyCards model =
                 isCurrent =
                     entry.code == model.savedCode
             in
-            button
-                [ Attr.type_ "button"
-                , onClick (RestoreBuild entry)
-                , Attr.attribute "data-history-entry" (String.fromInt entry.savedAt)
-                , Attr.attribute "aria-label" (T.restoreBuildLabel lang hullName)
-                , Attr.title (T.restoreBuildLabel lang hullName)
-                , Attr.style "display" "flex"
-                , Attr.style "flex-direction" "column"
-                , Attr.style "gap" "8px"
-                , Attr.style "padding" "10px 12px"
-                , Attr.style "border-radius" "12px"
-                , Attr.style "border"
-                    (if isCurrent then
-                        "2px solid " ++ Brand.legoYellow
+            div [ Attr.style "position" "relative" ]
+                [ button
+                    [ Attr.type_ "button"
+                    , onClick (RestoreBuild entry)
+                    , Attr.attribute "data-history-entry" (String.fromInt entry.savedAt)
+                    , Attr.attribute "aria-label" (T.restoreBuildLabel lang hullName)
+                    , Attr.title (T.restoreBuildLabel lang hullName)
+                    , Attr.style "display" "flex"
+                    , Attr.style "flex-direction" "column"
+                    , Attr.style "gap" "8px"
+                    , Attr.style "padding" "10px 12px"
+                    , Attr.style "border-radius" "12px"
+                    , Attr.style "border"
+                        (if isCurrent then
+                            "2px solid " ++ Brand.legoYellow
 
-                     else
-                        "1px solid rgba(255, 255, 255, 0.15)"
-                    )
-                , Attr.style "background" "rgba(15, 23, 42, 0.7)"
-                , Attr.style "color" Brand.legoWhite
-                , Attr.style "cursor" "pointer"
-                , Attr.style "text-align" "left"
-                , Attr.style "touch-action" "manipulation"
-                ]
-                [ cardPicture hullName (Dict.get entry.code model.previews) Nothing
-                , div []
-                    [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px" ] [ text ("↺ " ++ hullName) ]
-                    , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
-                        [ text
-                            (T.buildHistoryParts lang entry.parts
-                                ++ " • "
-                                ++ (if isCurrent then
-                                        T.buildHistoryCurrent lang
+                         else
+                            "1px solid rgba(255, 255, 255, 0.15)"
+                        )
+                    , Attr.style "background" "rgba(15, 23, 42, 0.7)"
+                    , Attr.style "color" Brand.legoWhite
+                    , Attr.style "cursor" "pointer"
+                    , Attr.style "text-align" "left"
+                    , Attr.style "touch-action" "manipulation"
+                    ]
+                    [ cardPicture hullName (Dict.get entry.code model.previews) Nothing
+                    , div []
+                        [ div [ Attr.style "font-weight" "800", Attr.style "font-size" "13px" ] [ text ("↺ " ++ hullName) ]
+                        , div [ Attr.style "font-size" "11px", Attr.style "color" "#94a3b8", Attr.style "margin-top" "2px" ]
+                            [ text
+                                (T.buildHistoryParts lang entry.parts
+                                    ++ " • "
+                                    ++ (if isCurrent then
+                                            T.buildHistoryCurrent lang
 
-                                    else
-                                        T.buildHistoryAge lang (max 0 (model.clock - entry.savedAt))
-                                   )
-                            )
+                                        else
+                                            T.buildHistoryAge lang (max 0 (model.clock - entry.savedAt))
+                                       )
+                                )
+                            ]
                         ]
                     ]
+                , removeBuildButton lang entry.code hullName
                 ]
     in
     case BuildHistory.entries model.history of
@@ -2211,7 +2504,7 @@ viewImportDrawer model =
             model.language
     in
     div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-testid" "import-drawer" ])
-        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "max-width" "680px", Attr.style "margin" "0 auto" ]
+        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "max-width" "680px", Attr.style "margin" "0 auto", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
             [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
                 [ text (tr lang "Open build" "Avaa malli") ]
             , div [ Attr.style "display" "flex", Attr.style "gap" "8px" ]
@@ -2220,6 +2513,7 @@ viewImportDrawer model =
                     , Attr.value model.pasteText
                     , onInput PasteTextChanged
                     , Attr.style "flex" "1"
+                    , Attr.style "min-width" "0"
                     , Attr.style "height" "70px"
                     , Attr.style "padding" "8px"
                     , Attr.style "border-radius" "8px"
@@ -2245,21 +2539,37 @@ viewImportDrawer model =
                     ]
                     [ text (tr lang "Open" "Avaa") ]
                 ]
-            , button
-                [ Attr.type_ "button"
-                , onClick CopyBuildCode
-                , Attr.attribute "data-testid" "copy-build-code"
-                , Attr.style "align-self" "flex-start"
-                , Attr.style "padding" "6px 12px"
-                , Attr.style "border-radius" "8px"
-                , Attr.style "background" "rgba(15, 23, 42, 0.8)"
-                , Attr.style "color" Brand.legoWhite
-                , Attr.style "font-weight" "700"
-                , Attr.style "font-size" "12px"
-                , Attr.style "cursor" "pointer"
-                , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+            , div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "gap" "8px" ]
+                [ button
+                    (Attr.attribute "data-testid" "copy-build-code" :: onClick CopyBuildCode :: secondaryButtonStyle)
+                    [ text (tr lang "Copy build code" "Kopioi rakennelman koodi") ]
+                , button
+                    (Attr.attribute "data-testid" "share-qr-toggle"
+                        :: Attr.attribute "aria-expanded"
+                            (if model.shareQr == Nothing then
+                                "false"
+
+                             else
+                                "true"
+                            )
+                        :: onClick ToggleShareQr
+                        :: secondaryButtonStyle
+                    )
+                    [ text
+                        (if model.shareQr == Nothing then
+                            T.qrShareButton lang
+
+                         else
+                            T.qrHideButton lang
+                        )
+                    ]
                 ]
-                [ text (tr lang "Copy build code" "Kopioi rakennelman koodi") ]
+            , case model.shareQr of
+                Just ( _, code ) ->
+                    shareQrView model code
+
+                Nothing ->
+                    text ""
             , case model.pasteError of
                 Just err ->
                     div [ Attr.style "color" "#ef4444", Attr.style "font-size" "12px" ] [ text err ]
@@ -2943,6 +3253,127 @@ viewReviewDrawer model =
                 text ""
             ]
         ]
+
+
+{-| The build's QR code with its caption, or, for a build too big for a QR
+code, a note to copy the link instead. The code is as wide as fits the drawer,
+at most 320 px, on white with a quiet zone (`QRCode.toSvg`).
+-}
+shareQrView : Model -> QrShare.QrCode -> Html Msg
+shareQrView model code =
+    case code of
+        QrShare.QrReady qr ->
+            let
+                size =
+                    clamp 120 320 (min (model.width - 32) (drawerHeight model 280 - 150))
+            in
+            div
+                [ Attr.attribute "data-testid" "share-qr"
+                , Attr.style "display" "flex"
+                , Attr.style "flex-direction" "column"
+                , Attr.style "align-items" "center"
+                , Attr.style "gap" "6px"
+                , Attr.style "max-width" "100%"
+                ]
+                [ div
+                    [ Attr.attribute "data-testid" "share-qr-code"
+                    , Attr.style "width" (px size)
+                    , Attr.style "max-width" "100%"
+                    , Attr.style "aspect-ratio" "1 / 1"
+                    , Attr.style "box-sizing" "border-box"
+                    , Attr.style "padding" "6px"
+                    , Attr.style "border-radius" "8px"
+                    , Attr.style "background" "#ffffff"
+                    ]
+                    [ QRCode.toSvg [ Svg.Attributes.width "100%", Svg.Attributes.height "100%" ] qr ]
+                , div
+                    [ Attr.attribute "data-testid" "share-qr-caption"
+                    , Attr.style "font-size" "12px"
+                    , Attr.style "color" "#cbd5e1"
+                    , Attr.style "text-align" "center"
+                    ]
+                    [ text (T.qrShareCaption model.language) ]
+                ]
+
+        QrShare.TooLong length ->
+            div
+                [ Attr.attribute "data-testid" "share-qr-too-large"
+                , Attr.attribute "role" "status"
+                , Attr.style "font-size" "12px"
+                , Attr.style "color" "#fbbf24"
+                ]
+                [ text (T.qrTooLarge model.language length QrShare.maxQrLength) ]
+
+
+{-| The hulls drawer's button that opens the camera to scan a build shared
+from another device.
+-}
+scanQrButton : Language -> Html Msg
+scanQrButton lang =
+    button
+        [ Attr.type_ "button"
+        , onClick OpenQrScanner
+        , Attr.attribute "data-testid" "scan-qr"
+        , Attr.attribute "aria-label" (T.qrScanButton lang)
+        , Attr.title (T.qrScanButton lang)
+        , Attr.style "width" "40px"
+        , Attr.style "height" "40px"
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "border-radius" "8px"
+        , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+        , Attr.style "color" Brand.legoWhite
+        , Attr.style "cursor" "pointer"
+        , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+        , Attr.style "touch-action" "manipulation"
+        ]
+        [ FeatherIcons.camera |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+
+
+{-| The remove (x) button of a saved build's card.
+-}
+removeBuildButton : Language -> String -> String -> Html Msg
+removeBuildButton lang code hullName =
+    button
+        [ Attr.type_ "button"
+        , onClick (RemoveBuild code)
+        , Attr.attribute "data-testid" "remove-build"
+        , Attr.attribute "aria-label" (T.removeBuildLabel lang hullName)
+        , Attr.title (T.removeBuildLabel lang hullName)
+        , Attr.style "position" "absolute"
+        , Attr.style "top" "6px"
+        , Attr.style "right" "6px"
+        , Attr.style "width" "28px"
+        , Attr.style "height" "28px"
+        , Attr.style "border-radius" "50%"
+        , Attr.style "border" "1px solid rgba(148, 163, 184, 0.4)"
+        , Attr.style "background" "rgba(7, 12, 20, 0.85)"
+        , Attr.style "color" Brand.legoWhite
+        , Attr.style "cursor" "pointer"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "touch-action" "manipulation"
+        ]
+        [ FeatherIcons.x |> FeatherIcons.withSize 14 |> FeatherIcons.toHtml [] ]
+
+
+secondaryButtonStyle : List (Html.Attribute Msg)
+secondaryButtonStyle =
+    [ Attr.type_ "button"
+    , Attr.style "padding" "6px 12px"
+    , Attr.style "max-width" "100%"
+    , Attr.style "border-radius" "8px"
+    , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+    , Attr.style "color" Brand.legoWhite
+    , Attr.style "font-weight" "700"
+    , Attr.style "font-size" "12px"
+    , Attr.style "cursor" "pointer"
+    , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+    , Attr.style "touch-action" "manipulation"
+    ]
 
 
 sectionLabel : String -> Html msg

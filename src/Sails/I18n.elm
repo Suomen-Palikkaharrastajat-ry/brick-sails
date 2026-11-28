@@ -50,6 +50,9 @@ module Sails.I18n exposing
     , goBanner
     , gridHost
     , gridHostDesc
+    , groupDisabledLabel
+    , groupLockedLabel
+    , groupOpenLabel
     , harbourAria
     , harbourCount
     , harbourHitToast
@@ -65,7 +68,10 @@ module Sails.I18n exposing
     , hostTitle
     , hullDamagedToast
     , hullLabel
+    , hullLockCaption
+    , hullLockedLabel
     , hullTitle
+    , hullUnlockedLabel
     , joinRace
     , joinRaceDesc
     , joinRaceTitle
@@ -90,10 +96,23 @@ module Sails.I18n exposing
     , piratesSunkToast
     , playerCount
     , pointOfSailText
+    , qrCameraFailed
+    , qrHideButton
+    , qrScanButton
+    , qrScanNotABuild
+    , qrScanNotAShip
+    , qrScanOpened
+    , qrScanPlayLink
+    , qrScanRacerLink
+    , qrScanRoomLink
+    , qrShareButton
+    , qrShareCaption
+    , qrTooLarge
     , raceStatus
     , redCoatsName
     , reefScrapeToast
     , reefWarning
+    , removeBuildLabel
     , restartRace
     , restoreBuildLabel
     , rollWorld
@@ -1546,6 +1565,7 @@ allPhrases =
     , ( "buildHistoryAge hours", \l -> buildHistoryAge l (3 * 60 * 60 * 1000) )
     , ( "buildHistoryAge days", \l -> buildHistoryAge l (2 * 24 * 60 * 60 * 1000) )
     , ( "restoreBuildLabel", \l -> restoreBuildLabel l "Sloop Hull" )
+    , ( "removeBuildLabel", \l -> removeBuildLabel l "Sloop Hull" )
     , ( "crewHeading", crewHeading )
     , ( "twoPlayerHostDesc", twoPlayerHostDesc )
     , ( "gridHostDesc", gridHostDesc )
@@ -1556,6 +1576,24 @@ allPhrases =
     , ( "byChance", byChance )
     , ( "windLabel", \l -> windLabel l 5.4 )
     , ( "editSeed", editSeed )
+    , ( "groupLockedLabel", groupLockedLabel )
+    , ( "groupOpenLabel", groupOpenLabel )
+    , ( "groupDisabledLabel", groupDisabledLabel )
+    , ( "hullLockedLabel", hullLockedLabel )
+    , ( "hullUnlockedLabel", hullUnlockedLabel )
+    , ( "hullLockCaption", hullLockCaption )
+    , ( "qrShareButton", qrShareButton )
+    , ( "qrHideButton", qrHideButton )
+    , ( "qrShareCaption", qrShareCaption )
+    , ( "qrTooLarge", \l -> qrTooLarge l 1500 1273 )
+    , ( "qrScanButton", qrScanButton )
+    , ( "qrScanOpened", qrScanOpened )
+    , ( "qrScanRacerLink", qrScanRacerLink )
+    , ( "qrScanPlayLink", qrScanPlayLink )
+    , ( "qrScanRoomLink", qrScanRoomLink )
+    , ( "qrScanNotABuild", qrScanNotABuild )
+    , ( "qrScanNotAShip", qrScanNotAShip )
+    , ( "qrCameraFailed", qrCameraFailed )
     ]
 
 
@@ -1646,6 +1684,13 @@ restoreBuildLabel lang name =
     pick lang ("Palauta rakennelma: " ++ name) ("Restore build: " ++ name)
 
 
+{-| Label of a saved build's remove button.
+-}
+removeBuildLabel : Language -> String -> String
+removeBuildLabel lang name =
+    pick lang ("Poista tallennettu rakennelma: " ++ name) ("Remove saved build: " ++ name)
+
+
 {-| Heading of the shipyard's online play cards.
 -}
 crewHeading : Language -> String
@@ -1706,3 +1751,140 @@ windLabel lang speed =
 editSeed : Language -> String
 editSeed lang =
     pick lang "Muuta siementä tai liitä karttakoodi" "Change the seed or paste a map code"
+
+
+
+-- GROUPING LOCK AND HULL LOCK (the ship editor's palette row)
+
+
+{-| Grouping lock button when the selection is exactly one group.
+-}
+groupLockedLabel : Language -> String
+groupLockedLabel lang =
+    pick lang "Ryhmä lukittu (paina vapauttaaksesi palikat)" "Group locked (press to release the bricks)"
+
+
+{-| Grouping lock button when the selection can be merged into one group.
+-}
+groupOpenLabel : Language -> String
+groupOpenLabel lang =
+    pick lang "Ryhmä auki (paina lukitaksesi valitut palikat yhdeksi ryhmäksi)" "Group open (press to lock the selected bricks into one group)"
+
+
+{-| Grouping lock button when nothing is selected.
+-}
+groupDisabledLabel : Language -> String
+groupDisabledLabel lang =
+    pick lang "Valitse palikoita ryhmitelläksesi ne" "Select bricks to group them"
+
+
+{-| Hull lock button while the starter hull is locked.
+-}
+hullLockedLabel : Language -> String
+hullLockedLabel lang =
+    pick lang "Runko lukittu (paina avataksesi rungon muokkaus)" "Hull locked (press to unlock and edit the hull)"
+
+
+{-| Hull lock button while the starter hull is unlocked.
+-}
+hullUnlockedLabel : Language -> String
+hullUnlockedLabel lang =
+    pick lang "Runko avattu (paina lukitaksesi runko)" "Hull unlocked (press to lock the hull)"
+
+
+{-| Short caption under the hull lock icon.
+-}
+hullLockCaption : Language -> String
+hullLockCaption lang =
+    pick lang "Runko" "Hull"
+
+
+
+-- BUILD BY QR CODE (the ship editor's "Open build" and hulls drawers)
+
+
+{-| Button of the "Open build" drawer that shows the build as a QR code.
+-}
+qrShareButton : Language -> String
+qrShareButton lang =
+    pick lang "Jaa QR-koodina" "Share as QR"
+
+
+{-| Button that hides the build's QR code again.
+-}
+qrHideButton : Language -> String
+qrHideButton lang =
+    pick lang "Piilota QR-koodi" "Hide QR code"
+
+
+{-| Caption under the build's QR code.
+-}
+qrShareCaption : Language -> String
+qrShareCaption lang =
+    pick lang "Skannaa puhelimella ja jatka rakentamista siellä." "Scan with your phone to keep building there."
+
+
+{-| Shown instead of a QR code when the build link is too long for one: its
+length and the longest link a code is drawn for.
+-}
+qrTooLarge : Language -> Int -> Int -> String
+qrTooLarge lang length limit =
+    pick lang
+        ("Laiva on liian iso QR-koodiksi (linkissä " ++ String.fromInt length ++ " merkkiä, enintään " ++ String.fromInt limit ++ "). Kopioi linkki ja avaa se puhelimella.")
+        ("This ship is too big for a QR code (its link has " ++ String.fromInt length ++ " characters, at most " ++ String.fromInt limit ++ "). Copy the link and open it on your phone.")
+
+
+{-| Button of the hulls drawer that opens the camera to scan a build.
+-}
+qrScanButton : Language -> String
+qrScanButton lang =
+    pick lang "Skannaa QR" "Scan QR"
+
+
+{-| Notice after a scanned build was opened in the editor.
+-}
+qrScanOpened : Language -> String
+qrScanOpened lang =
+    pick lang "Skannattu laiva avattu" "Scanned ship opened"
+
+
+{-| A scanned code is a Brick Racer link.
+-}
+qrScanRacerLink : Language -> String
+qrScanRacerLink lang =
+    pick lang "Tämä QR-koodi on Pienajojen linkki, ei laiva. Skannaa Laivaseikkailun laivan koodi." "This QR code is a Brick Racer link, not a ship. Scan a ship shared from Brick Sails."
+
+
+{-| A scanned code is a Brick Play link.
+-}
+qrScanPlayLink : Language -> String
+qrScanPlayLink lang =
+    pick lang "Tämä QR-koodi on Rakenna-sovelluksen linkki, ei laiva. Skannaa Laivaseikkailun laivan koodi." "This QR code is a Brick Play link, not a ship. Scan a ship shared from Brick Sails."
+
+
+{-| A scanned code is a room invitation, not a build.
+-}
+qrScanRoomLink : Language -> String
+qrScanRoomLink lang =
+    pick lang "Tämä QR-koodi on huoneen kutsu, ei laiva. Liity huoneeseen satamasta." "This QR code is a room invitation, not a ship. Join rooms from the shipyard."
+
+
+{-| A scanned code holds no build link.
+-}
+qrScanNotABuild : Language -> String
+qrScanNotABuild lang =
+    pick lang "QR-koodissa ei ole laivan rakennuslinkkiä." "That QR code holds no ship build link."
+
+
+{-| A scanned build link that cannot be read, or is not a boat that sails.
+-}
+qrScanNotAShip : Language -> String
+qrScanNotAShip lang =
+    pick lang "Skannattu rakennelma ei ole purjehtiva laiva." "The scanned build is not a ship that can sail."
+
+
+{-| The camera of the QR scanner could not be opened.
+-}
+qrCameraFailed : Language -> String
+qrCameraFailed lang =
+    pick lang "Kameraa ei saatu auki." "The camera could not be opened."
