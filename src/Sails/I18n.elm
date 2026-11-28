@@ -1888,14 +1888,14 @@ qrScanOpened lang =
 -}
 qrScanRacerLink : Language -> String
 qrScanRacerLink lang =
-    pick lang "Tämä QR-koodi on Pienajojen linkki, ei laiva. Skannaa Laivaseikkailun laivan koodi." "This QR code is a Brick Racer link, not a ship. Scan a ship shared from Brick Sails."
+    pick lang "Tämä QR-koodi on Pienajojen linkki, ei laiva. Skannaa Vaarallisilla vesillä -pelin laivan koodi." "This QR code is a Brick Racer link, not a ship. Scan a ship shared from Brick Sails."
 
 
 {-| A scanned code is a Brick Play link.
 -}
 qrScanPlayLink : Language -> String
 qrScanPlayLink lang =
-    pick lang "Tämä QR-koodi on Rakenna-sovelluksen linkki, ei laiva. Skannaa Laivaseikkailun laivan koodi." "This QR code is a Brick Play link, not a ship. Scan a ship shared from Brick Sails."
+    pick lang "Tämä QR-koodi on Rakenna-sovelluksen linkki, ei laiva. Skannaa Vaarallisilla vesillä -pelin laivan koodi." "This QR code is a Brick Play link, not a ship. Scan a ship shared from Brick Sails."
 
 
 {-| A scanned code is a room invitation, not a build.

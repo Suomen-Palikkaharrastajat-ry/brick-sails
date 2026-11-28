@@ -1,6 +1,6 @@
-# Laivaseikkailu (Brick Sails)
+# Vaarallisilla vesillä (Brick Sails)
 
-Laivaseikkailu (Brick Sails) is a toy boat sea adventure by Suomen Palikkaharrastajat ry: ride the trade winds in a little brick-built ship past reefs and palm coves, hunt for treasure and fight the pirate fleet.
+Vaarallisilla vesillä (Brick Sails) is a toy boat sea adventure by Suomen Palikkaharrastajat ry: ride the trade winds in a little brick-built ship past reefs and palm coves, hunt for treasure and fight the pirate fleet.
 
 It runs on the shared Brick Frame game layer of `brick-studio` (git submodule
 `vendor/brick-studio`), which also brings in the family branding from
