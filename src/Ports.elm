@@ -11,12 +11,14 @@ port module Ports exposing
     , saveBuildHistory
     , thumbnailLoaded
     , updateAudioState
+    , voyageInProgress
     )
 
 {-| Ports of Brick Sails whose payload is its own: the procedural Web Audio
 telemetry and one-shot sounds `audio.js` plays, the part and model pictures
 of the ship editor, its saved build history, reading a shared build from the
-clipboard and downloading the build as a BrickLink Studio file. Every other port the game uses is shared by the Brick
+clipboard, downloading the build as a BrickLink Studio file and marking a
+voyage in progress (`voyage-flag.js`). Every other port the game uses is shared by the Brick
 Frame games and lives in `Game.Ports`.
 -}
 
@@ -100,3 +102,10 @@ LDraw text as its `model.ldr` (as Brick Play does) and hands the browser the
 file.
 -}
 port downloadStudioIo : { filename : String, ldrText : String } -> Cmd msg
+
+
+{-| A voyage started (`True`) or ended normally (`False`): `main.js` keeps a
+sessionStorage flag (`voyage-flag.js`), so a page load that finds it still set
+knows the browser killed the tab mid-voyage.
+-}
+port voyageInProgress : Bool -> Cmd msg

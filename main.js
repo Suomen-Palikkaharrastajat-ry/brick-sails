@@ -4,6 +4,7 @@ import { bootGame } from './vendor/packages/brick-frame-game/runtime/game-boot.j
 import { readLanguage } from './vendor/packages/brick-frame-game/runtime/language.js'
 import { initGameThumbnails } from './thumbnails.js'
 import { createAudioEngine } from './audio.js'
+import { initVoyageFlag } from './voyage-flag.js'
 import { Elm } from './src/Main.elm'
 
 // The page language follows the game's (Finnish unless a ?lang= link or a
@@ -50,6 +51,17 @@ const { ports, qrScanner } = bootGame({
   // refused. The iOS permission prompt runs on the first tap anywhere.
   tiltSteer: { storageKey: 'sails.steerMode', forceOnPhones: true },
 })
+
+// A voyage in progress is flagged in sessionStorage (`Ports.voyageInProgress`),
+// so a load after the browser killed the tab mid-voyage is logged once.
+initVoyageFlag(ports)
+
+// The sail canvas handles a lost WebGL context itself (`Pages.Sail`: the
+// voyage waits, a toast says the graphics are being restored, and a restored
+// context gets a fresh canvas). These only log it, for crash reports. The
+// events do not bubble, hence the capture phase.
+window.addEventListener('webglcontextlost', () => console.warn('[brick-sails] WebGL context lost'), true)
+window.addEventListener('webglcontextrestored', () => console.warn('[brick-sails] WebGL context restored'), true)
 
 ports?.storeLanguage?.subscribe((lang) => {
   document.documentElement.lang = lang

@@ -221,10 +221,13 @@ ghostBoat mesh state =
     }
 
 
-{-| Render the full voyage scene.
+{-| Render the full voyage scene. The attributes go on the canvas itself
+(the Sail page listens there for the WebGL context being lost and restored,
+events that do not bubble).
 -}
 renderWorld :
-    { eye : Vec3, target : Vec3 }
+    List (Html.Attribute msg)
+    -> { eye : Vec3, target : Vec3 }
     ->
         { course : Course
         , nextIndex : Int
@@ -249,7 +252,7 @@ renderWorld :
     -> Int
     -> Int
     -> Html msg
-renderWorld cam scene width height =
+renderWorld canvasAttributes cam scene width height =
     let
         ctx =
             Ocean.makeCtx cam scene.time width height
@@ -324,7 +327,7 @@ renderWorld cam scene width height =
                 ++ boltEntities ctx scene.weather
                 ++ rainEntities ctx scene.time scene.weather
     in
-    canvas width height entities
+    canvasWith canvasAttributes width height entities
 
 
 {-| Size of a boat as drawn (metres): its longer side, at its drawn scale.
@@ -521,17 +524,24 @@ renderShipyard map mesh time width height =
 
 
 canvas : Int -> Int -> List WebGL.Entity -> Html msg
-canvas width height entities =
+canvas =
+    canvasWith []
+
+
+canvasWith : List (Html.Attribute msg) -> Int -> Int -> List WebGL.Entity -> Html msg
+canvasWith extra width height entities =
     WebGL.toHtmlWith
         [ WebGL.alpha False
         , WebGL.antialias
         , WebGL.depth 1
         , WebGL.clearColor 0.62 0.86 0.95 1
         ]
-        [ Attr.width width
-        , Attr.height height
-        , Attr.class "w-full h-full block"
-        ]
+        ([ Attr.width width
+         , Attr.height height
+         , Attr.class "w-full h-full block"
+         ]
+            ++ extra
+        )
         entities
 
 

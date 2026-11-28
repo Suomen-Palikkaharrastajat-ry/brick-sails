@@ -30,7 +30,8 @@ import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
 import Html.Attributes as Attr
-import Html.Events exposing (on, onClick)
+import Html.Events exposing (on, onClick, preventDefaultOn)
+import Html.Keyed as Keyed
 import I18n exposing (Language)
 import Json.Decode as Decode
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
@@ -148,6 +149,11 @@ type alias SailModel =
     , -- The canvas resolution guard (`Sails.FrameGuard`): drawing only, it
       -- lowers the 3D canvas resolution while frames stay slow.
       frameGuard : FrameGuard
+    , -- The 3D canvas's WebGL context (`GraphicsLost`, `GraphicsRestored`):
+      -- while `lost`, the voyage waits and the HUD says the graphics are
+      -- being restored; `generation` keys the canvas, so a restored context
+      -- gets a fresh canvas that uploads every mesh again.
+      graphics : { lost : Bool, generation : Int }
     }
 
 
@@ -172,6 +178,8 @@ type SailMsg
     | StartMultiplayerCountdown
     | UpdateMultiplayerRoom RoomState
     | DropAnchor
+    | GraphicsLost
+    | GraphicsRestored
 
 
 {-| Radius (m) the boat bumps off another player's ship or the ghost ship
@@ -331,6 +339,7 @@ initSailWith cachedIslands language boat baseCourse audioMuted pb maybeMulti til
     , structures = Structures.init course islandMeshes
     , damageMarks = DamageMarks.empty
     , frameGuard = FrameGuard.init
+    , graphics = { lost = False, generation = 0 }
     }
 
 
@@ -711,7 +720,23 @@ update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
 update msg model =
     case msg of
         Tick dtMs ->
-            tick (clamp 0.001 0.05 (dtMs / 1000)) { model | frameGuard = FrameGuard.record dtMs model.frameGuard }
+            if model.graphics.lost then
+                -- Nothing is drawn while the WebGL context is lost: the
+                -- voyage waits for it to come back.
+                ( model, Cmd.none )
+
+            else
+                tick (clamp 0.001 0.05 (dtMs / 1000)) { model | frameGuard = FrameGuard.record dtMs model.frameGuard }
+
+        GraphicsLost ->
+            ( { model | graphics = { lost = True, generation = model.graphics.generation } } |> releaseControls
+            , silenceAudio
+            )
+
+        GraphicsRestored ->
+            -- The old canvas's cached shaders and buffers died with its
+            -- context: a new key makes Elm draw on a fresh canvas instead.
+            ( { model | graphics = { lost = False, generation = model.graphics.generation + 1 } }, Cmd.none )
 
         Steer Left down ->
             ( { model | touchLeft = down }, Cmd.none )
@@ -1001,6 +1026,7 @@ update msg model =
                 | multiplayer = model.multiplayer
                 , run = model.run + 1
                 , frameGuard = model.frameGuard
+                , graphics = model.graphics
                 , weather = Weather.init (World.weatherProfile model.course.map) (weatherSeed model.course model.multiplayer (model.run + 1))
                 , pirates = Pirates.fleet (pirateSeed model.course model.multiplayer (model.run + 1)) model.course
                 , sailLevel = model.sailLevel
@@ -1066,7 +1092,7 @@ update msg model =
                             fresh =
                                 initSailWith (Just model.islandMeshes) model.language model.boat model.course model.audioMuted model.personalBest (Just room) model.tilt model.viewportWidth model.viewportHeight
                         in
-                        ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch, frameGuard = model.frameGuard }, GamePorts.calibrateTilt () )
+                        ( { fresh | phase = WaitingForRoom, tiltPitch = TiltPitch.calibrate model.tiltPitch, frameGuard = model.frameGuard, graphics = model.graphics }, GamePorts.calibrateTilt () )
 
                 InRace ->
                     if model.phase == WaitingForRoom then
@@ -2496,8 +2522,9 @@ viewRace model callbacks maybeRoom =
         , Attr.attribute "data-tilt-start" ""
         ]
         [ -- Alone or in an online room, the player's own follow view fills
-          -- the screen; the other players' boats sail in it.
-          div
+          -- the screen; the other players' boats sail in it. Keyed by the
+          -- graphics generation, see `GraphicsRestored`.
+          Keyed.node "div"
             [ Attr.class "absolute inset-0 z-0"
             , on "pointerdown"
                 (Decode.map3 (\x y pt -> PointerFire { x = x, y = y, pointerType = pt })
@@ -2506,10 +2533,13 @@ viewRace model callbacks maybeRoom =
                     (Decode.at [ "pointerType" ] Decode.string)
                 )
             ]
-            [ Render.renderWorld (CameraRig.followView model.follow)
-                worldArgs
-                (FrameGuard.scaled model.frameGuard model.viewportWidth)
-                (FrameGuard.scaled model.frameGuard model.viewportHeight)
+            [ ( "world-" ++ String.fromInt model.graphics.generation
+              , Render.renderWorld graphicsEvents
+                    (CameraRig.followView model.follow)
+                    worldArgs
+                    (FrameGuard.scaled model.frameGuard model.viewportWidth)
+                    (FrameGuard.scaled model.frameGuard model.viewportHeight)
+              )
             ]
         , if model.progress.finished then
             text ""
@@ -2528,7 +2558,12 @@ viewRace model callbacks maybeRoom =
                 , audioMuted = model.audioMuted
                 , tilt = model.tilt
                 , countdown = countdown
-                , toast = Maybe.map Tuple.first model.toast
+                , toast =
+                    if model.graphics.lost then
+                        Just (T.graphicsRestoring model.language)
+
+                    else
+                        Maybe.map Tuple.first model.toast
                 , sailLevel = model.sailLevel
                 , wind = conditions.wind
                 , weather = Weather.label model.weather
@@ -2607,6 +2642,17 @@ viewRace model callbacks maybeRoom =
             _ ->
                 text ""
         ]
+
+
+{-| Listeners on the 3D canvas for its WebGL context. A lost context is
+`preventDefault`ed so the browser may restore it (mobile browsers drop the
+context under memory pressure or when the tab is backgrounded).
+-}
+graphicsEvents : List (Html.Attribute SailMsg)
+graphicsEvents =
+    [ preventDefaultOn "webglcontextlost" (Decode.succeed ( GraphicsLost, True ))
+    , on "webglcontextrestored" (Decode.succeed GraphicsRestored)
+    ]
 
 
 {-| The room pill: this player's slot, the room code, the ships still

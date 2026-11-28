@@ -54,6 +54,7 @@ module Sails.I18n exposing
     , ghostShipAppearedToast
     , ghostShipBanishedToast
     , goBanner
+    , graphicsRestoring
     , gridHost
     , gridHostDesc
     , groupDisabledLabel
@@ -924,6 +925,14 @@ anchorWeighedToast lang =
     pick lang "Ankkuri nostettu!" "Anchor weighed!"
 
 
+{-| Toast while the browser restores the lost 3D graphics (WebGL context);
+the voyage waits meanwhile.
+-}
+graphicsRestoring : Language -> String
+graphicsRestoring lang =
+    pick lang "Grafiikkaa palautetaan…" "Restoring graphics…"
+
+
 {-| Mooring prompt when in harbour ready to drop anchor.
 -}
 dropAnchorHint : Language -> String
@@ -1529,6 +1538,7 @@ allPhrases =
     , ( "weighAnchor", weighAnchor )
     , ( "anchorDroppedToast", anchorDroppedToast )
     , ( "anchorWeighedToast", anchorWeighedToast )
+    , ( "graphicsRestoring", graphicsRestoring )
     , ( "dropAnchorHint", dropAnchorHint )
     , ( "backToCourse", backToCourse )
     , ( "shipwrecked", shipwrecked )

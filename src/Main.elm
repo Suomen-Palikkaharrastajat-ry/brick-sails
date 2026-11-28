@@ -76,6 +76,7 @@ import Sails.Archipelago as Archipelago
 import Sails.Boats as Boats
 import Sails.Editor as Editor
 import Sails.Handling as Handling
+import Sails.Hull as Hull
 import Sails.I18n as SailsI18n
 import Sails.Ingest as Ingest
 import Sails.NpcShips as NpcShips
@@ -186,7 +187,7 @@ main =
     Browser.element
         { init = init
         , view = view
-        , update = update
+        , update = updateMarkingVoyage
         , subscriptions = subscriptions
         }
 
@@ -419,6 +420,39 @@ silenceAudio =
         , toneHz = 0
         , toneGain = 0
         }
+
+
+{-| `update`, telling `main.js` when a voyage starts or ends
+(`Ports.voyageInProgress`), so a tab the browser kills mid-voyage can be told
+from a normal exit on the next load.
+-}
+updateMarkingVoyage : Msg -> Model -> ( Model, Cmd Msg )
+updateMarkingVoyage msg model =
+    let
+        ( next, cmd ) =
+            update msg model
+
+        sailing =
+            voyageInProgress next
+    in
+    if sailing == voyageInProgress model then
+        ( next, cmd )
+
+    else
+        ( next, Cmd.batch [ cmd, Ports.voyageInProgress sailing ] )
+
+
+{-| A voyage is on: the Sail page is open and the course is neither finished
+nor ended in a wreck.
+-}
+voyageInProgress : Model -> Bool
+voyageInProgress model =
+    case ( model.builder, model.viewMode, model.sailModel ) of
+        ( Nothing, ViewSailing, Just sail ) ->
+            not sail.progress.finished && not (Hull.wrecked sail.hull)
+
+        _ ->
+            False
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
