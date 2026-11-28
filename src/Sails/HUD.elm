@@ -885,6 +885,11 @@ viewCoins language coins =
             , Attr.style "line-height" "1.1rem"
             , Attr.style "color" "#f5c542"
             , Attr.style "font-size" "1.05rem"
+
+            -- The digits sit about 0.145em above the box's centre in the
+            -- fallback monospace font (measured with Liberation Mono in headless
+            -- Chromium). Other monospace fonts will differ slightly.
+            , Attr.style "transform" "translateY(0.145em)"
             , Attr.style "text-shadow" "0 1px 2px rgba(0, 0, 0, 0.6)"
             ]
             [ text (String.fromInt coins) ]
