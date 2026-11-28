@@ -880,7 +880,9 @@ viewCoins language coins =
         ]
         [ coinIcon
         , span
-            [ Attr.class "font-mono font-black leading-tight"
+            [ Attr.class "font-mono font-black inline-flex items-center"
+            , Attr.style "height" "1.1rem"
+            , Attr.style "line-height" "1.1rem"
             , Attr.style "color" "#f5c542"
             , Attr.style "font-size" "1.05rem"
             , Attr.style "text-shadow" "0 1px 2px rgba(0, 0, 0, 0.6)"
