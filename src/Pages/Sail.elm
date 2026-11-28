@@ -26,7 +26,6 @@ the clock it moored at (`moorings`, by slot), and the crew's shared time
 import Browser.Events
 import Dict exposing (Dict)
 import FeatherIcons
-import Game.Audio as GameAudio
 import Game.Multiplayer as Multiplayer exposing (Role(..), RoomState, RoomStatus(..))
 import Game.Ports as GamePorts
 import Html exposing (Html, button, div, span, text)
@@ -56,6 +55,7 @@ import Sails.Pirates as Pirates exposing (Pirate)
 import Sails.Render as Render exposing (RenderBoat)
 import Sails.Scenery as Scenery
 import Sails.ShipMesh exposing (Muzzle, ShipMesh)
+import Sails.Sound as Sound exposing (Sound)
 import Sails.Structures as Structures
 import Sails.TiltPitch as TiltPitch
 import Sails.Types
@@ -399,9 +399,9 @@ stoppedSpeed =
     1 / 3.6
 
 
-sfx : GameAudio.OneShotSound -> Cmd msg
+sfx : Sound -> Cmd msg
 sfx sound =
-    Ports.playSfx (GameAudio.encodeOneShot sound)
+    Ports.playSfx (Sound.encode sound)
 
 
 mySlot : SailModel -> Int
@@ -798,7 +798,7 @@ update msg model =
                     , sailLevel = Physics.defaultSailLevel
                     , toast = Just ( T.anchorWeighedToast model.language, 1.5 )
                   }
-                , sfx (GameAudio.Impact 0.4)
+                , sfx Sound.AnchorWeigh
                 )
 
             else if Physics.canDropAnchor model.course.waypoints model.progress model.state then
@@ -845,7 +845,22 @@ update msg model =
                     , ending = ending
                     , anchored = True
                   }
-                , sfx (GameAudio.Impact 0.7)
+                , Cmd.batch
+                    (sfx Sound.AnchorDrop
+                        :: (case passed of
+                                Just _ ->
+                                    [ sfx (Sound.Coins Coins.harbourDocked)
+                                    , if newProgress.finished then
+                                        sfx Sound.Finish
+
+                                      else
+                                        sfx Sound.Bell
+                                    ]
+
+                                Nothing ->
+                                    []
+                           )
+                    )
                 )
 
             else
@@ -859,7 +874,7 @@ update msg model =
                     , state = { state | speed = 0 }
                     , toast = Just ( T.anchorDroppedToast model.language, 1.5 )
                   }
-                , sfx (GameAudio.Impact 0.6)
+                , sfx Sound.AnchorDrop
                 )
 
         ToggleMute ->
@@ -1035,7 +1050,7 @@ update msg model =
 
                 InRace ->
                     if model.phase == WaitingForRoom then
-                        ( { withWrecks | multiplayer = Just room, moorings = heard, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx GameAudio.Horn )
+                        ( { withWrecks | multiplayer = Just room, moorings = heard, phase = Racing, toast = Just ( T.goBanner model.language, 0.8 ) }, sfx Sound.Horn )
 
                     else
                         ( { withWrecks | multiplayer = Just room, moorings = heard }, Cmd.none )
@@ -1158,7 +1173,7 @@ fireShotWith cannon shoot aimDir m =
                     Just targetHeading
             , sinceShot = 0
           }
-        , sfx (GameAudio.Impact 0.8)
+        , sfx Sound.CannonFire
         )
 
     else
@@ -1838,50 +1853,79 @@ tick dt model =
             [ case passed of
                 Just _ ->
                     if progress.finished then
-                        sfx GameAudio.Finish
+                        sfx Sound.Finish
 
                     else
-                        sfx GameAudio.Bell
+                        sfx Sound.Bell
 
                 Nothing ->
                     if finishedBySkip then
-                        sfx GameAudio.Finish
+                        sfx Sound.Finish
 
                     else
                         Cmd.none
-            , if not (List.isEmpty pirateFlashes) || not (List.isEmpty harbourFlashes) || not (List.isEmpty structureFlashes) || not (List.isEmpty rammedHarbours) then
-                sfx (GameAudio.Impact 1.0)
+
+            -- What the boat's balls struck this frame: the biggest event
+            -- speaks (a ship sunk over a pier smashed over a mere hit), and
+            -- a splash only when nothing was hit.
+            , if not (List.isEmpty sunkNow) then
+                sfx Sound.ShipSunk
+
+              else if not (List.isEmpty smashedHarbours) || not (List.isEmpty fallen.structures) then
+                sfx Sound.Collapse
+
+              else if not (List.isEmpty pirateFlashes) then
+                sfx Sound.HitShip
+
+              else if not (List.isEmpty harbourFlashes) then
+                sfx Sound.HitDock
+
+              else if not (List.isEmpty structureFlashes) || not (List.isEmpty otherStructureFlashes) then
+                sfx Sound.HitBuilding
 
               else if not (List.isEmpty splashes) then
-                sfx (GameAudio.Splash 0.5)
+                sfx (Sound.Splash 0.5)
 
               else
                 Cmd.none
-            , if List.isEmpty treasure then
+            , if List.isEmpty pirateShots then
                 Cmd.none
 
               else
-                sfx GameAudio.Checkpoint
+                sfx Sound.EnemyCannon
+            , if sunkCoins + boardingCoins + treasureCoins > 0 then
+                sfx (Sound.Coins (sunkCoins + boardingCoins + treasureCoins))
+
+              else
+                Cmd.none
             , if boltStruck && not model.audioMuted then
-                sfx (GameAudio.Impact 0.5)
+                sfx Sound.Thunder
 
               else
                 Cmd.none
             , if state.bumped && not model.state.bumped then
-                sfx (GameAudio.Splash 0.8)
+                sfx Sound.Bump
 
               else
                 Cmd.none
             , if justWrecked then
-                sfx (GameAudio.Impact 1.0)
+                sfx Sound.Shipwrecked
 
               else if knocked then
-                sfx (GameAudio.Impact 0.6)
+                sfx (Sound.HullHit (clamp 0.4 1 ((model.hull.health - hull.health) / 20)))
 
               else
                 Cmd.none
             , if regalia.repatriated then
-                sfx GameAudio.Finish
+                sfx Sound.Finish
+
+              else
+                Cmd.none
+            , if ghostBanished then
+                sfx Sound.GhostBanish
+
+              else if ghostAppeared then
+                sfx Sound.GhostAppear
 
               else
                 Cmd.none
