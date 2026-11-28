@@ -1,12 +1,15 @@
 module Sails.IslandMesh exposing
     ( CourseMesh
+    , FarPieces
     , IslandMeshes
     , IslandVertex
     , Placed
     , build
+    , farMeshes
     , forCourse
     , isLandmark
     , proxyTriangles
+    , splitFar
     , triangles
     )
 
@@ -80,11 +83,16 @@ far proxies of its dressing baked in) and the dressing's items, with what
 `Sails.Render` needs to draw them worked out once per voyage instead of on
 every frame: each item's placement (`placed`), the hub's landmarks among them
 (`landmarks`) and the prop models the island needs (`propNames`, each once).
+
+`farPieces` is Nothing until a building of the island falls; from then on the
+far look is drawn from it (`farMeshes`) instead of `far`.
+
 -}
 type alias IslandMeshes =
     { island : Island
     , shell : WebGL.Mesh IslandVertex
     , far : WebGL.Mesh IslandVertex
+    , farPieces : Maybe FarPieces
     , items : List Item
     , placed : List Placed
     , landmarks : List Placed
@@ -203,6 +211,7 @@ forCourse course =
             { island = isl
             , shell = WebGL.triangles shellTris
             , far = WebGL.triangles (shellTris ++ proxyTriangles isl items)
+            , farPieces = Nothing
             , items = items
             , placed = placed
             , landmarks = List.filter (\p -> isLandmark p.item.prop) placed
@@ -210,6 +219,54 @@ forCourse course =
             }
         )
         course.islands
+
+
+{-| An island's far look split, once, so that buildings can fall out of it
+without the island being baked again: the `base` (the shell and the far
+proxies of every item that cannot fall) and one small mesh per standing
+building (`pieces`, by its dressing item). A fallen building's piece is only
+dropped from the list; no mesh is built.
+-}
+type alias FarPieces =
+    { base : WebGL.Mesh IslandVertex
+    , pieces : List ( Item, WebGL.Mesh IslandVertex )
+    }
+
+
+{-| Split an island's far look (`FarPieces`) by `canFall` over its current
+items: the same triangles as `far`, the shell and the proxies of the items
+that cannot fall in the `base` and one piece per item that can (small items
+have no proxy, so no piece). Baked once per island per voyage, at its first
+fall.
+-}
+splitFar : IslandPalette -> (Item -> Bool) -> IslandMeshes -> FarPieces
+splitFar palette canFall entry =
+    let
+        isl =
+            entry.island
+
+        ( falling, fixed ) =
+            List.partition canFall entry.items
+    in
+    { base = WebGL.triangles (triangles palette isl ++ proxyTriangles isl fixed)
+    , pieces =
+        falling
+            |> List.filter (\it -> not it.small)
+            |> List.map (\it -> ( it, WebGL.triangles (proxyTriangles isl [ it ]) ))
+    }
+
+
+{-| The meshes of an island's far look: its baked `far` mesh, or once a
+building has fallen the `base` and the standing buildings' `pieces`.
+-}
+farMeshes : IslandMeshes -> List (WebGL.Mesh IslandVertex)
+farMeshes entry =
+    case entry.farPieces of
+        Nothing ->
+            [ entry.far ]
+
+        Just split ->
+            split.base :: List.map Tuple.second split.pieces
 
 
 {-| The far proxies of an island's items (small props have none), in the

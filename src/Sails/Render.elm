@@ -1180,7 +1180,9 @@ against the view; its small props (bushes, flowers, lamps) only within
 by. An island farther off is a single draw call: its shell with the far
 proxies of its dressing baked in (`IslandMesh.IslandMeshes.far`), plus the
 hub's landmark in real bricks, which is seen from across the course. Until
-an island's props have loaded it shows the far mesh.
+an island's props have loaded it shows the far mesh. Once a building of the
+island has fallen, the far look is its split (`IslandMesh.farMeshes`): the
+base and one small draw per standing building.
 
 -}
 islandEntities :
@@ -1225,7 +1227,7 @@ islandEntities inView ctx draw props _ islandMeshes =
                     Ocean.islandEntity ctx isl entry.shell :: List.concatMap drawItem entry.placed
 
                 else
-                    Ocean.islandEntity ctx isl entry.far :: List.concatMap drawItem entry.landmarks
+                    List.map (Ocean.islandEntity ctx isl) (IslandMesh.farMeshes entry) ++ List.concatMap drawItem entry.landmarks
         )
         islandMeshes
 

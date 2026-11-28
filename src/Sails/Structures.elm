@@ -48,8 +48,9 @@ own damage in `Sails.Harbours` (its `hitsToDestroy` is this table's
   - The player's own balls hit every structure; the patrol ships' balls hit
     only buildings, never a pier (`isBuilding`).
   - At its durability a structure is destroyed (`recordHits`): a building
-    leaves the island's dressing (its far proxy too: the island's far mesh
-    is baked again once, without it) and a low heap of rubble stays where it
+    leaves the island's dressing (its far proxy too: at the island's first
+    fall its far look is split once, `IslandMesh.splitFar`, and each fallen
+    building's piece is then only dropped, never baked again) and a low heap of rubble stays where it
     stood (`rubble`); a town pier bursts into its own bricks
     (`Sails.Wreck.HarbourPier`), as a smashed harbour does. Nothing is
     rebuilt until the course is sailed again.
@@ -70,7 +71,6 @@ import Sails.IslandMesh as IslandMesh exposing (CourseMesh, IslandMeshes)
 import Sails.Physics as Physics
 import Sails.Types exposing (Cannonball, CombatImpact, Course, Faction)
 import Sails.World exposing (IslandPalette)
-import WebGL
 
 
 
@@ -456,14 +456,16 @@ topPoint s =
 
 
 {-| The voyage's structures and what has befallen them: hits taken by id,
-the structures destroyed (latest last) and the islands baked again without
-their fallen buildings (by island index).
+the structures destroyed (latest last), the islands without their fallen
+buildings (by island index) and how many far looks have been split
+(`farBakes`: at most once per island a building has fallen on).
 -}
 type alias State =
     { structures : List Structure
     , damage : Dict Int Int
     , fallen : List Structure
     , islands : Dict Int IslandMeshes
+    , farBakes : Int
     }
 
 
@@ -475,6 +477,7 @@ init course meshes =
     , damage = Dict.empty
     , fallen = []
     , islands = Dict.empty
+    , farBakes = 0
     }
 
 
@@ -528,8 +531,9 @@ type alias Smashed =
 
 {-| Count hits (one structure id per ball) against the structures. A
 structure brought to its durability falls: a fallen building leaves its
-island's dressing, whose far mesh is baked again (in `palette`, from the
-voyage's `meshes`). Returns the new state and what fell.
+island's dressing and its far piece is dropped (the island's far look is
+split in `palette` from the voyage's `meshes` once, at its first fall).
+Returns the new state and what fell.
 -}
 recordHits : IslandPalette -> CourseMesh -> List Int -> State -> ( State, Smashed )
 recordHits palette meshes hits state =
@@ -561,8 +565,8 @@ recordHits palette meshes hits state =
                 ( state.damage, [] )
                 hits
 
-        islands =
-            List.foldl (clearRuin palette meshes) state.islands fell
+        ( islands, bakes ) =
+            List.foldl (clearRuin palette meshes) ( state.islands, state.farBakes ) fell
 
         flashes =
             List.concatMap
@@ -577,36 +581,45 @@ recordHits palette meshes hits state =
                 )
                 fell
     in
-    ( { state | damage = damage, fallen = state.fallen ++ fell, islands = islands }
+    ( { state | damage = damage, fallen = state.fallen ++ fell, islands = islands, farBakes = bakes }
     , { structures = fell, flashes = flashes }
     )
 
 
 {-| Take a fallen building out of its island's dressing: its real bricks,
-its landmark entry and its far proxy (the far mesh is baked again, once).
+its landmark entry and its far piece. The island's far look is split
+(`IslandMesh.splitFar`) at its first fall only, counted in the bakes; later
+falls only drop a piece from the list, so no mesh is built mid-combat.
 -}
-clearRuin : IslandPalette -> CourseMesh -> Structure -> Dict Int IslandMeshes -> Dict Int IslandMeshes
-clearRuin palette meshes s islands =
+clearRuin : IslandPalette -> CourseMesh -> Structure -> ( Dict Int IslandMeshes, Int ) -> ( Dict Int IslandMeshes, Int )
+clearRuin palette meshes s ( islands, bakes ) =
     case ( s.item, Dict.get s.island islands |> orElse (List.drop s.island meshes |> List.head) ) of
         ( Just gone, Just entry ) ->
             let
                 keep it =
                     it /= gone
 
-                items =
-                    List.filter keep entry.items
+                ( split, baked ) =
+                    case entry.farPieces of
+                        Just pieces ->
+                            ( pieces, bakes )
+
+                        Nothing ->
+                            ( IslandMesh.splitFar palette (\it -> kindOfProp it.prop /= Nothing) entry, bakes + 1 )
             in
-            Dict.insert s.island
+            ( Dict.insert s.island
                 { entry
-                    | items = items
+                    | items = List.filter keep entry.items
                     , placed = List.filter (\p -> keep p.item) entry.placed
                     , landmarks = List.filter (\p -> keep p.item) entry.landmarks
-                    , far = WebGL.triangles (IslandMesh.triangles palette entry.island ++ IslandMesh.proxyTriangles entry.island items)
+                    , farPieces = Just { split | pieces = List.filter (\( it, _ ) -> keep it) split.pieces }
                 }
                 islands
+            , baked
+            )
 
         _ ->
-            islands
+            ( islands, bakes )
 
 
 orElse : Maybe a -> Maybe a -> Maybe a

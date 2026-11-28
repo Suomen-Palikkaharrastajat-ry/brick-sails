@@ -178,6 +178,68 @@ suite =
 
                         Nothing ->
                             Expect.fail "no town hall"
+            , test "falls split an island's far look once and drop each fallen building's piece" <|
+                \_ ->
+                    let
+                        pairOnOneIsland =
+                            fresh.structures.structures
+                                |> List.filter (\b -> Structures.isBuilding b.kind && b.item /= Nothing && not (Maybe.withDefault True (Maybe.map .small b.item)))
+                                |> (\bs -> List.filterMap (\a -> List.filter (\b -> b.island == a.island && b.id /= a.id) bs |> List.head |> Maybe.map (Tuple.pair a)) bs)
+                                |> List.head
+                    in
+                    case pairOnOneIsland of
+                        Just ( a, b ) ->
+                            let
+                                one =
+                                    shell 1 (Structures.durability a.kind) a fresh
+
+                                two =
+                                    shell 1 (Structures.durability b.kind) b one
+
+                                original =
+                                    List.drop a.island fresh.islandMeshes |> List.head
+
+                                islandOf m =
+                                    Structures.islandsFor m.structures m.islandMeshes |> List.drop a.island |> List.head
+
+                                gone =
+                                    List.filterMap .item [ a, b ]
+
+                                keep it =
+                                    not (List.member it gone)
+
+                                standingPieces =
+                                    original
+                                        |> Maybe.map (\e -> List.filter (\it -> keep it && not it.small && Structures.kindOfProp it.prop /= Nothing) e.items)
+                                        |> Maybe.withDefault []
+
+                                pieceItems m =
+                                    islandOf m |> Maybe.andThen .farPieces |> Maybe.map (\p -> List.map Tuple.first p.pieces)
+                            in
+                            Expect.all
+                                [ \_ -> Expect.equal 1 one.structures.farBakes
+                                , \_ -> Expect.equal 1 two.structures.farBakes
+                                , \_ -> Expect.equal (Just standingPieces) (pieceItems two)
+                                , \_ -> Expect.equal (Maybe.map (\e -> List.filter keep e.items) original) (Maybe.map .items (islandOf two))
+                                , \_ -> Expect.equal (Maybe.map (\e -> List.filter (\p -> keep p.item) e.placed |> List.map .item) original) (Maybe.map (.placed >> List.map .item) (islandOf two))
+                                , \_ -> Expect.equal (Maybe.map (\e -> List.filter (\p -> keep p.item) e.landmarks |> List.map .item) original) (Maybe.map (.landmarks >> List.map .item) (islandOf two))
+                                , \_ -> Expect.equal 2 (List.length (Structures.rubble two.structures))
+                                ]
+                                ()
+
+                        Nothing ->
+                            Expect.fail "no two buildings on one island"
+            , test "with nothing fallen no far look is split" <|
+                \_ ->
+                    let
+                        later =
+                            List.foldl (\_ m -> step m) fresh (List.range 1 5)
+                    in
+                    Expect.all
+                        [ \m -> Expect.equal 0 m.structures.farBakes
+                        , \m -> Expect.equal [] (List.filterMap .farPieces (Structures.islandsFor m.structures m.islandMeshes))
+                        ]
+                        later
             , test "a fallen building takes no more hits: balls fly on through" <|
                 \_ ->
                     case firstOf Cottage fresh of
