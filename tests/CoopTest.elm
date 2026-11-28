@@ -363,14 +363,18 @@ suite =
                     resultsText Nothing
                         |> Query.has [ Selector.text (T.newPersonalBest En) ]
             ]
-        , describe "Sailing alone is unchanged"
-            [ test "alone there is no crew clock or crew time" <|
+        , describe "Sailing alone is a crew of one"
+            [ test "alone the crew clock runs, with no crew time before the final mooring" <|
                 \_ ->
                     let
                         solo =
                             frames 300 (sail Nothing)
                     in
-                    Expect.equal ( 0, Nothing ) ( solo.crewClock, solo.crewTime )
+                    Expect.all
+                        [ \m -> Expect.greaterThan 0 m.crewClock
+                        , \m -> Expect.equal Nothing m.crewTime
+                        ]
+                        solo
             , test "alone the boat sails off once the 3-2-1 is over" <|
                 \_ ->
                     (frames 300 (sail Nothing)).progress.elapsedSeconds
