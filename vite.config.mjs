@@ -4,6 +4,7 @@ import { defineConfig, loadEnv } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import elmTailwind from 'elm-tailwind-classes/vite'
 import elm from 'vite-plugin-elm'
+import { elmWebglBufferCache } from './webgl-kernel-patch.mjs'
 
 const candidateRoots = [
   path.resolve(import.meta.dirname, '../brick-catalog/dist'),
@@ -63,7 +64,9 @@ export default defineConfig(({ mode }) => {
   return {
     cacheDir: '.vite',
     publicDir: 'public',
-    plugins: [elmTailwind(), elm({ debug: false }), tailwindcss(), serveViewerAssets()],
+    // `elmWebglBufferCache` lets elm-explorations/webgl free the GPU
+    // buffers of meshes left undrawn (webgl-kernel-patch.mjs).
+    plugins: [elmTailwind(), elm({ debug: false }), elmWebglBufferCache(), tailwindcss(), serveViewerAssets()],
     build: {
       outDir: 'build',
       emptyOutDir: true,

@@ -6,6 +6,7 @@ import { initGameThumbnails } from './thumbnails.js'
 import { createAudioEngine } from './audio.js'
 import { initVoyageFlag } from './voyage-flag.js'
 import { initWebglRelease } from './webgl-release.js'
+import { installBufferCache } from './webgl-buffer-cache.js'
 import { Elm } from './src/Main.elm'
 
 // The page language follows the game's (Finnish unless a ?lang= link or a
@@ -38,6 +39,12 @@ if (window.matchMedia?.('(pointer: coarse)').matches) {
     { once: true, capture: true, passive: true },
   )
 }
+
+// Elm's WebGL keeps every mesh's GPU buffers for as long as the mesh lives,
+// and the game keeps its meshes for the whole voyage. The build swaps in a
+// cache that frees the buffers of meshes left undrawn (webgl-buffer-cache.js,
+// webgl-kernel-patch.mjs); it has to be in place before the first canvas.
+installBufferCache()
 
 // A build link in the page URL (`#b/...` or `#model=...`) is loaded as the
 // player's own ship; without one the four built-in boats are offered.
