@@ -718,6 +718,96 @@ buildHudGoals model =
 
 update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
 update msg model =
+    if model.graphics.lost && pausedWhileLost msg then
+        -- The voyage is paused while the WebGL context is lost (`Tick`
+        -- does nothing): the player's inputs wait for it too.
+        ( model, Cmd.none )
+
+    else
+        updateVoyage msg model
+
+
+{-| The player's inputs that act on the voyage (steering, tilt, sail
+setting, anchor, cannons, restart and the keys for them), ignored while the
+WebGL context is lost so the paused voyage stays as it was. A tilt reading
+still tracks the pitch; only the sail change it would make (`RaiseSail`,
+`LowerSail`, back through `update`) is dropped, not queued. Tilt steering is
+not paused: its sensor readings must keep flowing, or a steer held at full
+lock would never be cleared after the restore. Help and mute keys, releasing
+a key, leaving for the boats and the room's own news still go through.
+-}
+pausedWhileLost : SailMsg -> Bool
+pausedWhileLost msg =
+    case msg of
+        Steer _ _ ->
+            True
+
+        TiltSteer _ ->
+            False
+
+        FireCannons ->
+            True
+
+        PointerFire _ ->
+            True
+
+        RaiseSail ->
+            True
+
+        LowerSail ->
+            True
+
+        DropAnchor ->
+            True
+
+        RestartCourse ->
+            True
+
+        KeyDown key ->
+            not (List.member key [ "KeyH", "Slash", "KeyM" ])
+
+        Tick _ ->
+            False
+
+        KeyUp _ ->
+            False
+
+        TiltOrientation _ ->
+            False
+
+        VisibilityChanged _ ->
+            False
+
+        ToggleMute ->
+            False
+
+        ToggleHelp ->
+            False
+
+        ReturnToShipyard ->
+            False
+
+        NewMap ->
+            False
+
+        CopyShareUrl ->
+            False
+
+        StartMultiplayerCountdown ->
+            False
+
+        UpdateMultiplayerRoom _ ->
+            False
+
+        GraphicsLost ->
+            False
+
+        GraphicsRestored ->
+            False
+
+
+updateVoyage : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )
+updateVoyage msg model =
     case msg of
         Tick dtMs ->
             if model.graphics.lost then
