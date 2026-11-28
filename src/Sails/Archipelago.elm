@@ -1,6 +1,9 @@
 module Sails.Archipelago exposing
     ( Archipelago
+    , PatrolRule(..)
     , Route
+    , chestSpacing
+    , chooseTreasures
     , courseFor
     , defaultCourse
     , defaultMap
@@ -12,9 +15,11 @@ module Sails.Archipelago exposing
     , maxAttempts
     , maxTurn
     , minIslandGap
+    , placeTreasure
     , routeCount
     , routePoints
     , seatCourses
+    , treasureCount
     , turns
     )
 
@@ -26,7 +31,8 @@ archipelago on every device and in every seat of a room.
 The layout: the start at the origin; the `Hub` island 90-110 m ahead,
 with the fort or lighthouse and the final harbour on its shore facing the
 start; four `HarbourIsle`s in a ring round it, one ahead, one either side
-and one behind the start; a small `TreasureIsle` beside a leg; and a few
+and one behind the start; three treasure chests (`treasureCount`) on up to
+three small `TreasureIsle`s beside the legs; and a few
 `Skerry` rocks out of the way.
 
 A route calls at the four harbour islands round the ring, clockwise or
@@ -55,6 +61,8 @@ always enough.
 import Game.MapParams as MapParams exposing (MapParams)
 import Math.Vector3 exposing (vec3)
 import Random
+import Sails.GhostShip as GhostShip
+import Sails.Physics as Physics
 import Sails.Types
     exposing
         ( Course
@@ -78,15 +86,16 @@ import Sails.World as World
 {-| One order of the harbours: the islands they dock on, with the compass
 bearing of each dock from its island's centre, before the final harbour on
 the hub (`finalBearing`); the heading the boat starts on (towards the
-first harbour); the treasure island and where on its shore the chest lies;
-and the route's length in metres.
+first harbour); the treasure islands, each with the bearing from its
+centre of the chest on its shore (the first one beside the middle leg, up
+to `treasureCount` in all, see `chooseTreasures`); and the route's length in
+metres.
 -}
 type alias Route =
     { harbours : List ( Island, Float )
     , finalBearing : Float
     , startHeading : Float
-    , treasureBearing : Float
-    , treasure : Island
+    , treasures : List ( Island, Float )
     , lengthM : Float
     }
 
@@ -649,7 +658,7 @@ candidate layout order =
             dockAll (List.map (\( isl, b ) -> dockPoint isl b) firstPass)
 
         route =
-            { harbours = harbours, finalBearing = finalBearing, startHeading = 0, treasureBearing = 0, treasure = hub, lengthM = 0 }
+            { harbours = harbours, finalBearing = finalBearing, startHeading = 0, treasures = [], lengthM = 0 }
 
         stops =
             fullStops hub route
@@ -913,10 +922,14 @@ furnish =
 
 
 {-| Add the treasure, the towns, the skerries, the decoration,
-the arena and the wind to a layout with its routes. The treasure island
-must lie within reach of every route kept (see `placeTreasure`); if it
-cannot, the last routes are dropped until it does. `Nothing` if it fits
-nowhere even for the first route alone (`force` places it anyway).
+the arena and the wind to a layout with its routes. The first treasure
+island must lie within reach of every route kept (see `placeTreasure`); if
+it cannot, the last routes are dropped until it does. `Nothing` if it fits
+nowhere even for the first route alone (`force` places it anyway). The
+other chests go on treasure islands of their own clear of the ghost ship's
+patrol, else on the shore of a treasure island already there (see
+`chooseTreasures`); one that fits nowhere is left out, so a map may have
+fewer chests but never fails for them.
 -}
 furnishWith : Bool -> MapParams -> Int -> Layout -> List Candidate -> Random.Seed -> Maybe Archipelago
 furnishWith force map attempt layout offered seed0 =
@@ -952,7 +965,7 @@ furnishWith force map attempt layout offered seed0 =
 
         _ ->
             let
-                ( candidates, ( treasure, treasureBearing ) ) =
+                ( candidates, firstTreasure ) =
                     Maybe.withDefault ( List.take 1 offered, ( { x = hub.x, z = hub.z, radius = 1, height = 1, role = TreasureIsle }, 0 ) ) found
 
                 allStops =
@@ -960,9 +973,6 @@ furnishWith force map attempt layout offered seed0 =
 
                 allLegs =
                     List.concatMap pairs allStops
-
-                islandsSoFar =
-                    mainIslands ++ [ treasure ]
 
                 points =
                     List.concatMap (List.map .point) allStops
@@ -979,63 +989,112 @@ furnishWith force map attempt layout offered seed0 =
                 arena =
                     { x = ax, z = az, radius = arenaRadius }
 
-                -- One draw per route once placed the floating targets,
-                -- which are gone; it is still drawn, so the rest of the
-                -- archipelago (skerries, decoration, wind, towns) of a map
-                -- code stays as it was.
-                ( _, seed2 ) =
-                    Random.step (Random.list (List.length candidates) (Random.int 1 2147483646)) seed1
+                build treasures =
+                    let
+                        islandsSoFar =
+                            List.foldl
+                                (\isl acc ->
+                                    if List.member isl acc then
+                                        acc
 
-                ( skerries, seed3 ) =
-                    placeSkerries map arena islandsSoFar allLegs seed2
+                                    else
+                                        acc ++ [ isl ]
+                                )
+                                mainIslands
+                                (List.map Tuple.first treasures)
 
-                islands =
-                    islandsSoFar ++ skerries
+                        -- One draw per route once placed the floating targets,
+                        -- which are gone; it is still drawn, so the rest of the
+                        -- archipelago (skerries, decoration, wind, towns) of a map
+                        -- code stays as it was.
+                        ( _, seed2 ) =
+                            Random.step (Random.list (List.length candidates) (Random.int 1 2147483646)) seed1
 
-                ( decor, seed4 ) =
-                    placeDecor map arena islands allLegs seed3
+                        ( skerries, seed3 ) =
+                            placeSkerries map arena islandsSoFar allLegs seed2
 
-                ( windDir, seed5 ) =
-                    Random.step (Random.float 0 360) seed4
+                        islands =
+                            islandsSoFar ++ skerries
 
-                ( townDraws, _ ) =
-                    Random.step (Random.list 4 (Random.map2 (\a s -> a * s) (range ( 40, 70 )) (Random.uniform 1 [ -1 ]))) seed5
+                        ( decor, seed4 ) =
+                            placeDecor map arena islands allLegs seed3
 
-                routes =
-                    List.map
-                        (\c ->
-                            { harbours = c.harbours
-                            , finalBearing = c.finalBearing
-                            , startHeading =
-                                case List.drop 1 c.stops of
-                                    s :: _ ->
-                                        bearingTo ( 0, 0 ) s.point
+                        ( windDir, seed5 ) =
+                            Random.step (Random.float 0 360) seed4
 
-                                    [] ->
-                                        0
-                            , treasureBearing = treasureBearing
-                            , treasure = treasure
-                            , lengthM = c.lengthM
-                            }
-                        )
-                        candidates
+                        ( townDraws, _ ) =
+                            Random.step (Random.list 4 (Random.map2 (\a s -> a * s) (range ( 40, 70 )) (Random.uniform 1 [ -1 ]))) seed5
 
-                wind =
-                    { speed = World.windSpeed map, direction = fairWind routes windDir }
+                        routes =
+                            List.map
+                                (\c ->
+                                    { harbours = c.harbours
+                                    , finalBearing = c.finalBearing
+                                    , startHeading =
+                                        case List.drop 1 c.stops of
+                                            s :: _ ->
+                                                bearingTo ( 0, 0 ) s.point
+
+                                            [] ->
+                                                0
+                                    , treasures = treasures
+                                    , lengthM = c.lengthM
+                                    }
+                                )
+                                candidates
+
+                        wind =
+                            { speed = World.windSpeed map, direction = fairWind routes windDir }
+                    in
+                    { map = map
+                    , islands = islands
+                    , hub = hub
+                    , harbourIsles = layout.ring
+                    , routes = routes
+                    , towns = placeTowns map layout routes townDraws
+                    , decor = decor
+                    , wind = wind
+                    , arena = arena
+                    , attempts = attempt + 1
+                    , valid = True
+                    }
+
+                -- The archipelago with the first treasure island alone, and
+                -- the ghost ship's circle on it (`Sails.GhostShip`).
+                baselineLoop =
+                    patrol (build [ firstTreasure ])
+
+                patrol a =
+                    GhostShip.patrolIn a.arena a.islands
+
+                clearance loop islands =
+                    GhostShip.patrolClearanceOf islands ( loop.centreX, loop.centreZ, loop.radius )
+
+                clearPatrol arch =
+                    clearance (patrol arch) arch.islands >= GhostShip.patrolClearance
+
+                patrolRules =
+                    { offPatrol = \isl -> clearance baselineLoop [ isl ] >= GhostShip.patrolClearance
+                    , build = build
+                    , keeps =
+                        \rule arch ->
+                            case rule of
+                                KeepPatrol ->
+                                    patrol arch == baselineLoop && clearPatrol arch
+
+                                ClearPatrol ->
+                                    clearPatrol arch
+
+                                AnyPatrol ->
+                                    True
+                    }
             in
-            Just
-                { map = map
-                , islands = islands
-                , hub = hub
-                , harbourIsles = layout.ring
-                , routes = routes
-                , towns = placeTowns map layout routes townDraws
-                , decor = decor
-                , wind = wind
-                , arena = arena
-                , attempts = attempt + 1
-                , valid = True
-                }
+            case ( found, candidates ) of
+                ( Just _, first :: _ ) ->
+                    Just (Tuple.second (chooseTreasures patrolRules treasureDraw mainIslands firstTreasure allStops first.stops))
+
+                _ ->
+                    Just (build [ firstTreasure ])
 
 
 {-| Turn the wind 15 degrees at a time until no route starts within 30
@@ -1061,6 +1120,214 @@ fairWind routes dir0 =
     go 0
 
 
+{-| How many treasure chests a map has when they all fit: one per
+treasure island.
+-}
+treasureCount : Int
+treasureCount =
+    3
+
+
+{-| What the extra treasure islands must do to the ghost ship's patrol
+circle (`Sails.GhostShip.patrolIn`): keep the circle the first treasure
+island alone gives it, and still clear of every island
+(`KeepPatrol`); leave it a circle clear of every island, wherever it goes
+(`ClearPatrol`); or nothing, for the first island alone (`AnyPatrol`).
+-}
+type PatrolRule
+    = KeepPatrol
+    | ClearPatrol
+    | AnyPatrol
+
+
+{-| The chests of a map, the first given (`placeTreasure`), for a draw of
+(radius, offset, side), the islands already there, the stops of every
+route and those of the first route. The other chests go on treasure
+islands of their own (`placeMoreTreasures`), first both or either one of
+those clear of the ghost ship's circle (`offPatrol`) that keep it
+(`KeepPatrol`), then both or either one anywhere that leave it clear
+(`ClearPatrol`), and last none (`AnyPatrol`); each choice adds shore
+chests (`shoreTreasures`) up to `treasureCount`. The first choice that
+`keeps` its rule with all the chests wins, else the earliest with the most;
+a chest that fits nowhere is left out. Each choice that may win is `build`
+once and `keeps` judges what was built, so the winner comes back with its
+build and need not be built again. The other chests take no draw of
+their own, so the rest of a map code's archipelago keeps its seed.
+-}
+chooseTreasures :
+    { offPatrol : Island -> Bool, build : List ( Island, Float ) -> built, keeps : PatrolRule -> built -> Bool }
+    -> ( Float, Float, Float )
+    -> List Island
+    -> ( Island, Float )
+    -> List (List Stop)
+    -> List Stop
+    -> ( List ( Island, Float ), built )
+chooseTreasures rules draw mainIslands firstTreasure routeStops stops =
+    let
+        newIslands allowed =
+            placeMoreTreasures allowed draw (mainIslands ++ [ Tuple.first firstTreasure ]) routeStops stops
+
+        withShore own =
+            let
+                chests =
+                    firstTreasure :: own
+            in
+            List.take treasureCount (chests ++ List.concatMap (\c -> shoreTreasures c routeStops) chests)
+
+        subsets own =
+            case own of
+                [ a, b ] ->
+                    [ [ a, b ], [ a ], [ b ] ]
+
+                _ ->
+                    [ own ]
+
+        choices =
+            List.map (\own -> ( withShore own, KeepPatrol )) (subsets (newIslands rules.offPatrol))
+                ++ List.map (\own -> ( withShore own, ClearPatrol )) (subsets (newIslands (always True)))
+                ++ [ ( withShore [], AnyPatrol ) ]
+
+        pick todo best bestBuilt =
+            case todo of
+                ( treasures, rule ) :: rest ->
+                    let
+                        count =
+                            List.length treasures
+                    in
+                    if count > List.length best then
+                        let
+                            built =
+                                rules.build treasures
+                        in
+                        if rules.keeps rule built then
+                            if count >= treasureCount then
+                                ( treasures, built )
+
+                            else
+                                pick rest treasures (Just built)
+
+                        else
+                            pick rest best bestBuilt
+
+                    else
+                        pick rest best bestBuilt
+
+                [] ->
+                    ( best
+                    , case bestBuilt of
+                        Just built ->
+                            built
+
+                        Nothing ->
+                            rules.build best
+                    )
+    in
+    pick choices [ firstTreasure ] Nothing
+
+
+{-| The second and third treasure islands, after the first beside the
+middle leg: one near the leg a third of the route before it and one near
+the leg a third after it (or the nearest legs to those with room), on the
+other side of the leg from the first and then on the same side, with the
+smallest radius of the draw (8 m), by the same rules as the first (clear of
+every leg and island, the earlier treasure islands included, and the chest
+within 40 m of every route) but with more spots along and off each leg, and
+only where `allowed`. One that fits nowhere is left out.
+-}
+placeMoreTreasures : (Island -> Bool) -> ( Float, Float, Float ) -> List Island -> List (List Stop) -> List Stop -> List ( Island, Float )
+placeMoreTreasures allowed ( _, offset, side ) islands routeStops stops =
+    let
+        legCount =
+            List.length (pairs stops)
+
+        middle =
+            legCount // 2
+
+        step =
+            max 1 (legCount // 3)
+
+        wanted =
+            List.take (treasureCount - 1)
+                [ ( middle - step, negate side ), ( middle + step, side ) ]
+
+        go todo placed =
+            case todo of
+                ( prefer, s ) :: rest ->
+                    case placeTreasureNear { allowed = allowed, fractions = [ 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8 ], offsets = [ offset, 32, 40, 25, 20, 18 ] } prefer ( 8, offset, s ) (islands ++ List.map Tuple.first placed) routeStops stops of
+                        Just t ->
+                            go rest (placed ++ [ t ])
+
+                        Nothing ->
+                            go rest placed
+
+                [] ->
+                    placed
+    in
+    go wanted []
+
+
+{-| How far apart any two chests of a map lie at least: twice
+`Sails.Physics.treasureReach`, so one pass never takes two at once. Chests
+on islands of their own lie farther apart than that (the islands keep
+`minIslandGap` apart); `shoreTreasures` keeps those on one island so.
+-}
+chestSpacing : Float
+chestSpacing =
+    2 * Physics.treasureReach
+
+
+{-| Chests on a treasure island's shore, for those that find no island of
+their own: at bearings from 45 to 180 degrees either way of the chest
+already there (110 and 90 first), keeping those within 40 m of every route,
+at least 45 degrees and `chestSpacing` from the chests already there, up to
+`treasureCount - 1`. An island too small for two chests `chestSpacing`
+apart gets none.
+-}
+shoreTreasures : ( Island, Float ) -> List (List Stop) -> List ( Island, Float )
+shoreTreasures ( isl, first ) routeStops =
+    let
+        chestAt b =
+            ( isl.x + sin (degrees b) * isl.radius * 0.86, isl.z + cos (degrees b) * isl.radius * 0.86 )
+
+        reachable b =
+            List.all (\rs -> nearRoute (chestAt b) rs <= 40) routeStops
+
+        apart b c =
+            abs (angleDiff b c) >= 45 && dist (chestAt b) (chestAt c) >= chestSpacing
+
+        pick b chosen =
+            if List.length chosen < treasureCount - 1 && reachable b && List.all (apart b) (first :: chosen) then
+                chosen ++ [ b ]
+
+            else
+                chosen
+    in
+    [ 110, -110, 90, -90, 60, -60, 135, -135, 45, -45, 150, -150, 180 ]
+        |> List.map (\d -> first + d - 360 * toFloat (floor ((first + d) / 360)))
+        |> List.foldl pick []
+        |> List.map (\b -> ( isl, b ))
+
+
+{-| How far a point lies from a route as `Sails.Physics.nearestCoursePoint`
+sees it, with the leg back from the finish to the start.
+-}
+nearRoute : Point -> List Stop -> Float
+nearRoute p rs =
+    let
+        withReturn =
+            case rs of
+                first :: _ ->
+                    pairs (rs ++ [ first ])
+
+                [] ->
+                    []
+    in
+    withReturn
+        |> List.map (\( a, b ) -> segmentDistance a.point b.point 0 (dist a.point b.point) p)
+        |> List.minimum
+        |> Maybe.withDefault 1.0e9
+
+
 {-| The treasure island beside the middle leg of the first route (or the
 nearest leg to it that has room), off to one side, clear of every leg of
 every route and of the other islands, and with the chest within 40 m of
@@ -1069,32 +1336,26 @@ boat back on the detour). Returns the island and the bearing of the chest
 on its shore, facing the leg.
 -}
 placeTreasure : ( Float, Float, Float ) -> List Island -> List (List Stop) -> List Stop -> Maybe ( Island, Float )
-placeTreasure ( radius, offset, side ) islands routeStops stops =
+placeTreasure draw islands routeStops stops =
+    placeTreasureNear { allowed = always True, fractions = [ 0.5, 0.4, 0.6 ], offsets = [] } (List.length (pairs stops) // 2) draw islands routeStops stops
+
+
+{-| `placeTreasure` with the leg it tries first (`prefer`), then the legs
+nearest to it: at each of the `fractions` along a leg, the drawn offset
+from it and then 32, 40 and 25 m (or the `offsets` given), and only islands
+that are `allowed`.
+-}
+placeTreasureNear : { allowed : Island -> Bool, fractions : List Float, offsets : List Float } -> Int -> ( Float, Float, Float ) -> List Island -> List (List Stop) -> List Stop -> Maybe ( Island, Float )
+placeTreasureNear spots prefer ( radius, offset, side ) islands routeStops stops =
     let
         allLegs =
             List.concatMap pairs routeStops
-
-        -- Each route as `Sails.Physics.nearestCoursePoint` sees it, with
-        -- the leg back from the finish to the start.
-        withReturn rs =
-            case rs of
-                first :: _ ->
-                    pairs (rs ++ [ first ])
-
-                [] ->
-                    []
-
-        nearRoute p rs =
-            withReturn rs
-                |> List.map (\( a, b ) -> segmentDistance a.point b.point 0 (dist a.point b.point) p)
-                |> List.minimum
-                |> Maybe.withDefault 1.0e9
 
         routeLegs =
             pairs stops
 
         middle =
-            List.length routeLegs // 2
+            prefer
 
         legOrder =
             List.range 0 (List.length routeLegs - 1)
@@ -1116,8 +1377,16 @@ placeTreasure ( radius, offset, side ) islands routeStops stops =
                     List.concatMap
                         (\s ->
                             List.concatMap
-                                (\f -> List.map (\o -> ( i, ( s, f, o ) )) [ offset, 32, 40, 25 ])
-                                [ 0.5, 0.4, 0.6 ]
+                                (\f ->
+                                    List.map (\o -> ( i, ( s, f, o ) ))
+                                        (if List.isEmpty spots.offsets then
+                                            [ offset, 32, 40, 25 ]
+
+                                         else
+                                            spots.offsets
+                                        )
+                                )
+                                spots.fractions
                         )
                         [ side, negate side ]
                 )
@@ -1158,6 +1427,7 @@ placeTreasure ( radius, offset, side ) islands routeStops stops =
                                 >= radius
                                 + 20
                                 && List.all (\rs -> nearRoute chest rs <= 40) routeStops
+                                && spots.allowed isl
 
                         chestBearing =
                             bearingTo ( px, pz ) ( ax + (bx - ax) * f, az + (bz - az) * f )
@@ -1438,7 +1708,7 @@ courseFor arch seat =
                     r
 
                 [] ->
-                    { harbours = [], finalBearing = 0, startHeading = 0, treasureBearing = 0, treasure = arch.hub, lengthM = 950 }
+                    { harbours = [], finalBearing = 0, startHeading = 0, treasures = [], lengthM = 950 }
 
         harbour i kind island bearing =
             let
@@ -1452,31 +1722,26 @@ courseFor arch seat =
             List.indexedMap (\i ( island, bearing ) -> harbour i Harbour island bearing) route.harbours
                 ++ [ harbour (List.length route.harbours) FinalHarbour arch.hub route.finalBearing ]
 
-        chest =
+        chest ( t, bearing ) =
             let
-                t =
-                    route.treasure
-
                 share =
                     0.86
             in
-            vec3 (t.x + sin (degrees route.treasureBearing) * t.radius * share)
+            vec3 (t.x + sin (degrees bearing) * t.radius * share)
                 (0.22 * t.height - 0.6)
-                (t.z + cos (degrees route.treasureBearing) * t.radius * share)
+                (t.z + cos (degrees bearing) * t.radius * share)
     in
     { id = MapParams.leaderboardKey arch.map
     , map = arch.map
     , title = MapParams.toCode arch.map
-    , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure lies on a small island beside the route."
+    , description = "Dock at each harbour in order, round the islands and back to the final harbour. Pirate treasure chests lie on small islands beside the route."
     , waypoints = waypoints
     , islands = arch.islands
     , towns = arch.towns
     , treasures =
-        if route.treasure.role == TreasureIsle then
-            [ { id = 0, position = chest, bearing = route.treasureBearing, bonusSeconds = 6 } ]
-
-        else
-            []
+        route.treasures
+            |> List.filter (\( t, _ ) -> t.role == TreasureIsle)
+            |> List.indexedMap (\i ( t, bearing ) -> { id = i, position = chest ( t, bearing ), bearing = bearing, bonusSeconds = 6 })
     , decor = arch.decor
     , wind = arch.wind
     , arena = arch.arena

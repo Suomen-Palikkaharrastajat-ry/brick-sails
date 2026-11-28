@@ -83,17 +83,13 @@ problems arch plan =
                 )
                 arch.routes
 
-        chest =
+        chests =
             arch.routes
                 |> List.head
-                |> Maybe.andThen
-                    (\r ->
-                        if r.treasure == isl then
-                            Just ( isl.x + 0.86 * isl.radius * sin (degrees r.treasureBearing), isl.z + 0.86 * isl.radius * cos (degrees r.treasureBearing) )
-
-                        else
-                            Nothing
-                    )
+                |> Maybe.map .treasures
+                |> Maybe.withDefault []
+                |> List.filter (\( t, _ ) -> t == isl)
+                |> List.map (\( _, b ) -> ( isl.x + 0.86 * isl.radius * sin (degrees b), isl.z + 0.86 * isl.radius * cos (degrees b) ))
 
         buildings =
             plan.items
@@ -136,7 +132,7 @@ problems arch plan =
 
                   else
                     Nothing
-                , if Maybe.map (\c -> dist p c < 4) chest |> Maybe.withDefault False then
+                , if List.any (\c -> dist p c < 4) chests then
                     Just "on the treasure"
 
                   else

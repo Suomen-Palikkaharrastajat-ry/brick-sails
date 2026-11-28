@@ -7,7 +7,9 @@ module Sails.GhostShip exposing
     , init
     , isStormActive
     , patrolClearance
+    , patrolClearanceOf
     , patrolFor
+    , patrolIn
     , spectralTint
     , stateAt
     , step
@@ -25,7 +27,7 @@ celebratory toast. It earns no coins (see `Sails.Coins`).
 -}
 
 import Math.Vector3 exposing (Vec3, vec3)
-import Sails.Types exposing (Course, SailingState)
+import Sails.Types exposing (Course, Island, SailingState)
 import Sails.Weather exposing (Weather)
 
 
@@ -116,20 +118,21 @@ ship at `patrolSpeed`.
 -}
 patrolFor : Course -> PatrolLoop
 patrolFor course =
+    patrolIn course.arena course.islands
+
+
+{-| The patrol circle of an arena and its islands, as `patrolFor` finds it
+for a course. The archipelago generator uses it to keep the extra treasure
+islands off the ghost ship's circle.
+-}
+patrolIn : { a | x : Float, z : Float, radius : Float } -> List Island -> PatrolLoop
+patrolIn arena islands =
     let
-        arena =
-            course.arena
-
         circles =
-            List.map
-                (\( ox, oz, f ) -> ( arena.x + ox * arena.radius, arena.z + oz * arena.radius, f * arena.radius ))
-                patrolCandidates
+            patrolCircles arena
 
-        clearanceOf ( cx, cz, r ) =
-            course.islands
-                |> List.map (\isl -> abs (sqrt ((isl.x - cx) ^ 2 + (isl.z - cz) ^ 2) - r) - isl.radius)
-                |> List.minimum
-                |> Maybe.withDefault 1.0e9
+        clearanceOf =
+            patrolClearanceOf islands
 
         ( centreX, centreZ, radius ) =
             case firstClear (\c -> clearanceOf c >= patrolClearance) circles of
@@ -158,6 +161,28 @@ patrolFor course =
     , radius = radius
     , lapSeconds = 2 * pi * radius / patrolSpeed
     }
+
+
+{-| The candidate patrol circles of an arena, as (centre x, centre z,
+radius), cheapest first.
+-}
+patrolCircles : { a | x : Float, z : Float, radius : Float } -> List ( Float, Float, Float )
+patrolCircles arena =
+    List.map
+        (\( ox, oz, f ) -> ( arena.x + ox * arena.radius, arena.z + oz * arena.radius, f * arena.radius ))
+        patrolCandidates
+
+
+{-| How far a patrol circle, as (centre x, centre z, radius), keeps off
+the nearest island's shore. The archipelago generator uses it to keep the
+extra treasure islands from crowding the ghost ship's circle.
+-}
+patrolClearanceOf : List Island -> ( Float, Float, Float ) -> Float
+patrolClearanceOf islands ( cx, cz, r ) =
+    islands
+        |> List.map (\isl -> abs (sqrt ((isl.x - cx) ^ 2 + (isl.z - cz) ^ 2) - r) - isl.radius)
+        |> List.minimum
+        |> Maybe.withDefault 1.0e9
 
 
 {-| The first item that passes, without checking the rest.

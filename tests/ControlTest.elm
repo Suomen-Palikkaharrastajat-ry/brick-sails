@@ -205,7 +205,7 @@ suite =
                     in
                     seats
                         |> List.concatMap (\seatCourse -> List.map (\t -> Physics.courseCurrent (Physics.courseRoute seatCourse) t.position) seatCourse.treasures)
-                        |> Expect.equal (List.repeat (List.length seats) ( 0, 0 ))
+                        |> Expect.equal (List.repeat (List.length (List.concatMap .treasures seats)) ( 0, 0 ))
             , test "far off the course the current carries the boat back, gently" <|
                 \_ ->
                     let

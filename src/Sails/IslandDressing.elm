@@ -319,15 +319,19 @@ planIsland arch index isl =
                 |> List.head
                 |> Maybe.map
                     (\r ->
-                        if r.treasure == isl then
-                            let
-                                ( tx, tz ) =
-                                    polar isl r.treasureBearing (0.86 * isl.radius)
-                            in
-                            [ Disc { x = tx, z = tz, r = 4 } ]
+                        List.filterMap
+                            (\( t, bearing ) ->
+                                if t == isl then
+                                    let
+                                        ( tx, tz ) =
+                                            polar isl bearing (0.86 * isl.radius)
+                                    in
+                                    Just (Disc { x = tx, z = tz, r = 4 })
 
-                        else
-                            []
+                                else
+                                    Nothing
+                            )
+                            r.treasures
                     )
                 |> Maybe.withDefault []
 

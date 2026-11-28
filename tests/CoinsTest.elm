@@ -175,6 +175,59 @@ suite =
 
                         [] ->
                             Expect.fail "no treasure"
+            , test "the course has three chests with their own ids, and each pays once" <|
+                \_ ->
+                    let
+                        m =
+                            racing fresh
+
+                        at t model =
+                            let
+                                s =
+                                    model.state
+                            in
+                            step { model | state = { s | position = t.position, speed = 0 }, pirates = [] }
+
+                        -- Each chest visited twice in a row, one after the other.
+                        visits =
+                            List.foldl (\t model -> at t (at t model)) m course.treasures
+                    in
+                    Expect.all
+                        [ \_ -> Expect.equal [ 0, 1, 2 ] (List.map .id course.treasures)
+                        , \_ -> Expect.equal [ 0, 1, 2 ] visits.progress.treasureFound
+                        , \_ -> Expect.equal (m.progress.coins + 3 * Coins.treasureChest) visits.progress.coins
+                        ]
+                        ()
+            , test "a chest taken twice pays once" <|
+                \_ ->
+                    case course.treasures of
+                        t :: _ ->
+                            let
+                                m =
+                                    racing fresh
+
+                                s =
+                                    m.state
+
+                                once =
+                                    step { m | state = { s | position = t.position, speed = 0 }, pirates = [] }
+
+                                s1 =
+                                    once.state
+
+                                twice =
+                                    step { once | state = { s1 | position = t.position, speed = 0 } }
+                            in
+                            Expect.equal ( [ t.id ], m.progress.coins + Coins.treasureChest )
+                                ( twice.progress.treasureFound, twice.progress.coins )
+
+                        [] ->
+                            Expect.fail "no treasure"
+            , test "the coin target counts every chest on the map" <|
+                \_ ->
+                    Expect.equal
+                        (Coins.courseTarget { course | treasures = List.take 1 course.treasures } + 2 * Coins.treasureChest)
+                        (Coins.courseTarget course)
             ]
         , describe "flying coins"
             [ test "a sunk ship throws a burst of coins, at most 12" <|

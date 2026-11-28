@@ -250,49 +250,47 @@ legs seatCourse =
     List.map2 Tuple.pair pts (List.drop 1 pts)
 
 
-{-| Autopilot that detours to the treasure on the leg that passes nearest
-the chest, and then finishes.
+{-| Autopilot that detours to each treasure chest on the leg that passes
+nearest it, and then finishes.
 -}
 treasureHunt : Sails.Types.Course -> Float -> ( CourseProgress, List Int )
 treasureHunt seatCourse limit =
     let
-        -- The harbour whose leg passes nearest the chest: the hunt turns
+        -- The harbour whose leg passes nearest a chest: the hunt turns
         -- off for the chest on the way there.
-        detourLeg =
-            case seatCourse.treasures of
-                t :: _ ->
+        detourLeg t =
+            let
+                route =
+                    List.map (.position >> Vec3.toRecord) seatCourse.waypoints
+
+                froms =
+                    Vec3.toRecord seatCourse.startPosition :: route
+
+                c =
+                    Vec3.toRecord t.position
+
+                offLeg a b =
                     let
-                        route =
-                            List.map (.position >> Vec3.toRecord) seatCourse.waypoints
+                        ex =
+                            b.x - a.x
 
-                        froms =
-                            Vec3.toRecord seatCourse.startPosition :: route
+                        ez =
+                            b.z - a.z
 
-                        c =
-                            Vec3.toRecord t.position
-
-                        offLeg a b =
-                            let
-                                ex =
-                                    b.x - a.x
-
-                                ez =
-                                    b.z - a.z
-
-                                u =
-                                    clamp 0 1 (((c.x - a.x) * ex + (c.z - a.z) * ez) / max 1.0e-6 (ex * ex + ez * ez))
-                            in
-                            sqrt ((a.x + ex * u - c.x) ^ 2 + (a.z + ez * u - c.z) ^ 2)
+                        u =
+                            clamp 0 1 (((c.x - a.x) * ex + (c.z - a.z) * ez) / max 1.0e-6 (ex * ex + ez * ez))
                     in
-                    List.map2 offLeg froms route
-                        |> List.indexedMap Tuple.pair
-                        |> List.sortBy Tuple.second
-                        |> List.head
-                        |> Maybe.map Tuple.first
-                        |> Maybe.withDefault 0
+                    sqrt ((a.x + ex * u - c.x) ^ 2 + (a.z + ez * u - c.z) ^ 2)
+            in
+            List.map2 offLeg froms route
+                |> List.indexedMap Tuple.pair
+                |> List.sortBy Tuple.second
+                |> List.head
+                |> Maybe.map Tuple.first
+                |> Maybe.withDefault 0
 
-                [] ->
-                    -1
+        detours =
+            List.map (\t -> ( detourLeg t, t )) seatCourse.treasures
 
         go state progress found =
             if progress.finished || progress.elapsedSeconds > limit then
@@ -301,16 +299,14 @@ treasureHunt seatCourse limit =
             else
                 let
                     chest =
-                        List.head seatCourse.treasures
+                        detours
+                            |> List.filter (\( leg, t ) -> leg == progress.currentWaypointIndex && not (List.member t.id found))
+                            |> List.head
 
                     goal =
                         case chest of
-                            Just t ->
-                                if progress.currentWaypointIndex == detourLeg && not (List.member t.id found) then
-                                    Vec3.toRecord t.position
-
-                                else
-                                    buoyGoal
+                            Just ( _, t ) ->
+                                Vec3.toRecord t.position
 
                             Nothing ->
                                 buoyGoal
@@ -728,7 +724,7 @@ suite =
                                     treasureHunt seatCourse 200
                             in
                             Expect.all
-                                [ \_ -> Expect.equal (List.map .id seatCourse.treasures) found
+                                [ \_ -> Expect.equal (List.map .id seatCourse.treasures) (List.sort found)
                                 , \_ -> Expect.equal True progress.finished
                                 , -- Every harbour docked at earned its coins.
                                   \_ -> Expect.equal (Coins.harbourDocked * List.length seatCourse.waypoints) progress.coins
