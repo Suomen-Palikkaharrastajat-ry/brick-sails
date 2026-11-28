@@ -3,7 +3,7 @@ module CoopTest exposing (suite)
 {-| Cooperative play in an online room: the players are one crew on one
 course. The voyage is complete when the whole crew is in port, the crew shares
 one time, cannons never hit a crewmate, and a finish screen in a room has no
-personal best, rank or winner. Sailing alone is a crew of one.
+personal best, rank or winner. Sailing alone is unchanged.
 -}
 
 import Dict
@@ -118,10 +118,8 @@ suite : Test
 suite =
     describe "Cooperative rooms"
         [ describe "Sails.Crew"
-            [ test "alone the player is a crew of one, not yet in port" <|
-                \_ -> Expect.equal (Just { inPort = 0, total = 1 }) (Crew.ofRoom Nothing False)
-            , test "alone the crew of one is in port once the ship is" <|
-                \_ -> Expect.equal (Just True) (Crew.ofRoom Nothing True |> Maybe.map Crew.allInPort)
+            [ test "alone there is no crew" <|
+                \_ -> Expect.equal Nothing (Crew.ofRoom Nothing True)
             , test "while the room waits in its lobby, nothing counts" <|
                 \_ ->
                     Expect.equal Nothing
@@ -363,18 +361,14 @@ suite =
                     resultsText Nothing
                         |> Query.has [ Selector.text (T.newPersonalBest En) ]
             ]
-        , describe "Sailing alone is a crew of one"
-            [ test "alone the crew clock runs, and there is no crew time until the ship is in port" <|
+        , describe "Sailing alone is unchanged"
+            [ test "alone there is no crew clock or crew time" <|
                 \_ ->
                     let
                         solo =
                             frames 300 (sail Nothing)
                     in
-                    Expect.all
-                        [ \s -> Expect.greaterThan 2.5 s.crewClock
-                        , \s -> Expect.equal Nothing s.crewTime
-                        ]
-                        solo
+                    Expect.equal ( 0, Nothing ) ( solo.crewClock, solo.crewTime )
             , test "alone the boat sails off once the 3-2-1 is over" <|
                 \_ ->
                     (frames 300 (sail Nothing)).progress.elapsedSeconds

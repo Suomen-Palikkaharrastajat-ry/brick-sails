@@ -14,7 +14,7 @@ from `master-builder/public`, as in Brick Play.
 - **Course Navigation & Docking**: Navigate through the archipelago's waypoint sequence in order. Each waypoint is a sheltered harbour marked by beacons.
 - **Mooring**: To check in at each waypoint, steer into the harbour radius, slow down, and moor (or drop anchor with the anchor button / Space).
 - **Final Harbour**: Complete all legs of the route and dock at the final harbour to finish the voyage, stopping the timer and recording your time on the leaderboard.
-- **Multiplayer Crew Voyage**: In an online multiplayer room, all players participate as one unified crew (`Sails.Crew`). The voyage timer starts together, and the voyage completes when the entire crew has safely moored at the final harbour. Alone, you are a crew of one: your run completes when your ship moors at the final harbour, and it still counts as a personal record.
+- **Multiplayer Crew Voyage**: In an online multiplayer room, all players participate as one unified crew (`Sails.Crew`). The voyage timer starts together, and the voyage completes when the entire crew has safely moored at the final harbour.
 
 ### 2. Secondary & Auxiliary Goals
 - **Naval Combat & Pirate Ships**: A fleet of six patrol ships roams the archipelago, two for each faction, in three sizes: big frigates, middling corvettes and small sloops (`Sails.Pirates`). Protect your ship by out-maneuvering them and engaging with broadside cannon fire (tap/click the sea or press Space); each ship sunk wins gold coins.
