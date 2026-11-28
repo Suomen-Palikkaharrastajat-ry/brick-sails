@@ -71,14 +71,14 @@ paletteTests =
                 , test "adding a part from the catalog closes it" <|
                     \_ ->
                         Expect.equal False (opened |> step ToggleCatalog |> step (AddPart "2335.dat")).catalogOpen
-                , test "top toolbar drawer tabs toggle BasesTab, ImportBuildTab and ReviewTab" <|
+                , test "top toolbar drawer tabs toggle BasesTab, ShareTab and ReviewTab" <|
                     \_ ->
                         Expect.equal
-                            [ BasesTab, BuildBricksTab, ImportBuildTab, ReviewTab, BuildBricksTab ]
+                            [ BasesTab, BuildBricksTab, ShareTab, ReviewTab, BuildBricksTab ]
                             [ (step (SelectTab BasesTab) opened).activeTab
                             , (opened |> step (SelectTab BasesTab) |> step (SelectTab BasesTab)).activeTab
-                            , (step (SelectTab ImportBuildTab) opened).activeTab
-                            , (opened |> step (SelectTab ImportBuildTab) |> step (SelectTab ReviewTab)).activeTab
+                            , (step (SelectTab ShareTab) opened).activeTab
+                            , (opened |> step (SelectTab ShareTab) |> step (SelectTab ReviewTab)).activeTab
                             , (opened |> step (SelectTab ReviewTab) |> step (SelectTab ReviewTab)).activeTab
                             ]
                 , test "evaluation AddPartList helper rigs a bare starter hull with mast and sail to seaworthy" <|

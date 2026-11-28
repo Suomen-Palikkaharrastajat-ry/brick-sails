@@ -1,5 +1,6 @@
 module Pages.Build exposing
     ( BuilderTab(..)
+    , Modal(..)
     , Model
     , Msg(..)
     , Outcome(..)
@@ -7,6 +8,7 @@ module Pages.Build exposing
     , document
     , history
     , init
+    , modalKeyDecoder
     , previewRequests
     , resize
     , setHistory
@@ -16,6 +18,7 @@ module Pages.Build exposing
     , shipCheckText
     , shipChecks
     , subscriptions
+    , topModal
     , update
     , view
     )
@@ -24,8 +27,9 @@ module Pages.Build exposing
 Brick Racer's builder experience.
 
 Includes the 3D builder `Studio.Core`, the parts dock with colour palette, recent
-parts and base lock toggle, starter hulls drawer (`BasesTab`), build link / LDraw
-import drawer (`ImportBuildTab`), and live seaworthiness & rigging evaluation
+parts and base lock toggle, starter hulls drawer (`BasesTab`, which also opens
+a pasted or scanned build link / LDraw text), share dialog (`ShareTab`), and
+live seaworthiness & rigging evaluation
 drawer (`ReviewTab`) with one-tap helpers and hints to add masts, sails, cannons,
 and deck fittings.
 
@@ -41,15 +45,23 @@ pipeline (`Game.ModelPreview`, `Ports.requestModelThumbnails`).
 The top bar holds only icons, matching Brick Racer:
 
   - Left: "Use this ship" (`FeatherIcons.check`)
-  - Center: three drawer tabs — Starter hulls (`FeatherIcons.anchor`), Open build
-    (`FeatherIcons.download`), and Evaluation (`FeatherIcons.award`)
+  - Center: three tabs — Starter hulls (`FeatherIcons.anchor`), Share
+    (`FeatherIcons.share2`, a modal dialog), and Evaluation (`FeatherIcons.award`)
   - Right: "Show the whole ship" (`FeatherIcons.maximize`)
 
-A build moves between devices by QR code (`Sails.QrShare`): the "Open build"
-drawer shows the build link as a QR code (`ToggleShareQr`, unless the link is
-too long for one), and the hulls drawer opens the camera of the shared runtime
-(`OpenQrScanner`, `GamePorts.openQrScanner`). `Main` hands the scanned text
-back as `ScannedCode`; it opens like a pasted link when it is a ship build.
+A build moves between devices by QR code (`Sails.QrShare`): the share dialog
+shows the build link as a QR code from the start (unless the link is too long
+for one), next to the link to copy and a BrickLink Studio `.io` download. The
+hulls drawer opens the camera of the shared runtime (`OpenQrScanner`,
+`GamePorts.openQrScanner`; `Main` hands the scanned text back as
+`ScannedCode`), reads a build from the clipboard (`PasteFromClipboard`,
+`Ports.readClipboard`) and has a text field for a pasted link or LDraw text;
+all three open the build like a pasted link.
+
+Modal dialogs (`Modal`, now the share dialog) are drawn by `modalFrame`: a
+shade over the whole editor that takes every tap outside the dialog and closes
+it, a close (X) button, and the Escape key (`modalKeyDecoder`, subscribed
+while a dialog is open) closing the topmost one (`CloseModal`).
 
 -}
 
@@ -72,6 +84,7 @@ import LDraw.Colors as Colors
 import LDraw.Document as Document exposing (Document)
 import LDraw.Parser as Parser
 import LDraw.Resolve as Resolve exposing (PartCache, ResolverConfig)
+import LDraw.Writer as Writer
 import Math.Matrix4 as Mat4
 import Math.Vector3 as Vec3 exposing (vec3)
 import Ports
@@ -103,8 +116,15 @@ type BuilderTab
     = BuildBricksTab
     | AllBricksTab
     | BasesTab
-    | ImportBuildTab
+    | ShareTab
     | ReviewTab
+
+
+{-| The modal dialogs of the builder, which block the editor while open (see
+`modalFrame`). The tabs not listed here are drawers that leave it usable.
+-}
+type Modal
+    = ShareModal
 
 
 {-| Editor state: the studio, the hull it stands on, whether the hull is locked,
@@ -121,9 +141,10 @@ the newest session id used), the edit counter the autosave debounce checks
 the pictures of hulls (`"hull:" ++ id`) and saved builds (by build link) in
 `previews`.
 
-The QR code of the build while the "Open build" drawer shows it (`shareQr`:
-the link and its code, made again after each autosave), and the page the link
-opens (`shareBase`, `Main` sets it with `setShareBase`).
+The QR code of the build while the share dialog shows it (`shareQr`: the
+link and its code, made again after each autosave), whether its link was
+copied (`shareCopied`), and the page the link opens (`shareBase`, `Main` sets
+it with `setShareBase`).
 
 -}
 type alias Model =
@@ -155,6 +176,7 @@ type alias Model =
     , savedCode : String
     , previews : Dict String String
     , shareQr : Maybe ( String, QrShare.QrCode )
+    , shareCopied : Bool
     , shareBase : String
     }
 
@@ -199,10 +221,14 @@ type Msg
     | RestoreBuild BuildHistory.Entry
     | RemoveBuild String
     | ModelPreviewLoaded { key : String, url : String }
-    | ToggleShareQr
     | OpenQrScanner
     | ScannedCode String
     | ScannerFailed String
+    | PasteFromClipboard
+    | ClipboardPasted String
+    | ClipboardFailed String
+    | DownloadIo
+    | CloseModal
 
 
 {-| What the editor asks `Main` to do after an update.
@@ -278,6 +304,7 @@ init config base doc =
             , savedCode = ""
             , previews = Dict.empty
             , shareQr = Nothing
+            , shareCopied = False
             , shareBase = QrShare.defaultShareBase
             }
 
@@ -422,7 +449,13 @@ setTab tab model =
         , catalogOpen = tab == AllBricksTab
         , hullsOpen = tab == BasesTab
         , notice = Nothing
-        , shareQr = Nothing
+        , shareQr =
+            if tab == ShareTab then
+                Just (shareQrOf model)
+
+            else
+                Nothing
+        , shareCopied = False
     }
 
 
@@ -948,26 +981,57 @@ updateModel msg model =
             ( { model | pasteText = textVal, pasteError = Nothing }, Cmd.none, Stay )
 
         CopyBuildCode ->
-            ( model
+            ( { model | shareCopied = model.activeTab == ShareTab }
             , GamePorts.copyShareUrl (Ingest.encodeShipLink (Core.getDocument model.studio))
             , Stay
             )
 
         SubmitPaste ->
-            case Ingest.decodeShipInput Nothing model.pasteText of
-                Ok decoded ->
-                    stay (openDecoded decoded model)
+            stay (importPasted model.pasteText model)
 
-                Err err ->
-                    ( { model | pasteError = Just err }, Cmd.none, Stay )
+        PasteFromClipboard ->
+            ( { model | pasteError = Nothing, notice = Nothing }, Ports.readClipboard (), Stay )
 
-        ToggleShareQr ->
-            case model.shareQr of
-                Just _ ->
-                    ( { model | shareQr = Nothing }, Cmd.none, Stay )
+        ClipboardPasted raw ->
+            if String.isEmpty (String.trim raw) then
+                ( { model | pasteError = Just (T.clipboardEmpty model.language) }, Cmd.none, Stay )
+
+            else
+                -- The same path as the text field: the clipboard text is put
+                -- there, so a build that cannot be read stays to be fixed.
+                stay (importPasted raw { model | pasteText = raw })
+
+        ClipboardFailed reason ->
+            ( { model
+                | pasteError =
+                    Just
+                        (if reason == "unsupported" then
+                            T.clipboardUnavailable model.language
+
+                         else
+                            T.clipboardDenied model.language
+                        )
+              }
+            , Cmd.none
+            , Stay
+            )
+
+        DownloadIo ->
+            ( model
+            , Ports.downloadStudioIo
+                { filename = "sails-" ++ model.base.id ++ ".io"
+                , ldrText = Writer.writeDocument (Core.getDocument model.studio)
+                }
+            , Stay
+            )
+
+        CloseModal ->
+            case topModal model of
+                Just ShareModal ->
+                    ( setTab BuildBricksTab model, Cmd.none, Stay )
 
                 Nothing ->
-                    ( { model | shareQr = Just (shareQrOf model) }, Cmd.none, Stay )
+                    ( model, Cmd.none, Stay )
 
         OpenQrScanner ->
             ( { model | notice = Nothing }, GamePorts.openQrScanner (), Stay )
@@ -989,6 +1053,46 @@ updateModel msg model =
 
         DockPartFetched name result ->
             stay (requestDockParts { model | dockParts = Resolve.updateCache name result Parser.parseFile model.dockParts })
+
+
+{-| Open a pasted build link or LDraw text (from the hulls drawer's text field
+or the clipboard), or say why it cannot be read.
+-}
+importPasted : String -> Model -> ( Model, Cmd Msg )
+importPasted raw model =
+    case Ingest.decodeShipInput Nothing raw of
+        Ok decoded ->
+            openDecoded decoded model
+
+        Err err ->
+            ( { model | pasteError = Just err }, Cmd.none )
+
+
+{-| The modal dialog open now, if any (the topmost one, should there ever be
+more than one).
+-}
+topModal : Model -> Maybe Modal
+topModal model =
+    if model.activeTab == ShareTab then
+        Just ShareModal
+
+    else
+        Nothing
+
+
+{-| The key presses a modal dialog answers: Escape closes it.
+-}
+modalKeyDecoder : Decode.Decoder Msg
+modalKeyDecoder =
+    Decode.field "key" Decode.string
+        |> Decode.andThen
+            (\key ->
+                if key == "Escape" || key == "Esc" then
+                    Decode.succeed CloseModal
+
+                else
+                    Decode.fail "not Escape"
+            )
 
 
 {-| Replace the build with a decoded one (pasted or scanned), on the starter
@@ -1243,7 +1347,8 @@ requestThumbnails model =
             )
 
 
-{-| The studio's own subscriptions, the geometry worker and the part pictures.
+{-| The studio's own subscriptions, the geometry worker, the part pictures,
+the clipboard and, while a modal dialog is open, its Escape key.
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -1255,6 +1360,14 @@ subscriptions model =
         , Ports.modelThumbnailLoaded ModelPreviewLoaded
         , Browser.Events.onVisibilityChange PageVisibility
         , Time.every 30000 ClockTick
+        , Ports.clipboardRead ClipboardPasted
+        , Ports.clipboardReadFailed ClipboardFailed
+        , case topModal model of
+            Just _ ->
+                Browser.Events.onKeyDown modalKeyDecoder
+
+            Nothing ->
+                Sub.none
         ]
 
 
@@ -1299,6 +1412,10 @@ tabDrawerHeight model tab =
 
         AllBricksTab ->
             dockHeight + drawerHeight model catalogDrawerHeight
+
+        ShareTab ->
+            -- A modal over the whole editor: the view keeps its size behind it.
+            dockHeight
 
         _ ->
             drawerHeight model 280
@@ -1369,7 +1486,7 @@ view model =
 {-| Top bar matching Brick Racer's top bar:
 
   - Left: Check button (`Finish`)
-  - Center: Starter hulls (`BasesTab`), Open build (`ImportBuildTab`), Evaluation (`ReviewTab`)
+  - Center: Starter hulls (`BasesTab`), Share (`ShareTab`), Evaluation (`ReviewTab`)
   - Right: Fit view (`FitView`)
 
 -}
@@ -1468,7 +1585,7 @@ topBar model =
             , Attr.style "overflow-x" "auto"
             ]
             [ tabBtn BasesTab "data-hulls-toggle" (tr lang "Starter hulls" "Aloitusrungot") FeatherIcons.anchor
-            , tabBtn ImportBuildTab "data-import-toggle" (tr lang "Open build" "Avaa malli") FeatherIcons.download
+            , tabBtn ShareTab "data-share-toggle" (T.shareTab lang) FeatherIcons.share2
             , tabBtn ReviewTab "data-review-toggle" (tr lang "Evaluation" "Arviointi") FeatherIcons.award
             ]
         , div [ Attr.style "margin-left" "auto", Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "gap" "4px" ]
@@ -1720,8 +1837,8 @@ bottomPanel model =
         BasesTab ->
             viewBasesDrawer model
 
-        ImportBuildTab ->
-            viewImportDrawer model
+        ShareTab ->
+            div [] [ dock model, viewShareModal model ]
 
         ReviewTab ->
             viewReviewDrawer model
@@ -2274,8 +2391,10 @@ catalogCard model entry =
         ]
 
 
-{-| Drawer of the starter hulls (matching Brick Racer's `viewBasesDrawer`),
-each with its picture, and below them the saved builds (`historyCards`).
+{-| Drawer of the starter hulls (matching Brick Racer's `viewBasesDrawer`): at
+the top a field for a pasted build link or LDraw text, the paste-from-clipboard
+button and the QR scan button; then the saved builds (`historyCards`), and
+under the "Ready-made hulls" subtitle the starter hulls, each with its picture.
 -}
 viewBasesDrawer : Model -> Html Msg
 viewBasesDrawer model =
@@ -2338,15 +2457,81 @@ viewBasesDrawer model =
     in
     div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-hulls" "", Attr.attribute "data-testid" "bases-drawer" ])
         [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
-            [ div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "align-items" "center", Attr.style "justify-content" "space-between", Attr.style "gap" "8px" ]
-                [ drawerHeading (tr lang "Choose Starter Hull" "Valitse aloitusrunko")
+            [ div [ Attr.attribute "data-testid" "hulls-actions", Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "gap" "8px" ]
+                [ pasteField model
+                , pasteClipboardButton lang
                 , scanQrButton lang
                 ]
-            , drawerHeading (T.buildHistoryHeading lang)
-            , historyCards model
-            , div cardGridStyle
+            , case model.pasteError of
+                Just err ->
+                    div [ Attr.attribute "data-testid" "paste-error", Attr.attribute "role" "alert", Attr.style "color" "#ef4444", Attr.style "font-size" "12px" ] [ text err ]
+
+                Nothing ->
+                    text ""
+            , div [ Attr.attribute "data-hulls-section" "", Attr.attribute "data-testid" "own-builds", Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px" ]
+                [ drawerHeading (T.buildHistoryHeading lang)
+                , historyCards model
+                ]
+            , div [ Attr.attribute "data-hulls-section" "", Attr.attribute "data-testid" "ready-made-hulls-heading" ]
+                [ drawerHeading (T.readyMadeHulls lang) ]
+            , div (Attr.attribute "data-hulls-section" "" :: Attr.attribute "data-testid" "base-hulls" :: cardGridStyle)
                 (List.map renderBaseCard Editor.bases)
             ]
+        ]
+
+
+{-| The hulls drawer's field for a pasted build link or LDraw text (a small
+text area, as LDraw text has many lines) and its Open button.
+-}
+pasteField : Model -> Html Msg
+pasteField model =
+    let
+        lang =
+            model.language
+    in
+    div [ Attr.style "display" "flex", Attr.style "gap" "6px", Attr.style "flex" "1", Attr.style "min-width" "0" ]
+        [ textarea
+            [ Attr.attribute "data-testid" "paste-input"
+            , Attr.placeholder (T.pastePlaceholder lang)
+            , Attr.attribute "aria-label" (T.pastePlaceholder lang)
+            , Attr.attribute "autocapitalize" "none"
+            , Attr.attribute "spellcheck" "false"
+            , Attr.value model.pasteText
+            , onInput PasteTextChanged
+            , Attr.rows 1
+            , Attr.style "flex" "1"
+            , Attr.style "min-width" "0"
+            , Attr.style "height" "40px"
+            , Attr.style "box-sizing" "border-box"
+            , Attr.style "padding" "10px 8px"
+            , Attr.style "border-radius" "8px"
+            , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+            , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+            , Attr.style "color" Brand.legoWhite
+            , Attr.style "font-family" "monospace"
+            , Attr.style "font-size" "12px"
+            , Attr.style "resize" "none"
+            , Attr.style "user-select" "text"
+            , Attr.style "-webkit-user-select" "text"
+            ]
+            []
+        , button
+            [ Attr.type_ "button"
+            , onClick SubmitPaste
+            , Attr.attribute "data-testid" "paste-open"
+            , Attr.style "padding" "0 14px"
+            , Attr.style "height" "40px"
+            , Attr.style "flex-shrink" "0"
+            , Attr.style "border-radius" "8px"
+            , Attr.style "background" Brand.legoYellow
+            , Attr.style "color" Brand.legoBlack
+            , Attr.style "font-weight" "800"
+            , Attr.style "font-size" "13px"
+            , Attr.style "cursor" "pointer"
+            , Attr.style "border" "none"
+            , Attr.style "touch-action" "manipulation"
+            ]
+            [ text (T.openPasted lang) ]
         ]
 
 
@@ -2494,88 +2679,181 @@ historyCards model =
                 (List.map card saved)
 
 
-{-| Drawer for pasting build links or LDraw `.ldr` / `.mpd` text (matching
-Brick Racer's `viewImportDrawer`).
+{-| The share dialog (`ShareTab`, a modal): the build's link in a read-only
+field to copy (the same link the QR code holds and `CopyBuildCode` copies), a
+BrickLink Studio `.io` download (`DownloadIo`), and the QR code, shown from
+the start.
 -}
-viewImportDrawer : Model -> Html Msg
-viewImportDrawer model =
+viewShareModal : Model -> Html Msg
+viewShareModal model =
     let
         lang =
             model.language
-    in
-    div (drawerStyle (drawerHeight model 280) ++ [ Attr.attribute "data-testid" "import-drawer" ])
-        [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "10px", Attr.style "max-width" "680px", Attr.style "margin" "0 auto", Attr.style "height" "100%", Attr.style "overflow-y" "auto" ]
-            [ h3 [ Attr.style "font-size" "13px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
-                [ text (tr lang "Open build" "Avaa malli") ]
-            , div [ Attr.style "display" "flex", Attr.style "gap" "8px" ]
-                [ textarea
-                    [ Attr.placeholder (tr lang "Paste a build link (#b/...) or LDraw (.ldr / .mpd) text..." "Liitä rakennuslinkki (#b/...) tai LDraw (.ldr / .mpd) -teksti...")
-                    , Attr.value model.pasteText
-                    , onInput PasteTextChanged
-                    , Attr.style "flex" "1"
-                    , Attr.style "min-width" "0"
-                    , Attr.style "height" "70px"
-                    , Attr.style "padding" "8px"
-                    , Attr.style "border-radius" "8px"
-                    , Attr.style "background" "rgba(15, 23, 42, 0.8)"
-                    , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
-                    , Attr.style "color" Brand.legoWhite
-                    , Attr.style "font-family" "monospace"
-                    , Attr.style "font-size" "12px"
-                    , Attr.style "resize" "none"
-                    ]
-                    []
-                , button
-                    [ Attr.type_ "button"
-                    , onClick SubmitPaste
-                    , Attr.style "padding" "0 16px"
-                    , Attr.style "border-radius" "8px"
-                    , Attr.style "background" Brand.legoYellow
-                    , Attr.style "color" Brand.legoBlack
-                    , Attr.style "font-weight" "800"
-                    , Attr.style "font-size" "13px"
-                    , Attr.style "cursor" "pointer"
-                    , Attr.style "border" "none"
-                    ]
-                    [ text (tr lang "Open" "Avaa") ]
-                ]
-            , div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "gap" "8px" ]
-                [ button
-                    (Attr.attribute "data-testid" "copy-build-code" :: onClick CopyBuildCode :: secondaryButtonStyle)
-                    [ text (tr lang "Copy build code" "Kopioi rakennelman koodi") ]
-                , button
-                    (Attr.attribute "data-testid" "share-qr-toggle"
-                        :: Attr.attribute "aria-expanded"
-                            (if model.shareQr == Nothing then
-                                "false"
 
-                             else
-                                "true"
-                            )
-                        :: onClick ToggleShareQr
+        ( link, code ) =
+            case model.shareQr of
+                Just shown ->
+                    shown
+
+                Nothing ->
+                    shareQrOf model
+    in
+    modalFrame
+        { testId = "share-dialog"
+        , title = T.shareDialogTitle lang
+        , closeLabel = T.closeDialog lang
+        , onClose = CloseModal
+        }
+        [ div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "gap" "16px", Attr.style "align-items" "flex-start", Attr.style "justify-content" "center" ]
+            [ div [ Attr.style "display" "flex", Attr.style "flex-direction" "column", Attr.style "gap" "8px", Attr.style "flex" "1 1 240px", Attr.style "min-width" "0" ]
+                [ sectionLabel (T.shareCodeLabel lang)
+                , div [ Attr.style "display" "flex", Attr.style "gap" "6px", Attr.style "align-items" "stretch" ]
+                    [ textarea
+                        [ Attr.attribute "data-testid" "share-code"
+                        , Attr.readonly True
+                        , Attr.rows 3
+                        , Attr.value link
+                        , Attr.attribute "aria-label" (T.shareCodeLabel lang)
+                        , Attr.attribute "spellcheck" "false"
+                        , Attr.style "flex" "1"
+                        , Attr.style "min-width" "0"
+                        , Attr.style "box-sizing" "border-box"
+                        , Attr.style "padding" "8px"
+                        , Attr.style "border-radius" "8px"
+                        , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+                        , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+                        , Attr.style "color" Brand.legoWhite
+                        , Attr.style "font-family" "monospace"
+                        , Attr.style "font-size" "12px"
+                        , Attr.style "line-height" "1.4"
+                        , Attr.style "word-break" "break-all"
+                        , Attr.style "resize" "none"
+                        , Attr.style "user-select" "text"
+                        , Attr.style "-webkit-user-select" "text"
+                        ]
+                        []
+                    , button
+                        [ Attr.type_ "button"
+                        , onClick CopyBuildCode
+                        , Attr.attribute "data-testid" "share-copy-icon"
+                        , Attr.attribute "aria-label" (T.copyShareLink lang)
+                        , Attr.title (T.copyShareLink lang)
+                        , Attr.style "width" "40px"
+                        , Attr.style "flex-shrink" "0"
+                        , Attr.style "display" "flex"
+                        , Attr.style "align-items" "center"
+                        , Attr.style "justify-content" "center"
+                        , Attr.style "border-radius" "8px"
+                        , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+                        , Attr.style "color" Brand.legoWhite
+                        , Attr.style "cursor" "pointer"
+                        , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+                        , Attr.style "touch-action" "manipulation"
+                        ]
+                        [ FeatherIcons.copy |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+                    ]
+                , div [ Attr.style "display" "flex", Attr.style "flex-wrap" "wrap", Attr.style "align-items" "center", Attr.style "gap" "8px" ]
+                    [ button
+                        (Attr.attribute "data-testid" "share-copy" :: onClick CopyBuildCode :: secondaryButtonStyle)
+                        [ text (T.copyButton lang) ]
+                    , if model.shareCopied then
+                        span [ Attr.attribute "data-testid" "share-copied", Attr.attribute "role" "status", Attr.style "font-size" "12px", Attr.style "color" "#86efac" ]
+                            [ text (T.shareCopied lang) ]
+
+                      else
+                        text ""
+                    ]
+                , button
+                    (Attr.attribute "data-testid" "share-download-io"
+                        :: onClick DownloadIo
+                        :: Attr.style "display" "inline-flex"
+                        :: Attr.style "align-items" "center"
+                        :: Attr.style "gap" "6px"
+                        :: Attr.style "align-self" "flex-start"
                         :: secondaryButtonStyle
                     )
-                    [ text
-                        (if model.shareQr == Nothing then
-                            T.qrShareButton lang
-
-                         else
-                            T.qrHideButton lang
-                        )
+                    [ FeatherIcons.download |> FeatherIcons.withSize 16 |> FeatherIcons.toHtml []
+                    , span [] [ text (T.shareDownloadIo lang) ]
                     ]
                 ]
-            , case model.shareQr of
-                Just ( _, code ) ->
-                    shareQrView model code
+            , shareQrView model code
+            ]
+        ]
 
-                Nothing ->
-                    text ""
-            , case model.pasteError of
-                Just err ->
-                    div [ Attr.style "color" "#ef4444", Attr.style "font-size" "12px" ] [ text err ]
 
-                Nothing ->
-                    text ""
+{-| The frame of every modal dialog of the builder: a translucent shade over
+the whole editor that takes every tap outside the dialog (a tap on it closes
+the dialog), and the dialog with its title and a close (X) button at the top
+right. The Escape key is subscribed to separately (`modalKeyDecoder`).
+-}
+modalFrame : { testId : String, title : String, closeLabel : String, onClose : msg } -> List (Html msg) -> Html msg
+modalFrame config body =
+    div
+        [ Attr.attribute "data-testid" "modal-layer"
+        , Attr.style "position" "fixed"
+        , Attr.style "inset" "0"
+        , Attr.style "z-index" "60"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "box-sizing" "border-box"
+        , Attr.style "padding" "max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left))"
+        ]
+        [ div
+            [ Attr.attribute "data-testid" "modal-backdrop"
+            , Attr.attribute "aria-hidden" "true"
+            , onClick config.onClose
+            , Attr.style "position" "absolute"
+            , Attr.style "inset" "0"
+            , Attr.style "background" "rgba(2, 6, 23, 0.66)"
+            , Attr.style "backdrop-filter" "blur(2px)"
+            , Attr.style "-webkit-backdrop-filter" "blur(2px)"
+            , Attr.style "touch-action" "none"
+            ]
+            []
+        , div
+            [ Attr.attribute "data-testid" config.testId
+            , Attr.attribute "role" "dialog"
+            , Attr.attribute "aria-modal" "true"
+            , Attr.attribute "aria-label" config.title
+            , Attr.style "position" "relative"
+            , Attr.style "width" "100%"
+            , Attr.style "max-width" "680px"
+            , Attr.style "max-height" "100%"
+            , Attr.style "overflow-y" "auto"
+            , Attr.style "box-sizing" "border-box"
+            , Attr.style "padding" "12px 16px 16px"
+            , Attr.style "border-radius" "16px"
+            , Attr.style "background" "rgba(5, 19, 29, 0.98)"
+            , Attr.style "border" "1px solid rgba(255, 255, 255, 0.15)"
+            , Attr.style "box-shadow" "0 20px 48px rgba(0, 0, 0, 0.55)"
+            , Attr.style "color" "#f8fafc"
+            ]
+            [ div [ Attr.style "display" "flex", Attr.style "align-items" "center", Attr.style "justify-content" "space-between", Attr.style "gap" "8px", Attr.style "margin-bottom" "12px" ]
+                [ h3 [ Attr.style "font-size" "14px", Attr.style "font-weight" "800", Attr.style "color" Brand.legoYellow, Attr.style "text-transform" "uppercase", Attr.style "margin" "0" ]
+                    [ text config.title ]
+                , button
+                    [ Attr.type_ "button"
+                    , onClick config.onClose
+                    , Attr.attribute "data-testid" "modal-close"
+                    , Attr.attribute "aria-label" config.closeLabel
+                    , Attr.title config.closeLabel
+                    , Attr.style "width" "36px"
+                    , Attr.style "height" "36px"
+                    , Attr.style "flex-shrink" "0"
+                    , Attr.style "border-radius" "50%"
+                    , Attr.style "border" "1px solid rgba(148, 163, 184, 0.4)"
+                    , Attr.style "background" "rgba(15, 23, 42, 0.85)"
+                    , Attr.style "color" Brand.legoWhite
+                    , Attr.style "cursor" "pointer"
+                    , Attr.style "display" "flex"
+                    , Attr.style "align-items" "center"
+                    , Attr.style "justify-content" "center"
+                    , Attr.style "touch-action" "manipulation"
+                    ]
+                    [ FeatherIcons.x |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
+                ]
+            , div [] body
             ]
         ]
 
@@ -3256,8 +3534,8 @@ viewReviewDrawer model =
 
 
 {-| The build's QR code with its caption, or, for a build too big for a QR
-code, a note to copy the link instead. The code is as wide as fits the drawer,
-at most 320 px, on white with a quiet zone (`QRCode.toSvg`).
+code, a note to copy the link instead. The code is as big as fits the share
+dialog, at most 320 px, on white with a quiet zone (`QRCode.toSvg`).
 -}
 shareQrView : Model -> QrShare.QrCode -> Html Msg
 shareQrView model code =
@@ -3265,7 +3543,7 @@ shareQrView model code =
         QrShare.QrReady qr ->
             let
                 size =
-                    clamp 120 320 (min (model.width - 32) (drawerHeight model 280 - 150))
+                    clamp 120 320 (min (model.width - 72) (model.height - 140))
             in
             div
                 [ Attr.attribute "data-testid" "share-qr"
@@ -3303,6 +3581,33 @@ shareQrView model code =
                 , Attr.style "color" "#fbbf24"
                 ]
                 [ text (T.qrTooLarge model.language length QrShare.maxQrLength) ]
+
+
+{-| The hulls drawer's button that opens a build (a link or LDraw text) from
+the clipboard (`PasteFromClipboard`), placed before the camera button.
+-}
+pasteClipboardButton : Language -> Html Msg
+pasteClipboardButton lang =
+    button
+        [ Attr.type_ "button"
+        , onClick PasteFromClipboard
+        , Attr.attribute "data-testid" "paste-clipboard"
+        , Attr.attribute "aria-label" (T.pasteFromClipboard lang)
+        , Attr.title (T.pasteFromClipboard lang)
+        , Attr.style "width" "40px"
+        , Attr.style "height" "40px"
+        , Attr.style "flex-shrink" "0"
+        , Attr.style "display" "flex"
+        , Attr.style "align-items" "center"
+        , Attr.style "justify-content" "center"
+        , Attr.style "border-radius" "8px"
+        , Attr.style "background" "rgba(15, 23, 42, 0.8)"
+        , Attr.style "color" Brand.legoWhite
+        , Attr.style "cursor" "pointer"
+        , Attr.style "border" "1px solid rgba(148, 163, 184, 0.3)"
+        , Attr.style "touch-action" "manipulation"
+        ]
+        [ FeatherIcons.clipboard |> FeatherIcons.withSize 18 |> FeatherIcons.toHtml [] ]
 
 
 {-| The hulls drawer's button that opens the camera to scan a build shared

@@ -19,12 +19,18 @@ module Sails.I18n exposing
     , buildOwnShip
     , byChance
     , citadelName
+    , clipboardDenied
+    , clipboardEmpty
+    , clipboardUnavailable
+    , closeDialog
     , coinsGained
     , coinsLabel
     , coinsScoreLabel
     , controlsHint
+    , copyButton
     , copyLink
     , copyRoomLink
+    , copyShareLink
     , countdownHint
     , courseTab
     , crewHeading
@@ -88,7 +94,10 @@ module Sails.I18n exposing
     , newPersonalBest
     , nextGoal
     , nextHarbourTitle
+    , openPasted
     , overpoweredTitle
+    , pasteFromClipboard
+    , pastePlaceholder
     , personalBestLine
     , personalBestShort
     , pirateSunkToast
@@ -98,7 +107,6 @@ module Sails.I18n exposing
     , playerCount
     , pointOfSailText
     , qrCameraFailed
-    , qrHideButton
     , qrScanButton
     , qrScanNotABuild
     , qrScanNotAShip
@@ -106,10 +114,10 @@ module Sails.I18n exposing
     , qrScanPlayLink
     , qrScanRacerLink
     , qrScanRoomLink
-    , qrShareButton
     , qrShareCaption
     , qrTooLarge
     , raceStatus
+    , readyMadeHulls
     , redCoatsName
     , reefScrapeToast
     , reefWarning
@@ -128,6 +136,11 @@ module Sails.I18n exposing
     , sailingStat
     , seasonName
     , setSail
+    , shareCodeLabel
+    , shareCopied
+    , shareDialogTitle
+    , shareDownloadIo
+    , shareTab
     , shipLoadError
     , shipsSunkStat
     , shipwrecked
@@ -1606,8 +1619,6 @@ allPhrases =
     , ( "hullLockedLabel", hullLockedLabel )
     , ( "hullUnlockedLabel", hullUnlockedLabel )
     , ( "hullLockCaption", hullLockCaption )
-    , ( "qrShareButton", qrShareButton )
-    , ( "qrHideButton", qrHideButton )
     , ( "qrShareCaption", qrShareCaption )
     , ( "qrTooLarge", \l -> qrTooLarge l 1500 1273 )
     , ( "qrScanButton", qrScanButton )
@@ -1618,6 +1629,21 @@ allPhrases =
     , ( "qrScanNotABuild", qrScanNotABuild )
     , ( "qrScanNotAShip", qrScanNotAShip )
     , ( "qrCameraFailed", qrCameraFailed )
+    , ( "readyMadeHulls", readyMadeHulls )
+    , ( "pastePlaceholder", pastePlaceholder )
+    , ( "openPasted", openPasted )
+    , ( "pasteFromClipboard", pasteFromClipboard )
+    , ( "clipboardDenied", clipboardDenied )
+    , ( "clipboardUnavailable", clipboardUnavailable )
+    , ( "clipboardEmpty", clipboardEmpty )
+    , ( "shareTab", shareTab )
+    , ( "shareDialogTitle", shareDialogTitle )
+    , ( "shareCodeLabel", shareCodeLabel )
+    , ( "copyShareLink", copyShareLink )
+    , ( "copyButton", copyButton )
+    , ( "shareCopied", shareCopied )
+    , ( "shareDownloadIo", shareDownloadIo )
+    , ( "closeDialog", closeDialog )
     ]
 
 
@@ -1824,21 +1850,7 @@ hullLockCaption lang =
 
 
 
--- BUILD BY QR CODE (the ship editor's "Open build" and hulls drawers)
-
-
-{-| Button of the "Open build" drawer that shows the build as a QR code.
--}
-qrShareButton : Language -> String
-qrShareButton lang =
-    pick lang "Jaa QR-koodina" "Share as QR"
-
-
-{-| Button that hides the build's QR code again.
--}
-qrHideButton : Language -> String
-qrHideButton lang =
-    pick lang "Piilota QR-koodi" "Hide QR code"
+-- BUILD BY QR CODE (the ship editor's share dialog and hulls drawer)
 
 
 {-| Caption under the build's QR code.
@@ -1912,3 +1924,120 @@ qrScanNotAShip lang =
 qrCameraFailed : Language -> String
 qrCameraFailed lang =
     pick lang "Kameraa ei saatu auki." "The camera could not be opened."
+
+
+
+-- HULLS DRAWER: READY-MADE HULLS AND OPENING A SHARED BUILD
+
+
+{-| Subtitle of the starter hull cards, below the saved builds.
+-}
+readyMadeHulls : Language -> String
+readyMadeHulls lang =
+    pick lang "Valmiit runkopohjat" "Ready-made hulls"
+
+
+{-| Placeholder of the hulls drawer's text field for a shared build.
+-}
+pastePlaceholder : Language -> String
+pastePlaceholder lang =
+    pick lang "Liitä rakennuslinkki (#b/...) tai LDraw (.ldr / .mpd) -teksti..." "Paste a build link (#b/...) or LDraw (.ldr / .mpd) text..."
+
+
+{-| Button that opens the build pasted into the text field.
+-}
+openPasted : Language -> String
+openPasted lang =
+    pick lang "Avaa" "Open"
+
+
+{-| Label of the hulls drawer's button that opens a build from the clipboard.
+-}
+pasteFromClipboard : Language -> String
+pasteFromClipboard lang =
+    pick lang "Liitä laiva leikepöydältä (linkki tai LDraw-teksti)" "Paste a ship from the clipboard (link or LDraw text)"
+
+
+{-| The browser refused to let the game read the clipboard.
+-}
+clipboardDenied : Language -> String
+clipboardDenied lang =
+    pick lang
+        "Leikepöydän lukeminen estettiin. Salli leikepöytä selaimen asetuksista tai liitä linkki tekstikenttään."
+        "Reading the clipboard was blocked. Allow clipboard access in the browser settings or paste the link into the text field."
+
+
+{-| The browser cannot read the clipboard at all.
+-}
+clipboardUnavailable : Language -> String
+clipboardUnavailable lang =
+    pick lang
+        "Leikepöytää ei voi lukea tässä selaimessa. Liitä linkki tekstikenttään."
+        "This browser cannot read the clipboard. Paste the link into the text field."
+
+
+{-| The clipboard holds no text.
+-}
+clipboardEmpty : Language -> String
+clipboardEmpty lang =
+    pick lang "Leikepöydällä ei ole tekstiä." "The clipboard holds no text."
+
+
+
+-- SHARE DIALOG (the ship editor's share tab)
+
+
+{-| The top bar tab that opens the share dialog.
+-}
+shareTab : Language -> String
+shareTab lang =
+    pick lang "Jaa" "Share"
+
+
+{-| Title of the share dialog.
+-}
+shareDialogTitle : Language -> String
+shareDialogTitle lang =
+    pick lang "Jaa laiva" "Share your ship"
+
+
+{-| Label of the share dialog's read-only field with the build's link.
+-}
+shareCodeLabel : Language -> String
+shareCodeLabel lang =
+    pick lang "Laivan rakennuslinkki" "The ship's build link"
+
+
+{-| Label of the icon button that copies the build's link.
+-}
+copyShareLink : Language -> String
+copyShareLink lang =
+    pick lang "Kopioi laivan linkki leikepöydälle" "Copy the ship's link to the clipboard"
+
+
+{-| The share dialog's copy button.
+-}
+copyButton : Language -> String
+copyButton lang =
+    pick lang "Kopioi" "Copy"
+
+
+{-| Shown after the build's link was copied.
+-}
+shareCopied : Language -> String
+shareCopied lang =
+    pick lang "Linkki kopioitu leikepöydälle" "Link copied to the clipboard"
+
+
+{-| Button that downloads the build as a BrickLink Studio file.
+-}
+shareDownloadIo : Language -> String
+shareDownloadIo lang =
+    pick lang "Lataa BrickLink Studio -tiedostona (.io)" "Download as a BrickLink Studio file (.io)"
+
+
+{-| Label of a dialog's close (X) button.
+-}
+closeDialog : Language -> String
+closeDialog lang =
+    pick lang "Sulje" "Close"

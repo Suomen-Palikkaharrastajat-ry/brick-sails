@@ -211,9 +211,9 @@ editorTests =
                             |> step (ScannedCode "#b/AAAA")
                             |> .notice
                             |> Expect.equal (Just (T.qrScanNotAShip I18n.En))
-                , test "Share as QR shows the build's link as a QR code" <|
+                , test "the share dialog shows the build's link as a QR code from the start" <|
                     \_ ->
-                        case (opened |> step (SelectTab ImportBuildTab) |> step ToggleShareQr).shareQr of
+                        case (opened |> step (SelectTab ShareTab)).shareQr of
                             Just ( link, QrReady _ ) ->
                                 Expect.equal (QrShare.shareUrl QrShare.defaultShareBase (Ingest.encodeShipLink first.document)) link
 
@@ -221,13 +221,13 @@ editorTests =
                                 Expect.fail "no QR code"
                 , test "the QR code uses the app's own address" <|
                     \_ ->
-                        (Build.setShareBase "http://localhost:5177/" opened |> step (SelectTab ImportBuildTab) |> step ToggleShareQr).shareQr
+                        (Build.setShareBase "http://localhost:5177/" opened |> step (SelectTab ShareTab)).shareQr
                             |> Maybe.map Tuple.first
                             |> Maybe.map (String.startsWith "http://localhost:5177/#b/")
                             |> Expect.equal (Just True)
-                , test "closing the drawer hides the QR code" <|
+                , test "closing the share dialog drops the QR code" <|
                     \_ ->
-                        (opened |> step (SelectTab ImportBuildTab) |> step ToggleShareQr |> step (SelectTab ImportBuildTab)).shareQr
+                        (opened |> step (SelectTab ShareTab) |> step CloseModal).shareQr
                             |> Expect.equal Nothing
                 ]
 

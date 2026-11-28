@@ -1,7 +1,11 @@
 port module Ports exposing
     ( buildHistoryLoaded
+    , clipboardRead
+    , clipboardReadFailed
+    , downloadStudioIo
     , modelThumbnailLoaded
     , playSfx
+    , readClipboard
     , requestModelThumbnails
     , requestThumbnails
     , saveBuildHistory
@@ -11,7 +15,8 @@ port module Ports exposing
 
 {-| Ports of Brick Sails whose payload is its own: the procedural Web Audio
 telemetry and one-shot sounds `audio.js` plays, the part and model pictures
-of the ship editor, and its saved build history. Every other port the game uses is shared by the Brick
+of the ship editor, its saved build history, reading a shared build from the
+clipboard and downloading the build as a BrickLink Studio file. Every other port the game uses is shared by the Brick
 Frame games and lives in `Game.Ports`.
 -}
 
@@ -70,3 +75,28 @@ port saveBuildHistory : String -> Cmd msg
 empty string when there is none or storage is blocked).
 -}
 port buildHistoryLoaded : (String -> msg) -> Sub msg
+
+
+{-| Read the text on the clipboard (`navigator.clipboard.readText` in
+`main.js`), for the ship editor's paste button. The answer comes back as
+`clipboardRead` or `clipboardReadFailed`.
+-}
+port readClipboard : () -> Cmd msg
+
+
+{-| The text read from the clipboard.
+-}
+port clipboardRead : (String -> msg) -> Sub msg
+
+
+{-| The clipboard could not be read: `"denied"` (the browser or the player
+refused the permission), `"unsupported"` (no clipboard API) or `"failed"`.
+-}
+port clipboardReadFailed : (String -> msg) -> Sub msg
+
+
+{-| Download the build as a BrickLink Studio `.io` archive: `main.js` zips the
+LDraw text as its `model.ldr` (as Brick Play does) and hands the browser the
+file.
+-}
+port downloadStudioIo : { filename : String, ldrText : String } -> Cmd msg

@@ -1,4 +1,5 @@
 import './main.css'
+import { zipSync, strToU8 } from 'fflate'
 import { bootGame } from './vendor/packages/brick-frame-game/runtime/game-boot.js'
 import { readLanguage } from './vendor/packages/brick-frame-game/runtime/language.js'
 import { initGameThumbnails } from './thumbnails.js'
@@ -38,7 +39,7 @@ if (window.matchMedia?.('(pointer: coarse)').matches) {
 
 // A build link in the page URL (`#b/...` or `#model=...`) is loaded as the
 // player's own ship; without one the four built-in boats are offered.
-const { ports } = bootGame({
+const { ports, qrScanner } = bootGame({
   elm: Elm.Main,
   env: import.meta.env,
   storagePrefix: 'sails',
@@ -78,3 +79,51 @@ try {
 }
 // After the app's first subscriptions are in place.
 setTimeout(() => ports?.buildHistoryLoaded?.send(savedBuildHistory), 0)
+
+// The ship editor's paste button: read a shared build (a link or LDraw text)
+// from the clipboard. The browser may refuse (no permission, no API, an
+// insecure page); the editor then says so and the text field still works.
+ports?.readClipboard?.subscribe(async () => {
+  if (!navigator.clipboard?.readText) {
+    ports?.clipboardReadFailed?.send('unsupported')
+    return
+  }
+  try {
+    const text = await navigator.clipboard.readText()
+    ports?.clipboardRead?.send(String(text ?? ''))
+  } catch (err) {
+    ports?.clipboardReadFailed?.send(err?.name === 'NotAllowedError' ? 'denied' : 'failed')
+  }
+})
+
+// The share dialog's BrickLink Studio download: a .io archive holding the
+// build as model.ldr (the same archive Brick Play downloads).
+ports?.downloadStudioIo?.subscribe(({ filename, ldrText }) => {
+  const zipData = zipSync({ 'model.ldr': strToU8(String(ldrText ?? '')) })
+  const blob = new Blob([zipData], { type: 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename || 'ship.io'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+})
+
+// Escape closes the camera's QR scanner (the shared runtime's overlay has its
+// own close button and backdrop, but no key). It is caught before the editor's
+// own Escape, which would otherwise also close the dialog under the scanner.
+window.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.key !== 'Escape') return
+    const scanner = document.getElementById('brick-qr-scanner-modal')
+    if (scanner && scanner.style.display !== 'none') {
+      event.stopImmediatePropagation()
+      event.preventDefault()
+      qrScanner?.close()
+    }
+  },
+  true,
+)
