@@ -3,7 +3,7 @@ module CoopTest exposing (suite)
 {-| Cooperative play in an online room: the players are one crew on one
 course. The voyage is complete when the whole crew is in port, the crew shares
 one time, cannons never hit a crewmate, and a finish screen in a room has no
-personal best, rank or winner. Sailing alone is unchanged.
+personal best, rank or winner. Sailing alone is a crew of one.
 -}
 
 import Dict
@@ -363,14 +363,18 @@ suite =
                     resultsText Nothing
                         |> Query.has [ Selector.text (T.newPersonalBest En) ]
             ]
-        , describe "Sailing alone is unchanged"
-            [ test "alone there is no crew clock or crew time" <|
+        , describe "Sailing alone is a crew of one"
+            [ test "alone the crew clock runs, and there is no crew time until the ship is in port" <|
                 \_ ->
                     let
                         solo =
                             frames 300 (sail Nothing)
                     in
-                    Expect.equal ( 0, Nothing ) ( solo.crewClock, solo.crewTime )
+                    Expect.all
+                        [ \s -> Expect.greaterThan 2.5 s.crewClock
+                        , \s -> Expect.equal Nothing s.crewTime
+                        ]
+                        solo
             , test "alone the boat sails off once the 3-2-1 is over" <|
                 \_ ->
                     (frames 300 (sail Nothing)).progress.elapsedSeconds
