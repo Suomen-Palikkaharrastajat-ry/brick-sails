@@ -1,6 +1,7 @@
 module Pages.Sail exposing
     ( SailModel
     , SailMsg(..)
+    , buildHudGoals
     , initSail
     , subscriptions
     , update
@@ -635,38 +636,26 @@ buildHudGoals model =
         camBearing =
             atan2 (camTarget.x - camEye.x) (camTarget.z - camEye.z) * 180.0 / pi
 
+        -- Nothing for a goal right on the ship (no bearing to point along).
         calcGoal kind targetPos =
             let
                 tRec =
                     Vec3.toRecord targetPos
-
-                dx =
-                    tRec.x - shipRec.x
-
-                dz =
-                    tRec.z - shipRec.z
-
-                dist =
-                    sqrt (dx * dx + dz * dz)
-
-                worldBearing =
-                    atan2 dx dz * 180.0 / pi
-
-                rawDiff =
-                    worldBearing - camBearing
-
-                relAngle =
-                    rawDiff - 360.0 * toFloat (floor ((rawDiff + 180.0) / 360.0))
             in
-            { kind = kind
-            , angleDeg = relAngle
-            , distanceM = dist
-            }
+            HUD.goalBearing shipRec tRec
+                |> Maybe.map
+                    (\worldBearing ->
+                        { kind = kind
+                        , angleDeg = HUD.goalScreenAngle camBearing worldBearing
+                        , distanceM = Physics.horizontalDistance shipPos targetPos
+                        }
+                    )
 
-        -- 1. Next harbour waypoint
+        -- 1. Next harbour waypoint (harbours are sailed in order, so the
+        -- current one is the only harbour that counts)
         harbourGoal =
             nextHarbour model
-                |> Maybe.map (calcGoal HUD.HarbourGoal)
+                |> Maybe.andThen (calcGoal HUD.HarbourGoal)
 
         -- 2. Nearest lost standard at sea (within 350m)
         standardGoal =
@@ -683,7 +672,7 @@ buildHudGoals model =
                 |> List.filter (\( d, _ ) -> d < 350)
                 |> List.sortBy Tuple.first
                 |> List.head
-                |> Maybe.map (\( _, spos ) -> calcGoal HUD.StandardGoal spos)
+                |> Maybe.andThen (\( _, spos ) -> calcGoal HUD.StandardGoal spos)
 
         -- 3. Nearest pirate ship afloat (within 250m)
         pirateGoal =
@@ -692,9 +681,10 @@ buildHudGoals model =
                 |> List.filter (\( d, _ ) -> d < 250 && d > 6)
                 |> List.sortBy Tuple.first
                 |> List.head
-                |> Maybe.map (\( _, ppos ) -> calcGoal HUD.PirateGoal ppos)
+                |> Maybe.andThen (\( _, ppos ) -> calcGoal HUD.PirateGoal ppos)
     in
-    List.filterMap identity [ harbourGoal, standardGoal, pirateGoal ]
+    -- Closest first; HUD.shownGoals drops those the boat is on.
+    HUD.shownGoals (List.filterMap identity [ harbourGoal, standardGoal, pirateGoal ])
 
 
 update : SailMsg -> SailModel -> ( SailModel, Cmd SailMsg )

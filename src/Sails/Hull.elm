@@ -1,10 +1,18 @@
 module Sails.Hull exposing
     ( Band(..)
+    , HealthState(..)
     , Hull
     , Knocks
     , band
     , cannonDamage
+    , cautionBelow
+    , dangerBelow
+    , fraction
     , fresh
+    , healthState
+    , healthStateFromFraction
+    , healthStateName
+    , hurtBelow
     , knockDamage
     , maxHealth
     , noKnocks
@@ -195,3 +203,88 @@ band hull =
 
     else
         Critical
+
+
+{-| Health as a share of `maxHealth`, 0 (wrecked) to 1 (sound).
+-}
+fraction : Hull -> Float
+fraction hull =
+    clamp 0 1 (hull.health / maxHealth)
+
+
+{-| The four colour states of the top-left hull meter: `HealthOk` (the
+usual look), `HealthCaution` (yellow, getting low), `HealthHurt` (orange,
+clearly damaged) and `HealthDanger` (red, nearly sunk).
+-}
+type HealthState
+    = HealthOk
+    | HealthCaution
+    | HealthHurt
+    | HealthDanger
+
+
+{-| At or below this share of `maxHealth` the meter turns yellow (above it
+the hull is Ok).
+-}
+cautionBelow : Float
+cautionBelow =
+    0.6
+
+
+{-| At or below this share of `maxHealth` the meter turns orange (hurt).
+-}
+hurtBelow : Float
+hurtBelow =
+    0.4
+
+
+{-| Under this share of `maxHealth` the meter turns red (danger).
+-}
+dangerBelow : Float
+dangerBelow =
+    0.2
+
+
+{-| The meter state for a share of `maxHealth`: Ok above `cautionBelow`,
+Caution above `hurtBelow`, Hurt from `hurtBelow` down to `dangerBelow`
+(inclusive), Danger under `dangerBelow`.
+-}
+healthStateFromFraction : Float -> HealthState
+healthStateFromFraction f =
+    if f > cautionBelow then
+        HealthOk
+
+    else if f > hurtBelow then
+        HealthCaution
+
+    else if f >= dangerBelow then
+        HealthHurt
+
+    else
+        HealthDanger
+
+
+{-| The meter state of a hull (see `healthStateFromFraction`).
+-}
+healthState : Hull -> HealthState
+healthState hull =
+    healthStateFromFraction (fraction hull)
+
+
+{-| The state's name as the meter's `data-health-state`: "ok", "yellow",
+"hurt" or "red".
+-}
+healthStateName : HealthState -> String
+healthStateName state =
+    case state of
+        HealthOk ->
+            "ok"
+
+        HealthCaution ->
+            "yellow"
+
+        HealthHurt ->
+            "hurt"
+
+        HealthDanger ->
+            "red"

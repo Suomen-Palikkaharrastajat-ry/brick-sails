@@ -6,12 +6,21 @@ module Sails.HUD exposing
     , PointOfSail(..)
     , Side(..)
     , formatCounter
+    , goalBearing
+    , goalFullSizeFrom
+    , goalHideWithin
+    , goalOrbitOffset
+    , goalScale
+    , goalScreenAngle
+    , healthColours
     , hintReturnSeconds
     , hintVisible
     , mapBadgeText
     , pointOfSail
     , showSteerButtons
+    , shownGoals
     , viewHud
+    , viewMinimalHealth
     , viewSailBadge
     , viewWrecked
     )
@@ -189,7 +198,11 @@ False, see `hintVisible`) over 0.4 s and fade back in after; they stay in
 place while hidden, so nothing moves when they come back.
 -}
 viewHudGoals : Bool -> List HudGoal -> Html msg
-viewHudGoals visible goals =
+viewHudGoals visible allGoals =
+    let
+        goals =
+            shownGoals allGoals
+    in
     if List.isEmpty goals then
         text ""
 
@@ -223,22 +236,119 @@ viewHudGoals visible goals =
             (List.indexedMap viewHudGoal goals)
 
 
+{-| Compass bearing in degrees (0 along +z, 90 along +x, as the boat's
+heading) from the ship at `from` to a goal at `to`, on the water. Nothing
+when the goal is right on the ship (no direction to point).
+-}
+goalBearing : { a | x : Float, z : Float } -> { b | x : Float, z : Float } -> Maybe Float
+goalBearing from to =
+    let
+        dx =
+            to.x - from.x
+
+        dz =
+            to.z - from.z
+    in
+    if dx * dx + dz * dz < 1.0e-6 then
+        Nothing
+
+    else
+        Just (atan2 dx dz * 180 / pi)
+
+
+{-| The screen angle (degrees clockwise from straight up, in [-180, 180))
+of a goal at compass bearing `goal` seen by a camera looking along compass
+bearing `camera`. The compass grows to the left on screen (steering right
+lowers the heading, see `Sails.Physics.step`), so this is camera minus goal,
+the same turn as the wind arrow (`cameraYaw - wind.direction`). It wraps
+across -180/180, so a goal behind the camera points down.
+-}
+goalScreenAngle : Float -> Float -> Float
+goalScreenAngle camera goal =
+    Physics.angleDiff camera goal
+
+
+{-| Metres within which a goal's badge hides: the boat is on it (the
+on-water arrows of `Sails.Render` hide within the same range).
+-}
+goalHideWithin : Float
+goalHideWithin =
+    8
+
+
+{-| Metres from which a goal's badge shows at full size; nearer it shrinks.
+-}
+goalFullSizeFrom : Float
+goalFullSizeFrom =
+    40
+
+
+{-| The badge's scale at a goal's distance: Nothing (hidden) within
+`goalHideWithin`, shrinking to 0.7 as the boat closes in from
+`goalFullSizeFrom`, 1 beyond.
+-}
+goalScale : Float -> Maybe Float
+goalScale distanceM =
+    if distanceM < goalHideWithin then
+        Nothing
+
+    else
+        Just (clamp 0.7 1 (0.7 + 0.3 * (distanceM - goalHideWithin) / (goalFullSizeFrom - goalHideWithin)))
+
+
+{-| The goals that get a badge, closest first (it takes the innermost orbit
+and `data-nearest`): goals within `goalHideWithin` are left out; equal
+distances keep their given order (harbour, standard, pirate).
+-}
+shownGoals : List HudGoal -> List HudGoal
+shownGoals goals =
+    goals
+        |> List.filter (\g -> goalScale g.distanceM /= Nothing)
+        |> List.sortBy .distanceM
+
+
+{-| Pixel offset of the `index`th badge from the boat (50% 56% of the
+screen) for a screen angle: on an orbit round the boat, staggered outward
+by index so two goals on a similar bearing do not overlap.
+-}
+goalOrbitOffset : Int -> Float -> { x : Float, y : Float }
+goalOrbitOffset index angleDeg =
+    let
+        radius =
+            85.0 + toFloat index * 20.0
+    in
+    { x = radius * sin (degrees angleDeg)
+    , y = -radius * cos (degrees angleDeg)
+    }
+
+
 viewHudGoal : Int -> HudGoal -> Html msg
 viewHudGoal index goal =
     let
-        -- Orbit radius around the ship (anchored around 50% 56% screen coordinates).
-        -- Stagger slightly by index to prevent overlap if two goals share a similar bearing.
-        orbitRadius =
-            85.0 + toFloat index * 20.0
+        offset =
+            goalOrbitOffset index goal.angleDeg
 
-        rad =
-            degrees goal.angleDeg
+        scale =
+            Maybe.withDefault 1 (goalScale goal.distanceM)
 
+        -- Clamped so a badge never leaves a narrow (phone) screen: its
+        -- centre stays 56 px inside the sides and 24 px inside top and bottom.
         offsetX =
-            orbitRadius * sin rad
+            "clamp(calc(56px - 50vw), " ++ String.fromFloat offset.x ++ "px, calc(50vw - 56px))"
 
         offsetY =
-            -orbitRadius * cos rad
+            "clamp(calc(24px - 56vh), " ++ String.fromFloat offset.y ++ "px, calc(44vh - 24px))"
+
+        kindName =
+            case goal.kind of
+                HarbourGoal ->
+                    "harbour"
+
+                StandardGoal ->
+                    "standard"
+
+                PirateGoal ->
+                    "pirate"
 
         ( colorClasses, icon ) =
             case goal.kind of
@@ -266,7 +376,16 @@ viewHudGoal index goal =
         -- layout transition each frame; it lands in the same place.
         , Attr.style "left" "50%"
         , Attr.style "top" "56%"
-        , Attr.style "transform" ("translate(calc(-50% + " ++ String.fromFloat offsetX ++ "px), calc(-50% + " ++ String.fromFloat offsetY ++ "px))")
+        , Attr.style "transform" ("translate(calc(-50% + " ++ offsetX ++ "), calc(-50% + " ++ offsetY ++ ")) scale(" ++ String.fromFloat scale ++ ")")
+        , Attr.attribute "data-testid" "hud-goal"
+        , Attr.attribute "data-goal-kind" kindName
+        , Attr.attribute "data-nearest"
+            (if index == 0 then
+                "true"
+
+             else
+                "false"
+            )
         ]
         [ span
             [ Attr.class "inline-flex items-center justify-center shrink-0"
@@ -282,42 +401,66 @@ viewHudGoal index goal =
         ]
 
 
-{-| Sleek, minimal graphical health bar shown in top-left only when the hull is damaged.
+{-| The colours of the top-left hull meter in each health state (see
+`Sails.Hull.healthState`): the shield icon's and the bar's classes. Ok keeps
+the usual sky shield and green bar; Caution is the brand yellow, Hurt orange
+and Danger red (pulsing). All are light enough to read on the meter's dark
+slate panel.
 -}
-viewMinimalHealth : Hull -> Html msg
-viewMinimalHealth hull =
+healthColours : Hull.HealthState -> { icon : String, bar : String }
+healthColours state =
+    case state of
+        Hull.HealthOk ->
+            { icon = "text-sky-300", bar = "bg-emerald-400" }
+
+        Hull.HealthCaution ->
+            { icon = "text-brand-yellow", bar = "bg-brand-yellow" }
+
+        Hull.HealthHurt ->
+            { icon = "text-orange-400", bar = "bg-orange-500" }
+
+        Hull.HealthDanger ->
+            { icon = "text-red-400 animate-pulse", bar = "bg-red-500" }
+
+
+{-| Sleek, minimal graphical health bar shown in top-left only when the hull
+is damaged, coloured by its health state (`healthColours`), which it also
+carries in `data-health-state` and tells screen readers in its aria-label.
+-}
+viewMinimalHealth : Language -> Hull -> Html msg
+viewMinimalHealth language hull =
     let
         hp =
             hull.health / Hull.maxHealth
+
+        state =
+            Hull.healthState hull
+
+        colours =
+            healthColours state
+
+        label =
+            T.hullLabel language
+                ++ " "
+                ++ String.fromInt (Hull.percent hull)
+                ++ " %: "
+                ++ T.hullStateText language (Hull.healthStateName state)
     in
     if hp < 0.99 then
         div
-            [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-md shadow-lg" ]
+            [ Attr.class "flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-md shadow-lg"
+            , Attr.attribute "data-testid" "hull-meter"
+            , Attr.attribute "data-health-state" (Hull.healthStateName state)
+            , Attr.attribute "role" "img"
+            , Attr.attribute "aria-label" label
+            , Attr.title label
+            ]
             [ FeatherIcons.shield
                 |> FeatherIcons.withSize 16
-                |> FeatherIcons.toHtml
-                    [ Attr.class
-                        (if hp < 0.35 then
-                            "text-red-400 animate-pulse"
-
-                         else
-                            "text-sky-300"
-                        )
-                    ]
+                |> FeatherIcons.toHtml [ Attr.class colours.icon ]
             , div [ Attr.class "w-20 h-2 rounded-full bg-slate-700 overflow-hidden" ]
                 [ div
-                    [ Attr.class
-                        ("h-full transition-all duration-300 "
-                            ++ (if hp < 0.35 then
-                                    "bg-red-500"
-
-                                else if hp < 0.65 then
-                                    "bg-amber-400"
-
-                                else
-                                    "bg-emerald-400"
-                               )
-                        )
+                    [ Attr.class ("h-full transition-all duration-300 " ++ colours.bar)
                     , Attr.style "width" (String.fromFloat (hp * 100) ++ "%")
                     ]
                     []
@@ -535,11 +678,11 @@ viewTopLeftButtons { language, hull, isAnchored, actions, wind, cameraYaw, sailL
                         [ Events.onClick actions.onExit ]
                         (T.backToBoats language)
                         FeatherIcons.logOut
-                    , viewMinimalHealth hull
+                    , viewMinimalHealth language hull
                     ]
 
                 else
-                    [ viewMinimalHealth hull ]
+                    [ viewMinimalHealth language hull ]
                )
         )
 

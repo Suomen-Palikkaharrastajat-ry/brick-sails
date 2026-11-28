@@ -70,6 +70,7 @@ module Sails.I18n exposing
     , hullLabel
     , hullLockCaption
     , hullLockedLabel
+    , hullStateText
     , hullTitle
     , hullUnlockedLabel
     , joinRace
@@ -803,6 +804,25 @@ hullLabel lang =
     pick lang "Runko" "Hull"
 
 
+{-| The hull meter's state in words, by its `data-health-state` name (see
+`Sails.Hull.healthStateName`): "ok", "yellow", "hurt" or "red".
+-}
+hullStateText : Language -> String -> String
+hullStateText lang state =
+    case state of
+        "red" ->
+            pick lang "Vaara: uppoamassa" "Danger: nearly sunk"
+
+        "hurt" ->
+            pick lang "Pahasti vaurioitunut" "Badly damaged"
+
+        "yellow" ->
+            pick lang "Varoitus: runko heikkenee" "Caution: hull weakening"
+
+        _ ->
+            pick lang "Kunnossa" "OK"
+
+
 hullTitle : Language -> String
 hullTitle lang =
     pick lang
@@ -1480,6 +1500,10 @@ allPhrases =
     , ( "reefWarning", reefWarning )
     , ( "hullLabel", hullLabel )
     , ( "hullTitle", hullTitle )
+    , ( "hullState ok", \l -> hullStateText l "ok" )
+    , ( "hullState yellow", \l -> hullStateText l "yellow" )
+    , ( "hullState hurt", \l -> hullStateText l "hurt" )
+    , ( "hullState red", \l -> hullStateText l "red" )
     , ( "heelLabel", \l -> heelLabel l 25 True )
     , ( "heelTitle", heelTitle )
     , ( "hazardRocks", hazardRocks )
