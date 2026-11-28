@@ -39,8 +39,8 @@ type alias Crew =
 
 
 {-| The crew of a room, given whether this player's own ship is in port
-(fresher than the telemetry the room echoes back). Alone, the player is a
-crew of one. Nothing while a room is not on its voyage.
+(fresher than the telemetry the room echoes back). Nothing alone, or while
+the room is not on its voyage.
 -}
 ofRoom : Maybe RoomState -> Bool -> Maybe Crew
 ofRoom maybeRoom ownInPort =
@@ -67,15 +67,7 @@ ofRoom maybeRoom ownInPort =
                 Nothing
 
         Nothing ->
-            Just
-                { inPort =
-                    if ownInPort then
-                        1
-
-                    else
-                        0
-                , total = 1
-                }
+            Nothing
 
 
 onVoyage : RoomState -> Bool

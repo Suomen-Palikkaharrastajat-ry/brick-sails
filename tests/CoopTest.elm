@@ -118,10 +118,8 @@ suite : Test
 suite =
     describe "Cooperative rooms"
         [ describe "Sails.Crew"
-            [ test "alone the player is a crew of one, not yet in port" <|
-                \_ -> Expect.equal (Just { inPort = 0, total = 1 }) (Crew.ofRoom Nothing False)
-            , test "alone the crew of one is in port once the ship is" <|
-                \_ -> Expect.equal (Just True) (Crew.ofRoom Nothing True |> Maybe.map Crew.allInPort)
+            [ test "alone there is no crew" <|
+                \_ -> Expect.equal Nothing (Crew.ofRoom Nothing True)
             , test "while the room waits in its lobby, nothing counts" <|
                 \_ ->
                     Expect.equal Nothing

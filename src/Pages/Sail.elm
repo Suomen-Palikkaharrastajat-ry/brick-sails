@@ -578,34 +578,6 @@ voyage (see `Sails.Crew`).
 crewOf : SailModel -> Maybe Crew
 crewOf model =
     Crew.ofRoom model.multiplayer model.progress.finished
-        -- Alone, the crew of one is shown as a solo run.
-        |> Maybe.andThen
-            (\crew ->
-                if crew.total > 1 then
-                    Just crew
-
-                else
-                    Nothing
-            )
-
-
-{-| The value a room's crew keeps across a restart, or the solo start value.
--}
-keptInRoom : Maybe RoomState -> a -> a -> a
-keptInRoom multiplayer kept solo =
-    case multiplayer of
-        Just _ ->
-            kept
-
-        Nothing ->
-            solo
-
-
-{-| The crew clock runs on a room's voyage, and on a solo run from the start.
--}
-crewVoyage : SailModel -> Bool
-crewVoyage model =
-    roomVoyage model || (model.multiplayer == Nothing && model.phase == Racing)
 
 
 {-| The room's voyage is under way (or done): the crew clock runs.
@@ -1150,11 +1122,10 @@ updateVoyage msg model =
                 , sailLevel = model.sailLevel
                 , tiltPitch = TiltPitch.calibrate model.tiltPitch
 
-                -- Back to the start line: a room's crew voyage goes on; a
-                -- solo run starts its own crew clock again.
-                , crewClock = keptInRoom model.multiplayer model.crewClock 0
+                -- Back to the start line alone: the crew's voyage goes on.
+                , crewClock = model.crewClock
                 , moorings = Dict.remove (mySlot model) model.moorings
-                , crewTime = keptInRoom model.multiplayer model.crewTime Nothing
+                , crewTime = model.crewTime
               }
             , GamePorts.calibrateTilt ()
             )
@@ -2244,7 +2215,7 @@ tick dt model =
                    )
 
         crewClock =
-            if crewVoyage model then
+            if roomVoyage model then
                 model.crewClock + dt
 
             else
@@ -2279,18 +2250,12 @@ tick dt model =
         -- The latest mooring of the crew, once all are in port, is the
         -- crew's time.
         crewTime =
-            case model.crewTime of
-                Nothing ->
+            case ( model.crewTime, model.multiplayer ) of
+                ( Nothing, Just room ) ->
                     case Crew.ofRoom model.multiplayer progress.finished of
                         Just crew ->
                             if Crew.allInPort crew then
-                                case model.multiplayer of
-                                    Just room ->
-                                        Just (Crew.sharedTime room moorings crewClock)
-
-                                    Nothing ->
-                                        -- Alone, the crew is this ship.
-                                        Just crewClock
+                                Just (Crew.sharedTime room moorings crewClock)
 
                             else
                                 Nothing
