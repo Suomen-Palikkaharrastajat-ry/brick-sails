@@ -539,6 +539,11 @@ canvasWith extra width height entities =
         ([ Attr.width width
          , Attr.height height
          , Attr.class "w-full h-full block"
+
+         -- `webgl-release.js` frees this canvas's WebGL context once Elm
+         -- drops the canvas: Elm's WebGL never does, and every view
+         -- (shipyard preview, sail view) draws on a canvas of its own.
+         , Attr.attribute "data-webgl-release" ""
          ]
             ++ extra
         )

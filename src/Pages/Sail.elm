@@ -2650,9 +2650,27 @@ context under memory pressure or when the tab is backgrounded).
 -}
 graphicsEvents : List (Html.Attribute SailMsg)
 graphicsEvents =
-    [ preventDefaultOn "webglcontextlost" (Decode.succeed ( GraphicsLost, True ))
-    , on "webglcontextrestored" (Decode.succeed GraphicsRestored)
+    [ preventDefaultOn "webglcontextlost" (onShownCanvas ( GraphicsLost, True ))
+    , on "webglcontextrestored" (onShownCanvas GraphicsRestored)
     ]
+
+
+{-| Only for the canvas on the page: `webgl-release.js` loses the context of
+a canvas Elm has dropped (a voyage left, a restored context replaced by a
+fresh canvas), and that old canvas still carries these handlers.
+-}
+onShownCanvas : a -> Decode.Decoder a
+onShownCanvas msg =
+    -- A browser without `isConnected` (none still in use) counts as shown.
+    Decode.oneOf [ Decode.at [ "target", "isConnected" ] Decode.bool, Decode.succeed True ]
+        |> Decode.andThen
+            (\connected ->
+                if connected then
+                    Decode.succeed msg
+
+                else
+                    Decode.fail "canvas no longer shown"
+            )
 
 
 {-| The room pill: this player's slot, the room code, the ships still

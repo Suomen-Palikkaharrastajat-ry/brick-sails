@@ -5,6 +5,7 @@ import { readLanguage } from './vendor/packages/brick-frame-game/runtime/languag
 import { initGameThumbnails } from './thumbnails.js'
 import { createAudioEngine } from './audio.js'
 import { initVoyageFlag } from './voyage-flag.js'
+import { initWebglRelease } from './webgl-release.js'
 import { Elm } from './src/Main.elm'
 
 // The page language follows the game's (Finnish unless a ?lang= link or a
@@ -55,6 +56,11 @@ const { ports, qrScanner } = bootGame({
 // A voyage in progress is flagged in sessionStorage (`Ports.voyageInProgress`),
 // so a load after the browser killed the tab mid-voyage is logged once.
 initVoyageFlag(ports)
+
+// Elm's WebGL never frees the context of a canvas it drops (the shipyard
+// preview when a voyage starts, the sail view when it ends): release them,
+// so repeated voyages do not pile up live contexts (webgl-release.js).
+initWebglRelease()
 
 // The sail canvas handles a lost WebGL context itself (`Pages.Sail`: the
 // voyage waits, a toast says the graphics are being restored, and a restored
